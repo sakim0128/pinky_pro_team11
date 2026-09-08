@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>pinky_fleet</name>
+  <version>0.1.0</version>
+  <description>
+    Pinky Pro 2대를 서로 다른 ROS_DOMAIN_ID에서 순차 왕복 주행시키는 관제 패키지.
+    제어 평면은 multiprocessing + rclpy.init(domain_id=)로 각 도메인에 직접 접속하고,
+    관제 평면은 domain_bridge로 토픽만 관제 도메인에 중계한다.
+  </description>
+  <maintainer email="sakim.working@gmail.com">team11</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>nav2_simple_commander</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <!-- 관제 평면. 없으면: sudo apt install ros-jazzy-domain-bridge -->
+  <exec_depend>domain_bridge</exec_depend>
+  <!-- 관제 화면 -->
+  <exec_depend>rviz2</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,4 @@
+# make_bridge_yaml.py 가 mission.yaml 로부터 생성한다. 커밋하지 않는다.
+config/fleet_bridge_*.yaml
+__pycache__/
+*.pyc

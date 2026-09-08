@@ -1,0 +1,40 @@
+# ============================================================================
+#  L1 검증용 설정 — turtlesim 2마리로 "다중 도메인 + 순차 왕복" 배선을 확인한다.
+#  좌표는 turtlesim 캔버스(0 ~ 11.09) 기준. 실제 맵 좌표가 아니다.
+#
+#  사용법:
+#    터미널1: export ROS_DOMAIN_ID=10 && ros2 run turtlesim turtlesim_node
+#    터미널2: export ROS_DOMAIN_ID=11 && ros2 run turtlesim turtlesim_node
+#    터미널3: ros2 run pinky_fleet fleet_master \
+#               --config <이 파일> --backend turtlesim --no-console \
+#               --goal 9.0 5.5 0 -y
+# ============================================================================
+
+control_domain_id: 20
+map_frame: map
+
+robots:
+  - name: pinky1
+    domain_id: 10
+    home: {x: 5.544, y: 5.544, yaw_deg: 0.0}   # turtlesim 기본 시작 위치
+  - name: pinky2
+    domain_id: 11
+    home: {x: 5.544, y: 5.544, yaw_deg: 0.0}
+
+goal_input:
+  mode: one_click
+  goal_yaw_deg: 0.0
+
+mission:
+  order: [pinky1, pinky2]
+  goal_timeout_sec: 30.0
+  home_timeout_sec: 30.0
+  nav2_activate_timeout_sec: 15.0
+  settle_sec: 1.0
+  feedback_period_sec: 1.0
+
+localization:
+  wait_for_convergence: false   # turtlesim 에는 AMCL 이 없다
+
+bridge:
+  map_from: pinky1

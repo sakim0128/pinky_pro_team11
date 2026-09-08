@@ -1,0 +1,58 @@
+# ============================================================================
+#  pinky_fleet 미션 설정 — 단일 진실 공급원(single source of truth)
+#
+#  이 파일 하나만 고치면 도메인 ID / 출발지 / 타임아웃이 전부 바뀐다.
+#  config/fleet_bridge_*.yaml 은 이 파일로부터 생성된다:
+#      ros2 run pinky_fleet make_bridge_yaml
+#      (빌드 전이면)  python3 tools/make_bridge_yaml.py
+# ============================================================================
+
+# 관제(모니터링) 도메인.  ★ 도메인을 바꾸려면 여기 한 줄만 고치고 위 명령 재실행.
+#   - domain_bridge 의 to_domain
+#   - 관제 콘솔 노드가 rclpy.init(domain_id=) 로 붙는 도메인
+#   - rviz2 를 띄우는 터미널의 export ROS_DOMAIN_ID
+#   위 셋이 전부 이 값에서 나온다.
+control_domain_id: 20
+
+# 맵 좌표계 이름. Nav2/AMCL 기본값 그대로.
+map_frame: map
+
+robots:
+  - name: pinky1
+    domain_id: 10
+    # "제자리" = 출발지. AMCL 초기 위치(setInitialPose)로도 그대로 쓴다.
+    # ★ 현장에서 RViz Publish Point 로 실측한 값으로 반드시 교체할 것.
+    home: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+
+  - name: pinky2
+    domain_id: 11
+    home: {x: 0.5, y: 0.0, yaw_deg: 0.0}
+
+goal_input:
+  # two_click : RViz Publish Point 1번째 클릭 = 목적지, 2번째 클릭 = 바라볼 방향
+  # one_click : 1번 클릭으로 위치만 받고 각도는 아래 goal_yaw_deg 고정값 사용
+  mode: two_click
+  goal_yaw_deg: 0.0
+
+mission:
+  # 순차 실행 순서. robots 의 name 을 쓴다.
+  order: [pinky1, pinky2]
+
+  goal_timeout_sec: 90.0          # 목적지까지 이 시간을 넘기면 cancelTask
+  home_timeout_sec: 90.0          # 복귀도 동일
+  nav2_activate_timeout_sec: 60.0 # waitUntilNav2Active 최대 대기
+  settle_sec: 2.0                 # 복귀 완료 후 다음 로봇 출발까지 안정화 대기
+  feedback_period_sec: 1.0        # 주행 중 피드백 출력 주기
+
+localization:
+  # setInitialPose 직후 AMCL 이 수렴하기 전에 출발하면 엉뚱한 경로가 나온다.
+  # /amcl_pose 공분산이 아래 임계값 아래로 내려올 때까지 기다린다.
+  wait_for_convergence: true
+  max_xy_std: 0.25        # [m]   sqrt(cov[0]), sqrt(cov[7])
+  max_yaw_std: 0.35       # [rad] sqrt(cov[35])
+  convergence_timeout_sec: 30.0
+
+bridge:
+  # 관제 화면에 필요한 최소 토픽만 중계한다 (WiFi 대역폭 보호).
+  # /map 은 두 로봇이 같은 파일을 쓰므로 한 대 것만 가져오면 된다.
+  map_from: pinky1
