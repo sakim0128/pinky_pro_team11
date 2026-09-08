@@ -97,11 +97,12 @@ BasicNavigator() → setInitialPose() → goToPose()
 
 브리지로 다 넘기면 도메인 20 하나에서 전부 처리할 수 있어 편해 보인다. 그런데:
 
-- ROS2 액션은 내부적으로 **토픽 3개 + 서비스 2개**의 조합이다
-  (`_action/feedback`, `_action/status`, goal/cancel/result 서비스).
+- ROS2 액션은 내부적으로 **토픽 2개 + 서비스 3개**의 묶음이다.
+  - 토픽 2 — `_action/feedback`, `_action/status`
+  - 서비스 3 — `_action/send_goal`, `_action/cancel_goal`, `_action/get_result`
 - `domain_bridge` 설정 파서(`parse_domain_bridge_yaml_config.cpp`)를 확인한 결과,
   **파싱하는 최상위 키는 `name`, `from_domain`, `to_domain`, `mode`, `topics` 뿐이다.
-  `services` 도 `actions` 도 없다.**
+  `services` 도 `actions` 도 키 자체가 없다.**
 
 즉 액션은 브리지로 넘어가지 않는다. 그래서 **검증된 것(토픽)만 브리지에 태우고,
 액션은 도메인에 직접 붙는다**로 역할을 나눴다. 이 경계가 이 설계의 중심이다.
