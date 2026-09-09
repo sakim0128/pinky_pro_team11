@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing as mp
+import os
 import sys
 import time
 
@@ -126,6 +127,23 @@ def probe_process(domain_id, label, wait_sec, result_q):
 
 
 # ---------------------------------------------------------------------------
+def check_discovery_env():
+    """PC 쪽 디스커버리 환경변수 — 여기가 막혀 있으면 로봇이 한 대도 안 보인다.
+
+    Jazzy 는 ROS_LOCALHOST_ONLY 를 deprecate 하고 ROS_AUTOMATIC_DISCOVERY_RANGE 를 쓴다.
+    둘 중 하나만 잘못돼 있어도 WiFi 너머의 로봇을 발견하지 못한다.
+    """
+    loc = os.environ.get('ROS_LOCALHOST_ONLY', '')
+    rng = os.environ.get('ROS_AUTOMATIC_DISCOVERY_RANGE', '')
+    return [
+        ('ROS_LOCALHOST_ONLY', loc or '(미설정 = 0)', loc != '1'),
+        ('ROS_AUTOMATIC_DISCOVERY_RANGE', rng or '(미설정 = SUBNET)',
+         rng.upper() not in ('LOCALHOST', 'OFF')),
+        ('RMW_IMPLEMENTATION', os.environ.get('RMW_IMPLEMENTATION', '(기본값)'), True),
+        ('ROS_STATIC_PEERS', os.environ.get('ROS_STATIC_PEERS', '(미설정)'), True),
+    ]
+
+
 def check_pc_packages():
     """PC 쪽에 필요한 패키지가 깔려 있는지."""
     import importlib.util
@@ -240,6 +258,18 @@ def main(argv=None):
         targets.append((cfg.control_domain_id, '관제 도메인', None))
 
     print(f'[CONFIG] {cfg.source_path}')
+
+    print('\n=== PC 디스커버리 환경 ===')
+    env_ok = True
+    for name, value, ok in check_discovery_env():
+        print(f'  {OK if ok else NO}  {name} = {value}')
+        env_ok = env_ok and ok
+    if not env_ok:
+        print('  → 이 설정이면 WiFi 너머 로봇을 발견하지 못합니다. 이 터미널에서:')
+        print('       unset ROS_LOCALHOST_ONLY')
+        print('       export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET')
+        print('     (~/.bashrc 에 ROS_LOCALHOST_ONLY=1 이 있으면 지우세요)')
+
     print('\n=== PC 패키지 ===')
     pc_ok = True
     for label, ok in check_pc_packages():
@@ -248,6 +278,7 @@ def main(argv=None):
     if not pc_ok:
         print('  → 없는 것 설치:  sudo apt install ros-jazzy-domain-bridge '
               'ros-jazzy-nav2-simple-commander ros-jazzy-turtlesim')
+    pc_ok = pc_ok and env_ok
 
     result_q = mp.Queue()
     procs = []
