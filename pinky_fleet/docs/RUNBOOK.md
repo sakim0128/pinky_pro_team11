@@ -40,6 +40,39 @@ export ROS_LOCALHOST_ONLY=0
 
 `ROS_LOCALHOST_ONLY=1` 이면 WiFi 너머 통신이 전부 막힌다. 반드시 0.
 
+PC 쪽도 같다. 그리고 **Jazzy 에서는 `ROS_LOCALHOST_ONLY` 가 deprecated 이고
+`ROS_AUTOMATIC_DISCOVERY_RANGE` 가 그 자리를 대신한다** — 이 값이 `LOCALHOST` 여도
+똑같이 막힌다. PC 의 모든 터미널에서:
+
+```bash
+unset ROS_LOCALHOST_ONLY
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+```
+
+`ROS_DOMAIN_ID` 는 PC 의 `.bashrc` 에 넣지 않는다 — 도메인은 코드와 launch 가 정한다.
+`preflight` 가 이 네 가지를 먼저 검사해 준다.
+
+### 0.2-1 로봇의 IP 알아내기
+
+LCD 에는 **AP 모드용 SSID/비번만** 나오고 강의장 네트워크 IP 는 안 나온다.
+로봇에게 직접 물어봐야 한다.
+
+1. PC 를 로봇 LCD 의 SSID(예: `pinky_e2a8`, 비번 `pinkypro`)에 연결
+2. `ssh pinky@192.168.4.1` (비밀번호 `1`)
+3. `./wifi_setup.sh` 로 강의장 공유기에 연결
+4. **그 SSH 세션에서 바로** `hostname -I` → `192.168.4.1` 이 아닌 쪽이 강의장 IP
+5. 나머지 로봇도 반복한 뒤, 마지막에 **PC 의 WiFi 를 강의장 공유기로 바꾼다**
+
+> **가장 흔한 함정**: PC 가 핑키 AP(`192.168.4.1`)에 붙어 있으면 그 로봇 하나만 보이고
+> 나머지는 절대 안 보인다. PC 와 두 로봇이 **모두 강의장 공유기**에 있어야 한다.
+
+셋 다 이미 강의장 망에 있는데 IP 만 모르면:
+
+```bash
+ip -4 route | grep default        # PC 가 속한 대역 확인
+nmap -sn 192.168.0.0/24           # 대역은 위에서 본 것으로
+```
+
 ### 0.3 PC 패키지 빌드
 
 ```bash
@@ -50,17 +83,47 @@ sudo apt install ros-jazzy-domain-bridge      # 없으면
 
 ### 0.4 출발지 좌표 실측 → `mission.yaml` 에 기입
 
+이 절에서만 **로봇 도메인의 RViz** 를 쓴다. 이유는 아래 상자를 볼 것.
+
 1. 로봇을 각자의 **실제 출발 위치**에 놓는다
 2. 아래 1~2단계로 로봇의 bringup + Nav2 를 띄운다
-3. RViz(4단계)에서 **2D Pose Estimate 로 한 번만 위치를 맞춘다** — 라이다가 벽과 겹치는지 확인
-4. PC 에서:
+3. 로봇 도메인에서 RViz 를 띄우고 **2D Pose Estimate 로 위치를 한 번 맞춘다**
+
+   ```bash
+   ROS_DOMAIN_ID=10 ros2 launch pinky_navigation nav2_view.launch.xml   # 로봇1
+   ROS_DOMAIN_ID=11 ros2 launch pinky_navigation nav2_view.launch.xml   # 로봇2
+   ```
+
+   맵에서 로봇의 실제 위치를 클릭하고 바라보는 방향으로 드래그한다.
+   **라이다 점이 벽과 겹치면** 성공. 확인되면 창을 닫는다.
+
+   `pinky_navigation` 이 PC 에 없으면 `ROS_DOMAIN_ID=10 rviz2` 로 띄우고
+   Fixed Frame `map`, Map(`/map`, Durability **Transient Local**),
+   LaserScan(`/scan`, Reliability **Best Effort**) 을 추가한 뒤 같은 버튼을 쓴다.
+
+4. 두 대 다 맞춘 뒤 PC 에서:
 
 ```bash
 ros2 run pinky_fleet preflight --print-home
 ```
 
-출력된 `robots:` 블록을 `config/mission.yaml` 에 그대로 붙여넣고 재빌드한다.
+5. 출력된 `robots:` 블록을 **소스 트리의** `mission.yaml` 에 붙여넣고 재빌드한다.
+
+```bash
+nano ~/<워크스페이스>/src/pinky_fleet/config/mission.yaml
+cd ~/<워크스페이스> && colcon build --packages-select pinky_fleet && source install/setup.bash
+```
+
 `preflight` 가 네임스페이스도 같이 채워 준다.
+
+> **`2D Pose Estimate` 는 관제 도메인(20)의 RViz 에서는 먹지 않는다.**
+> 브리지는 **로봇 → 관제 단방향**이라 관제 도메인에서 발행한 `/initialpose` 가
+> 로봇으로 넘어가지 않는다. 그래서 위처럼 **로봇 도메인에서** RViz 를 따로 띄운다.
+> 본 미션에서는 `fleet_master` 가 `setInitialPose()` 로 넣으므로 이 조작이 필요 없다 —
+> home 좌표를 처음 재는 이 1회에만 필요하다.
+
+> **설정은 `install/` 이 아니라 `src/` 를 고친다.**
+> `install/pinky_fleet/share/.../mission.yaml` 을 고치면 다음 `colcon build` 때 덮어써진다.
 
 > **주의**: 두 로봇의 home 이 서로의 통행로를 막지 않는 위치여야 한다.
 > 순차 주행이라도 대기 중인 로봇은 그 자리에 서 있는 장애물이다.
@@ -166,6 +229,9 @@ ros2 run pinky_fleet fleet_master --goal 2.5 1.0 90 -y
 | `AMCL 이 보고한 위치가 home 에서 … 떨어져` | `home` 좌표가 실제 로봇 위치와 다름 | `preflight --print-home` 으로 다시 뽑는다. 급하면 `localization.max_initial_offset` 를 키운다 |
 | `setInitialPose 이후 새 /amcl_pose 가 오지 않았습니다` | 라이다가 안 나오거나 amcl 이 죽음 | `preflight` 로 `/scan` 과 `amcl` 노드 확인 |
 | 액션·TF 가 이상하게 실패 | **PC 와 로봇의 시계 차이** | `preflight` 의 시계 오차 항목 확인. 로봇에서 시각을 맞춘다 |
+| 2D Pose Estimate 가 안 먹음 | 관제 도메인(20)의 RViz 에서 눌렀음 | 0.4 처럼 **로봇 도메인**에서 RViz 를 띄운다 (브리지는 단방향) |
+| 재빌드해도 설정이 그대로 | `install/` 안의 파일을 고쳤음 | `src/` 를 고치고 다시 `colcon build` |
+| `Duplicate package names not supported` | `pinky_fleet` 사본이 여러 곳에 있음 | 워크스페이스 `src/` 에 하나만 남긴다. **홈에서 `colcon build` 하지 않는다** |
 | 로봇이 엉뚱한 데로 간다 | 두 로봇의 맵이 다름 | 0.1 로 돌아가 **같은 파일**을 다시 복사 |
 | 클릭해도 반응 없다 | 상태가 `WAIT_GOAL` 이 아님 | `fleet_master` 터미널의 `[STATE]` 확인. `Publish Point` 도구를 눌렀는지 확인 |
 | 브리지가 자기 메시지를 되받음 | 도메인 겹침 | `mission.yaml` 로더가 막지만, 수동 설정 시 주의 |
