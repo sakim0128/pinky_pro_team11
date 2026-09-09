@@ -50,10 +50,17 @@ sudo apt install ros-jazzy-domain-bridge      # 없으면
 
 ### 0.4 출발지 좌표 실측 → `mission.yaml` 에 기입
 
-1. 로봇을 각자의 출발 위치에 놓는다
-2. 아래 1~3단계로 RViz 를 띄우고, 2D Pose Estimate 로 위치를 한 번 맞춘 뒤
-3. `ros2 topic echo /amcl_pose` 로 좌표를 읽거나 `Publish Point` 로 클릭해 읽는다
-4. `config/mission.yaml` 의 `robots[].home` 에 적는다
+1. 로봇을 각자의 **실제 출발 위치**에 놓는다
+2. 아래 1~2단계로 로봇의 bringup + Nav2 를 띄운다
+3. RViz(4단계)에서 **2D Pose Estimate 로 한 번만 위치를 맞춘다** — 라이다가 벽과 겹치는지 확인
+4. PC 에서:
+
+```bash
+ros2 run pinky_fleet preflight --print-home
+```
+
+출력된 `robots:` 블록을 `config/mission.yaml` 에 그대로 붙여넣고 재빌드한다.
+`preflight` 가 네임스페이스도 같이 채워 준다.
 
 > **주의**: 두 로봇의 home 이 서로의 통행로를 막지 않는 위치여야 한다.
 > 순차 주행이라도 대기 중인 로봇은 그 자리에 서 있는 장애물이다.
@@ -86,7 +93,24 @@ ros2 launch pinky_bringup bringup_robot.launch.xml
 ros2 launch pinky_navigation bringup_launch.xml map:=<맵이름>.yaml
 ```
 
-## 3. [PC] 브리지
+## 3. [PC] 사전 점검 — 먼저 이것부터
+
+```bash
+ros2 run pinky_fleet preflight
+```
+
+한 번에 다음을 확인한다. **여기서 FAIL 이 나면 미션을 돌리지 말고 그것부터 해결한다.**
+
+| 항목 | FAIL 이면 |
+|---|---|
+| PC 패키지 | `sudo apt install ros-jazzy-domain-bridge ros-jazzy-nav2-simple-commander ros-jazzy-turtlesim` |
+| Nav2 노드 (`amcl`, `bt_navigator`) | 로봇에서 `pinky_navigation` 이 안 떴거나 도메인이 틀렸다 |
+| 네임스페이스 | 나오면 `mission.yaml` 의 그 로봇에 `namespace:` 를 채운다 |
+| `/map` `/amcl_pose` `/scan` | 위와 같은 원인 |
+| `navigate_to_pose` 액션 서버 | Nav2 가 아직 활성화 전 |
+| **시계 오차** | 1초 이상이면 TF 조회가 실패한다. 로봇에서 시각을 PC 에 맞춘다 |
+
+## 4. [PC] 브리지
 
 ```bash
 ros2 launch pinky_fleet fleet_bridge.launch.py
@@ -94,7 +118,7 @@ ros2 launch pinky_fleet fleet_bridge.launch.py
 
 `mission.yaml` 을 읽어 브리지 설정을 새로 생성하고, 로봇 수만큼 `domain_bridge` 를 띄운다.
 
-## 4. [PC] 관제 화면
+## 5. [PC] 관제 화면
 
 ```bash
 ros2 launch pinky_fleet fleet_view.launch.py
@@ -106,7 +130,7 @@ ros2 launch pinky_fleet fleet_view.launch.py
 **확인**: 맵이 보이고, 잠시 뒤 로봇 2대의 화살표 마커가 뜬다.
 안 보이면 → [문제 해결](#문제-해결) 로.
 
-## 5. [PC] 미션 실행
+## 6. [PC] 미션 실행
 
 ```bash
 ros2 run pinky_fleet fleet_master
@@ -124,7 +148,7 @@ ros2 run pinky_fleet fleet_master
 ros2 run pinky_fleet fleet_master --goal 2.5 1.0 90 -y
 ```
 
-## 6. 정지
+## 7. 정지
 
 - 정상 종료: 미션이 `DONE` 이 되면 자동 종료
 - 중단: `fleet_master` 터미널에서 **Ctrl-C** → 두 로봇에 `cancelTask()` 브로드캐스트
@@ -139,11 +163,26 @@ ros2 run pinky_fleet fleet_master --goal 2.5 1.0 90 -y
 | 맵은 뜨는데 마커가 없다 | `/amcl_pose` 미발행 | Nav2 가 떴는지, 2D Pose Estimate 를 한 번도 안 했는지 확인. `ROS_DOMAIN_ID=20 ros2 topic hz /pinky1/amcl_pose` |
 | 아무것도 안 보인다 | `ROS_LOCALHOST_ONLY=1` | 로봇/PC 양쪽에서 `echo $ROS_LOCALHOST_ONLY` → 0 이어야 한다 |
 | `Nav2 가 활성화되지 않았습니다` | 로봇 도메인 불일치 / Nav2 미기동 | 로봇에서 `echo $ROS_DOMAIN_ID` 가 `mission.yaml` 값과 같은지 |
-| `AMCL 이 수렴하지 않았습니다` | home 좌표가 실제 위치와 다름 | `mission.yaml` 의 `home` 을 다시 실측. 임시로 `localization.wait_for_convergence: false` 로 우회 가능 |
+| `AMCL 이 보고한 위치가 home 에서 … 떨어져` | `home` 좌표가 실제 로봇 위치와 다름 | `preflight --print-home` 으로 다시 뽑는다. 급하면 `localization.max_initial_offset` 를 키운다 |
+| `setInitialPose 이후 새 /amcl_pose 가 오지 않았습니다` | 라이다가 안 나오거나 amcl 이 죽음 | `preflight` 로 `/scan` 과 `amcl` 노드 확인 |
+| 액션·TF 가 이상하게 실패 | **PC 와 로봇의 시계 차이** | `preflight` 의 시계 오차 항목 확인. 로봇에서 시각을 맞춘다 |
 | 로봇이 엉뚱한 데로 간다 | 두 로봇의 맵이 다름 | 0.1 로 돌아가 **같은 파일**을 다시 복사 |
 | 클릭해도 반응 없다 | 상태가 `WAIT_GOAL` 이 아님 | `fleet_master` 터미널의 `[STATE]` 확인. `Publish Point` 도구를 눌렀는지 확인 |
 | 브리지가 자기 메시지를 되받음 | 도메인 겹침 | `mission.yaml` 로더가 막지만, 수동 설정 시 주의 |
 | 목표를 계속 거부(`goToPose` false) | costmap 상 도달 불가 지점 | 벽/inflation 안쪽을 찍었을 가능성. 통로 중앙을 다시 클릭 |
+
+### 진행 순서 요약 (오늘 현장용)
+
+```
+0. PC   colcon build && source install/setup.bash
+1. PC   pytest + fleet_master --dry-run            (로봇 불필요)
+2. PC   L1 turtlesim 2도메인                        (로봇 불필요, 로봇 부팅과 병행)
+3. 로봇 bringup + pinky_navigation  ×2
+4. PC   preflight                                   ← FAIL 있으면 여기서 해결
+5. PC   preflight --print-home → mission.yaml → 재빌드
+6. PC   fleet_bridge + fleet_view                   ← RViz 에 맵 + 마커 2개
+7. 실물 바퀴 띄우고 준비만 → 1 m 미션 → 취소 확인 → 본 미션
+```
 
 ### 관제 도메인 ID 바꾸기
 

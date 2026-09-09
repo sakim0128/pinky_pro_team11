@@ -106,3 +106,31 @@ def test_bridge_config_remaps_and_splits_per_robot():
     with_map = [n for n, d in docs.items() if 'map' in d['topics']]
     assert with_map == [cfg.map_from]
     assert docs[cfg.map_from]['topics']['map']['qos']['durability'] == 'transient_local'
+
+
+def test_amcl_pose_bridged_as_transient_local():
+    # amcl 은 로봇이 정지해 있으면 /amcl_pose 를 발행하지 않는다. 브리지가 volatile 로
+    # 구독하면 정지한 로봇의 위치를 영영 못 받아 관제 화면이 빈 채로 남는다.
+    cfg = load_mission_config(CONFIG)
+    for r in cfg.robots:
+        qos = build_bridge_config(cfg, r)['topics']['amcl_pose']['qos']
+        assert qos == {'reliability': 'reliable', 'durability': 'transient_local'}
+
+
+def test_localization_gate_allows_amcl_initial_spread():
+    # amcl 초기 공분산은 [0.5^2, 0.5^2, (pi/12)^2] -> xy_std 0.5 m.
+    # 경고 임계가 그보다 낮으면 준비 단계마다 경고가 뜬다.
+    loc = load_mission_config(CONFIG).localization
+    assert loc.warn_xy_std >= 0.5
+    assert loc.max_initial_offset > 0.0
+
+
+def test_namespace_defaults_to_empty(tmp_path):
+    cfg = load_mission_config(CONFIG)
+    assert all(r.namespace == '' for r in cfg.robots)
+
+    def mutate(raw):
+        raw['robots'][0]['namespace'] = 'pinky1'
+    cfg2 = load_mission_config(_write(tmp_path, mutate))
+    assert cfg2.robot('pinky1').namespace == 'pinky1'
+    assert cfg2.robot('pinky1').as_dict()['namespace'] == 'pinky1'

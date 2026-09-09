@@ -136,7 +136,21 @@ Marker 는 `frame_id: map`, RViz Fixed Frame 이 `map` 이면 **TF 없이도 그
 | 토픽 | 설정 | 근거 |
 |---|---|---|
 | `/map` | `reliable` + `transient_local` | 늦게 붙은 RViz 도 지도를 받아야 한다 |
-| `/amcl_pose` | `reliable` + `volatile` | 위치는 유실되면 안 됨. **`volatile` 을 고른 것은 호환성 때문** — 구독자가 `volatile` 이면 발행자가 `volatile` 이든 `transient_local` 이든 붙지만, 반대는 붙지 않는다 |
+| `/amcl_pose` | `reliable` + `transient_local` | **발행자와 정확히 일치시킨다** — 아래 참고 |
+
+`/amcl_pose` 는 발행자에 맞추는 것이 필수다. nav2 amcl 의 발행 QoS 는
+
+```cpp
+pose_pub_ = create_publisher<PoseWithCovarianceStamped>(
+    "amcl_pose", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
+```
+
+이고, 더 중요한 것은 **amcl 이 로봇이 정지해 있으면 `/amcl_pose` 를 아예 발행하지 않는다**는
+점이다 (`shouldUpdateFilter()` 가 `update_min_d` 0.25 m / `update_min_a` 0.2 rad 를
+넘어야 필터를 갱신하고 발행한다). `volatile` 로 구독하면 래치된 마지막 값을 못 받으므로
+**정지한 로봇은 관제 화면에 아예 나오지 않는다.** `transient_local` 로 구독해야 붙는 즉시
+마지막 위치가 한 건 온다. 워커·콘솔·브리지 세 곳 모두 같은 프로파일을 쓴다
+(`pinky_fleet/ros_qos.py`).
 
 ### 3.8 브리지를 로봇당 1 프로세스로 나눈 이유
 
@@ -164,7 +178,7 @@ Nav2 는 **멀티로봇 경로 조율을 하지 않는다.** 좁은 실내에서
 
 ```
 INIT
- └ WAIT_NAV2       두 워커 병렬: waitUntilNav2Active() + setInitialPose(home) + AMCL 수렴 대기
+ └ WAIT_NAV2       두 워커 병렬: setInitialPose(home) -> waitUntilNav2Active() -> 초기 위치 확인
     └ WAIT_GOAL    관제 콘솔이 /clicked_point 2회 수신 → 터미널 Enter 확인
        └ GOING_TO_GOAL(pinky1) ─ GOING_HOME(pinky1) ─ SETTLING
           └ GOING_TO_GOAL(pinky2) ─ GOING_HOME(pinky2) ─ SETTLING
@@ -189,11 +203,27 @@ Nav2 의 goal 은 자세(방향)까지 필요하다. 그래서
 로 각도를 만든다 (`mission.yaml` 의 `goal_input.mode: one_click` 이면 고정 각도 사용).
 오클릭 방지를 위해 좌표를 출력하고 **Enter 확인 후** 미션을 시작한다.
 
-### AMCL 수렴 대기
+### 초기 위치 — 순서와 판정 기준
 
-`setInitialPose()` 직후 바로 `goToPose()` 를 보내면 위치가 안 잡힌 상태로 출발해서
-엉뚱한 경로가 나온다. `/amcl_pose` 의 공분산에서 `xy_std`, `yaw_std` 를 뽑아
-임계값 아래로 내려올 때까지 기다린다 (`mission.yaml: localization`).
+**순서가 중요하다. `setInitialPose()` 를 먼저, `waitUntilNav2Active()` 를 나중에.**
+`waitUntilNav2Active()` 는 내부에서 `_waitForInitialPose()` 를 부르고, 그건
+`self.initial_pose` 를 AMCL 에 발행한다. `setInitialPose()` 를 아직 안 불렀으면 그 값은
+`BasicNavigator` 의 기본 `PoseStamped` — **위치 (0,0,0) 에 쿼터니언이 전부 0 인
+유효하지 않은 자세** 다. 즉 원점을 먼저 밀어 넣게 된다. nav2 공식 예제도 이 순서다.
+
+그리고 우리가 확인하는 것은 **"수렴"이 아니라 "AMCL 이 우리가 준 초기 위치를 받아들였는가"** 다.
+초기 위치가 unknown 이면 amcl 은 공분산을 `[0.5², 0.5², (π/12)²]` 로 시작한다 —
+**xy 표준편차가 0.5 m** 이고, 정지 중에는 리샘플이 없어 줄지 않는다.
+수렴을 기다리면 100% 타임아웃이다.
+
+| | 방법 |
+|---|---|
+| 하드 조건 | `setInitialPose` **이후 새로 발행된** `/amcl_pose` 가 `home` 에서 `max_initial_offset`(0.5 m) 이내 |
+| "새 발행" 판정 | `header.stamp` 변화 — **로봇 자기 시계끼리** 비교하므로 PC 와의 시계 오차와 무관하다 |
+| 소프트 조건 | 공분산은 로그·경고로만. 실제 수렴은 주행하면서 이뤄진다 |
+
+amcl 은 초기 위치를 받으면 **첫 라이다 스캔에서 `force_publication` 으로 반드시 한 번
+발행**하므로 이 조건은 1~2초 안에 판정된다.
 
 ---
 
@@ -205,7 +235,8 @@ Nav2 의 goal 은 자세(방향)까지 필요하다. 그래서
 | `domain_worker.py` | 자식 A/B. 도메인별 `rclpy.init` + 주행 | 19·20강 multiprocessing, Nav2 PDF p8~18 |
 | `console_node.py` | 자식 C. 관제 도메인 노드 (clicked_point, Marker) | 08강 pub/sub, Nav2 PDF p10~14 |
 | `make_bridge_yaml.py` | `mission.yaml` → 브리지 설정 생성 | 21강 YAML 옵션 |
-| `mission_config.py` / `pose_utils.py` | 설정 로더 / 쿼터니언 변환 | Nav2 PDF p10 |
+| `preflight.py` | 현장 사전 점검 — 노드·토픽·액션서버·시계 오차·home 실측 | — |
+| `mission_config.py` / `pose_utils.py` / `ros_qos.py` | 설정 로더 / 쿼터니언 변환 / QoS | Nav2 PDF p10, 21강 s26 |
 | `protocol.py` | 프로세스 간 메시지 규약 | — |
 
 세 백엔드(`mock` / `turtlesim` / `nav2`)가 **같은 메시지 규약**을 쓰고 "목표까지 간다"의
@@ -228,7 +259,7 @@ topics:
   amcl_pose:
     type: geometry_msgs/msg/PoseWithCovarianceStamped
     remap: pinky1/amcl_pose
-    qos: {reliability: reliable, durability: volatile}
+    qos: {reliability: reliable, durability: transient_local}
   map:
     type: nav_msgs/msg/OccupancyGrid
     qos: {reliability: reliable, durability: transient_local}
@@ -243,7 +274,7 @@ topics:
   amcl_pose:
     type: geometry_msgs/msg/PoseWithCovarianceStamped
     remap: pinky2/amcl_pose
-    qos: {reliability: reliable, durability: volatile}
+    qos: {reliability: reliable, durability: transient_local}
 ```
 
 ---

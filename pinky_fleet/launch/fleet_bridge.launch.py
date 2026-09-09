@@ -38,7 +38,8 @@ def _setup(context, *args, **kwargs):
         actions.append(Node(
             package='domain_bridge',
             executable='domain_bridge',
-            name=f'domain_bridge_{robot.name}',
+            # name= 을 주지 않는다. domain_bridge 는 YAML 의 name 으로 노드명을 정하므로
+            # __node remap 을 얹을 이유가 없다.
             arguments=[path],
             output='screen',
             # 브리지 프로세스의 ROS_DOMAIN_ID 는 무의미하다 — YAML 이 도메인을 정한다(21강 s17).

@@ -17,6 +17,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>nav2_simple_commander</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 
   <!-- 관제 평면. 없으면: sudo apt install ros-jazzy-domain-bridge -->

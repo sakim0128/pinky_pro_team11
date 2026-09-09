@@ -53,7 +53,10 @@ def build_bridge_config(cfg, robot) -> dict:
             'amcl_pose': {
                 'type': 'geometry_msgs/msg/PoseWithCovarianceStamped',
                 'remap': f'{robot.name}/amcl_pose',
-                'qos': {'reliability': 'reliable', 'durability': 'volatile'},
+                # amcl 발행 QoS 와 정확히 일치시킨다. amcl 은 로봇이 정지해 있으면
+                # /amcl_pose 를 발행하지 않으므로, volatile 로 구독하면 브리지가
+                # 아무것도 못 받아 관제 화면이 빈 채로 남는다.
+                'qos': {'reliability': 'reliable', 'durability': 'transient_local'},
             },
         },
     }

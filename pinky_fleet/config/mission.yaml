@@ -20,12 +20,17 @@ map_frame: map
 robots:
   - name: pinky1
     domain_id: 10
+    # 로봇 쪽 Nav2 가 네임스페이스 아래에서 도는 경우에만 채운다. 기본은 비워 둔다.
+    #   ros2 run pinky_fleet preflight   가 네임스페이스를 찾아서 알려준다.
+    namespace: ''
     # "제자리" = 출발지. AMCL 초기 위치(setInitialPose)로도 그대로 쓴다.
-    # ★ 현장에서 RViz Publish Point 로 실측한 값으로 반드시 교체할 것.
+    # ★ 로봇을 출발지에 놓고  ros2 run pinky_fleet preflight --print-home  으로
+    #   실측값을 뽑아 아래를 통째로 갈아끼울 것.
     home: {x: 0.0, y: 0.0, yaw_deg: 0.0}
 
   - name: pinky2
     domain_id: 11
+    namespace: ''
     home: {x: 0.5, y: 0.0, yaw_deg: 0.0}
 
 goal_input:
@@ -45,12 +50,17 @@ mission:
   feedback_period_sec: 1.0        # 주행 중 피드백 출력 주기
 
 localization:
-  # setInitialPose 직후 AMCL 이 수렴하기 전에 출발하면 엉뚱한 경로가 나온다.
-  # /amcl_pose 공분산이 아래 임계값 아래로 내려올 때까지 기다린다.
-  wait_for_convergence: true
-  max_xy_std: 0.25        # [m]   sqrt(cov[0]), sqrt(cov[7])
-  max_yaw_std: 0.35       # [rad] sqrt(cov[35])
-  convergence_timeout_sec: 30.0
+  # 여기서 확인하는 것은 "수렴"이 아니라 "AMCL 이 우리가 준 초기 위치를 받아들였는가" 다.
+  #
+  # amcl 은 초기 위치가 unknown 이면 공분산을 [0.5^2, 0.5^2, (pi/12)^2] 로 시작한다.
+  # xy 표준편차가 0.5 m 이고, 정지 중에는 리샘플이 없어 줄지 않는다.
+  # 그래서 수렴을 기다리면 무조건 타임아웃이다. 대신 setInitialPose 이후 새로 발행된
+  # /amcl_pose 가 home 근처인지만 본다. 실제 수렴은 주행하면서 이뤄진다.
+  require_initial_pose: true
+  max_initial_offset: 0.5        # [m] home 에서 이만큼 안이면 초기화 성공으로 본다
+  initial_pose_timeout_sec: 15.0
+  warn_xy_std: 0.6               # [m]   넘으면 경고만 남긴다 (실패 아님)
+  warn_yaw_std: 0.45             # [rad] 위와 동일
 
 bridge:
   # 관제 화면에 필요한 최소 토픽만 중계한다 (WiFi 대역폭 보호).

@@ -187,7 +187,7 @@ class FleetMaster:
             m = self.wait_for(
                 spec.name, {P.EVT_READY, P.EVT_FAILED},
                 self.cfg.mission.nav2_activate_timeout_sec
-                + self.cfg.localization.convergence_timeout_sec + 15.0)
+                + self.cfg.localization.initial_pose_timeout_sec + 15.0)
             if m['event'] != P.EVT_READY:
                 self.abort(f'{m["robot"]} 준비 실패: {m.get("reason", "")}')
                 return False

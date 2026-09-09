@@ -34,7 +34,7 @@ mission:
   feedback_period_sec: 1.0
 
 localization:
-  wait_for_convergence: false   # turtlesim 에는 AMCL 이 없다
+  require_initial_pose: false   # turtlesim 에는 AMCL 이 없다
 
 bridge:
   map_from: pinky1

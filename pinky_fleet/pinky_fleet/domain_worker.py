@@ -31,6 +31,7 @@ from pinky_fleet.pose_utils import (
     normalize_deg,
     yaw_deg_from_quaternion,
 )
+from pinky_fleet.ros_qos import amcl_pose_qos
 
 
 # ---------------------------------------------------------------------------
@@ -332,12 +333,25 @@ class Nav2Worker(RosWorkerBase):
         from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 
         self.TaskResult = TaskResult
-        self.nav = BasicNavigator()
+        self.nav = BasicNavigator(namespace=self.robot.get('namespace', ''))
         # 현재 위치 표시용 구독 (자료 p11 의 sub_amcl 노드와 같은 역할).
+        #
+        # QoS 를 발행자에 정확히 맞춘다. nav2 amcl 은
+        #   QoS(KeepLast(1)).transient_local().reliable()
+        # 로 /amcl_pose 를 발행하고, **로봇이 정지해 있으면 아예 발행하지 않는다**
+        # (shouldUpdateFilter 가 update_min_d/update_min_a 를 넘어야 갱신).
+        # 그래서 volatile 로 구독하면 정지한 로봇의 위치를 영영 못 받는다.
+        # transient_local 이면 붙는 즉시 마지막 값이 온다.
         self.node.create_subscription(
-            PoseWithCovarianceStamped, '/amcl_pose', self._on_amcl, 10)
+            PoseWithCovarianceStamped, self._ns('/amcl_pose'),
+            self._on_amcl, amcl_pose_qos())
         self.amcl_cov = None
+        self.amcl_stamp = None      # 새 발행 판정용 (로봇 자기 시계 기준)
         self.loc = self.cfg['localization']
+
+    def _ns(self, topic):
+        ns = (self.robot.get('namespace') or '').strip('/')
+        return f'/{ns}{topic}' if ns else topic
 
     def _on_amcl(self, m):
         p = m.pose.pose
@@ -346,17 +360,38 @@ class Nav2Worker(RosWorkerBase):
             yaw_deg_from_quaternion(p.orientation.x, p.orientation.y,
                                     p.orientation.z, p.orientation.w))
         self.amcl_cov = m.pose.covariance
+        self.amcl_stamp = (m.header.stamp.sec, m.header.stamp.nanosec)
 
     def idle(self):
         self.spin(0.05)
 
     # ---- 준비 --------------------------------------------------------------
     def do_prepare(self, cmd):
+        """출발지를 AMCL 에 넣고 Nav2 가 뜰 때까지 기다린다.
+
+        **순서가 중요하다.** waitUntilNav2Active() 는 내부에서 _waitForInitialPose() 를
+        부르고, 그건 self.initial_pose 를 발행한다. setInitialPose() 를 먼저 부르지 않으면
+        그 값은 BasicNavigator 의 기본값 — 위치 (0,0,0) 에 쿼터니언이 전부 0 인
+        **유효하지 않은 자세** 다. 즉 AMCL 에 원점을 먼저 밀어 넣게 된다.
+        nav2 공식 예제도 setInitialPose -> waitUntilNav2Active 순서다.
+        """
         import threading
 
         timeout = float(cmd.get('nav2_activate_timeout_sec', 60.0))
-        self.log(f'Nav2 활성화 대기 (최대 {timeout:.0f}s)')
 
+        # 지금 붙어 있는 래치 값의 stamp 를 기준선으로 잡는다.
+        # (transient_local 이라 구독 직후 과거 값이 한 건 온다)
+        for _ in range(10):
+            self.spin(0.1)
+            if self.amcl_stamp is not None:
+                break
+        baseline_stamp = self.amcl_stamp
+
+        # 출발지를 AMCL 초기 위치로 넣는다 -> RViz 2D Pose Estimate 수동 조작 불필요
+        self.log(f'setInitialPose(home={self.home})')
+        self.nav.setInitialPose(self._pose_stamped(self.home))
+
+        self.log(f'Nav2 활성화 대기 (최대 {timeout:.0f}s)')
         # waitUntilNav2Active() 는 타임아웃 인자가 없어 영원히 막힐 수 있다.
         # 데몬 스레드로 돌리고 join(timeout) 으로 상한을 건다.
         done = threading.Event()
@@ -375,41 +410,59 @@ class Nav2Worker(RosWorkerBase):
             self.emit(P.EVT_FAILED,
                       reason='Nav2 가 활성화되지 않았습니다. 로봇에서 '
                              'pinky_navigation bringup_launch.xml 이 떠 있는지, '
-                             f'ROS_DOMAIN_ID={self.robot["domain_id"]} 가 맞는지 확인하세요.')
+                             f'ROS_DOMAIN_ID={self.robot["domain_id"]} 가 맞는지 확인하세요. '
+                             '(preflight 로 먼저 확인하세요)')
             return
 
-        # 출발지를 AMCL 초기 위치로 넣는다 -> RViz 2D Pose Estimate 수동 조작 불필요
-        self.log(f'setInitialPose(home={self.home})')
-        self.nav.setInitialPose(self._pose_stamped(self.home))
-
-        if self.loc.get('wait_for_convergence', True):
-            if not self._wait_for_convergence():
+        if self.loc.get('require_initial_pose', True):
+            if not self._wait_for_initial_pose(baseline_stamp):
                 return
         self.emit(P.EVT_READY)
 
-    def _wait_for_convergence(self) -> bool:
-        """AMCL 공분산이 임계값 아래로 내려올 때까지 기다린다.
+    def _wait_for_initial_pose(self, baseline_stamp) -> bool:
+        """AMCL 이 우리가 준 초기 위치를 받아들였는지 확인한다.
 
-        setInitialPose 직후 바로 goToPose 를 보내면 위치가 안 잡힌 상태로 출발해
-        엉뚱한 경로가 나온다.
+        "수렴"을 기다리지 않는다. 초기 위치가 unknown 이면 amcl 은 공분산을
+        [0.5^2, 0.5^2, (pi/12)^2] 로 시작하고 — xy 표준편차가 0.5 m 다 —
+        정지 중에는 리샘플이 없어 그 값이 줄지 않는다. 수렴을 기다리면 100% 타임아웃이다.
+
+        대신 확인해야 할 것은 하나다: **setInitialPose 이후 새로 발행된 pose 가
+        home 근처인가.** amcl 은 초기 위치를 받으면 첫 라이다 스캔에서
+        force_publication 으로 반드시 한 번 발행하므로 1~2초 안에 판정된다.
+        새 발행 판정은 header.stamp 변화로 하므로 PC 와 로봇의 시계 오차와 무관하다.
+        공분산은 경고로만 남긴다 — 실제 수렴은 주행하면서 이뤄진다.
         """
-        max_xy = float(self.loc['max_xy_std'])
-        max_yaw = float(self.loc['max_yaw_std'])
-        deadline = time.time() + float(self.loc['convergence_timeout_sec'])
+        deadline = time.time() + float(self.loc.get('initial_pose_timeout_sec', 15.0))
         while time.time() < deadline:
             self.spin(0.1)
-            if self.amcl_cov is None:
-                continue
-            xy = max(math.sqrt(max(self.amcl_cov[0], 0.0)),
-                     math.sqrt(max(self.amcl_cov[7], 0.0)))
-            yaw = math.sqrt(max(self.amcl_cov[35], 0.0))
-            if xy <= max_xy and yaw <= max_yaw:
-                self.log(f'AMCL 수렴 (xy_std={xy:.3f}m, yaw_std={yaw:.3f}rad)')
-                return True
+            if self.amcl_stamp is None or self.amcl_stamp == baseline_stamp:
+                continue    # 아직 래치된 과거 값뿐이다
+
+            offset = distance(self.last_pose.x, self.last_pose.y, self.home.x, self.home.y)
+            limit = float(self.loc.get('max_initial_offset', 0.5))
+            if offset > limit:
+                self.emit(P.EVT_FAILED,
+                          reason=f'AMCL 이 보고한 위치가 home 에서 {offset:.2f} m 떨어져 '
+                                 f'있습니다 (허용 {limit:.2f} m). mission.yaml 의 home 이 '
+                                 '실제 로봇 위치와 맞는지, 두 로봇의 맵이 같은 파일인지 '
+                                 '확인하세요. (preflight --print-home 으로 실측값을 뽑으세요)')
+                return False
+
+            self.log(f'초기 위치 확인 (offset {offset:.3f} m)')
+            if self.amcl_cov is not None:
+                xy = max(math.sqrt(max(self.amcl_cov[0], 0.0)),
+                         math.sqrt(max(self.amcl_cov[7], 0.0)))
+                yaw = math.sqrt(max(self.amcl_cov[35], 0.0))
+                warn_xy = float(self.loc.get('warn_xy_std', 0.6))
+                warn_yaw = float(self.loc.get('warn_yaw_std', 0.45))
+                note = '  (주행하면서 수렴한다)' if xy > warn_xy or yaw > warn_yaw else ''
+                self.log(f'AMCL 공분산 xy_std={xy:.3f}m yaw_std={yaw:.3f}rad{note}')
+            return True
+
         self.emit(P.EVT_FAILED,
-                  reason='AMCL 이 수렴하지 않았습니다. mission.yaml 의 home 좌표가 '
-                         '실제 로봇 위치와 맞는지, 맵이 두 로봇에 동일하게 복사됐는지 '
-                         '확인하세요.')
+                  reason='setInitialPose 이후 새 /amcl_pose 가 오지 않았습니다. '
+                         '로봇에서 라이다(/scan)가 나오는지, amcl 이 살아 있는지 '
+                         '확인하세요. (preflight 로 확인 가능)')
         return False
 
     def _pose_stamped(self, pose2d):

@@ -22,6 +22,7 @@ import queue
 
 from pinky_fleet import protocol as P
 from pinky_fleet.mission_config import Pose2D
+from pinky_fleet.ros_qos import amcl_pose_qos
 from pinky_fleet.pose_utils import quaternion_from_yaw_deg, yaw_deg_from_quaternion
 
 # 로봇별 마커 색 (r, g, b)
@@ -90,10 +91,13 @@ def build_console_node():
             self._String = String
 
             self.create_subscription(PointStamped, '/clicked_point', self._on_click, 10)
+            # 브리지가 amcl 의 QoS(transient_local+reliable) 그대로 재발행하므로
+            # 여기서도 같은 프로파일로 구독해야 한다. volatile 이면 로봇이 정지해 있는
+            # 동안 아무것도 못 받아 마커가 안 뜬다.
             for name in self.robot_names:
                 self.create_subscription(
                     PoseWithCovarianceStamped, f'/{name}/amcl_pose',
-                    self._make_pose_cb(name), 10)
+                    self._make_pose_cb(name), amcl_pose_qos())
 
             self.get_logger().info(
                 f'관제 콘솔 시작 (domain {cfg["control_domain_id"]}). '

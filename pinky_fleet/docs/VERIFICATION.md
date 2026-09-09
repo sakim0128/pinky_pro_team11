@@ -124,7 +124,31 @@ ROS_DOMAIN_ID=20 ros2 topic echo /map --once | head -5
 
 ---
 
-## L3 — Nav2 통합 (Gazebo 시뮬 2대)
+> **실물 2대가 현장에 있으면 L3(Gazebo)는 건너뛴다.** PC 부하만 크고 얻는 정보가
+> L4 와 겹친다. 대신 **L2 다음에 `preflight` 를 돌려** 노드·토픽·액션서버·시계를 확인한 뒤
+> 바로 L4 로 간다.
+
+## L2.5 — preflight (실물이 있을 때 L3 대신)
+
+```bash
+ros2 run pinky_fleet preflight
+```
+
+**통과 기준** — 두 로봇 도메인 모두
+
+```
+OK    Nav2 노드 5개: amcl, bt_navigator, controller_server, map_server, planner_server
+OK    /map        reliable · transient_local
+OK    /amcl_pose  reliable · transient_local
+OK    /scan       best_effort · volatile
+OK    액션 서버 /navigate_to_pose 응답함
+OK    시계 오차 +0.05 s
+```
+
+`/amcl_pose` 가 `WARN` 인 것은 **2D Pose Estimate 를 한 번도 안 한 상태라면 정상**이다
+(amcl 은 정지 중에 발행하지 않는다). `fleet_master` 가 `setInitialPose` 로 넣어 준다.
+
+## L3 — Nav2 통합 (Gazebo 시뮬 2대) · 실물이 없을 때만
 
 PC 한 대에서 시뮬레이터를 **2개** 띄운다. 도메인만 나누면 안 된다 —
 **Gazebo(gz) transport 는 ROS 도메인과 완전히 별개**라서, `GZ_PARTITION` 을 나누지 않으면
@@ -170,6 +194,19 @@ ros2 run pinky_fleet fleet_master
 4. **취소 확인**: 3을 다시 돌리고 주행 중 Ctrl-C → **두 로봇이 실제로 멈추는지** 확인.
    이게 안 되면 실제 목적지로 넘어가지 않는다.
 5. 실제 목적지로 본 미션.
+
+### 1단계에서 봐야 할 로그
+
+```
+[pinky1] setInitialPose(home=(x=…, y=…, yaw=…deg))
+[pinky1] Nav2 활성화 대기 (최대 60s)
+[pinky1] 초기 위치 확인 (offset 0.0xx m)
+[pinky1] AMCL 공분산 xy_std=0.5xx m yaw_std=0.2xx rad  (주행하면서 수렴한다)
+[pinky1] 준비 완료
+```
+
+`xy_std` 가 0.5 근처로 나오는 것은 **정상**이다 — amcl 초기 공분산이 그렇게 시작하고
+정지 중에는 줄지 않는다. `offset` 이 작으면 초기 위치는 제대로 들어간 것이다.
 
 **체크리스트**
 

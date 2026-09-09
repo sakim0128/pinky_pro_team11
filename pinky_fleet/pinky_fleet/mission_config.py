@@ -34,9 +34,13 @@ class RobotSpec:
     name: str
     domain_id: int
     home: Pose2D
+    # 로봇 쪽 Nav2 가 네임스페이스 아래에서 도는 경우에만 채운다(기본은 비어 있음).
+    # preflight 가 노드 목록에서 찾아 알려준다.
+    namespace: str = ''
 
     def as_dict(self) -> dict:
-        return {'name': self.name, 'domain_id': self.domain_id, 'home': self.home.as_dict()}
+        return {'name': self.name, 'domain_id': self.domain_id,
+                'home': self.home.as_dict(), 'namespace': self.namespace}
 
 
 @dataclass(frozen=True)
@@ -57,17 +61,26 @@ class MissionParams:
 
 @dataclass(frozen=True)
 class LocalizationParams:
-    wait_for_convergence: bool = True
-    max_xy_std: float = 0.25
-    max_yaw_std: float = 0.35
-    convergence_timeout_sec: float = 30.0
+    """초기 위치 확인 파라미터.
+
+    "수렴"을 기다리지 않는다 — amcl 은 초기 위치가 unknown 이면 공분산을
+    [0.5^2, 0.5^2, (pi/12)^2] 로 시작하고 정지 중에는 줄지 않는다.
+    확인할 것은 "setInitialPose 이후 새로 발행된 pose 가 home 근처인가" 하나다.
+    """
+
+    require_initial_pose: bool = True
+    max_initial_offset: float = 0.5        # [m]
+    initial_pose_timeout_sec: float = 15.0
+    warn_xy_std: float = 0.6               # 넘으면 경고만
+    warn_yaw_std: float = 0.45
 
     def as_dict(self) -> dict:
         return {
-            'wait_for_convergence': self.wait_for_convergence,
-            'max_xy_std': self.max_xy_std,
-            'max_yaw_std': self.max_yaw_std,
-            'convergence_timeout_sec': self.convergence_timeout_sec,
+            'require_initial_pose': self.require_initial_pose,
+            'max_initial_offset': self.max_initial_offset,
+            'initial_pose_timeout_sec': self.initial_pose_timeout_sec,
+            'warn_xy_std': self.warn_xy_std,
+            'warn_yaw_std': self.warn_yaw_std,
         }
 
 
@@ -118,7 +131,8 @@ def load_mission_config(path: str = '') -> MissionConfig:
         raw = yaml.safe_load(f)
 
     robots = [
-        RobotSpec(str(r['name']), int(r['domain_id']), Pose2D.from_dict(r['home']))
+        RobotSpec(str(r['name']), int(r['domain_id']), Pose2D.from_dict(r['home']),
+                  str(r.get('namespace', '') or ''))
         for r in raw['robots']
     ]
 
@@ -143,10 +157,11 @@ def load_mission_config(path: str = '') -> MissionConfig:
 
     l_raw = raw.get('localization', {})
     localization = LocalizationParams(
-        wait_for_convergence=bool(l_raw.get('wait_for_convergence', True)),
-        max_xy_std=float(l_raw.get('max_xy_std', 0.25)),
-        max_yaw_std=float(l_raw.get('max_yaw_std', 0.35)),
-        convergence_timeout_sec=float(l_raw.get('convergence_timeout_sec', 30.0)),
+        require_initial_pose=bool(l_raw.get('require_initial_pose', True)),
+        max_initial_offset=float(l_raw.get('max_initial_offset', 0.5)),
+        initial_pose_timeout_sec=float(l_raw.get('initial_pose_timeout_sec', 15.0)),
+        warn_xy_std=float(l_raw.get('warn_xy_std', 0.6)),
+        warn_yaw_std=float(l_raw.get('warn_yaw_std', 0.45)),
     )
 
     cfg = MissionConfig(
