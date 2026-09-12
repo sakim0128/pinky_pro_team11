@@ -17,6 +17,9 @@
     <arg name="use_bridge" default="True"
          description="가짜 로봇(fake_state_pub)으로 검증할 때는 False 로 둔다."/>
     <arg name="use_gui" default="True"/>
+    <arg name="sim_mode" default="False"
+         description="True 면 GUI 가 [시뮬레이션 모드] 배너를 띄운다. False 여도 GUI 가
+                      fake_state_pub 노드를 발견하면 스스로 켠다."/>
 
     <include file="$(find-pkg-share pinky_fleet_station)/launch/bridges.launch.xml"
              if="$(var use_bridge)">
@@ -31,5 +34,6 @@
     <node pkg="pinky_fleet_station" exec="gui_node" name="fleet_gui"
           output="screen" if="$(var use_gui)">
         <param name="mission" value="$(var mission)"/>
+        <param name="sim_mode" value="$(var sim_mode)"/>
     </node>
 </launch>

@@ -3,6 +3,10 @@
   실기 / 시뮬레이터 없이 coordinator 와 GUI 를 검증하는 launch.
   가짜 로봇 2대를 관제 도메인에 직접 띄우므로 domain_bridge 도 필요 없다.
 
+  ** 실제 핑키는 움직이지 않는다. ** 화면의 로봇은 fake_state_pub 이 지어낸 것이고
+  실기와는 아무 연결이 없다. GUI 상단에 [시뮬레이션 모드] 배너가 뜬다.
+  실기로 돌리려면 이 launch 를 끄고 fleet.launch.xml 을 쓴다.
+
     export ROS_DOMAIN_ID=0
     ros2 launch pinky_fleet_station fake_fleet.launch.xml \
         mission:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/mission.yaml
@@ -31,5 +35,6 @@
         <arg name="mission" value="$(var mission)"/>
         <arg name="use_bridge" value="False"/>
         <arg name="use_gui" value="$(var use_gui)"/>
+        <arg name="sim_mode" value="True"/>
     </include>
 </launch>

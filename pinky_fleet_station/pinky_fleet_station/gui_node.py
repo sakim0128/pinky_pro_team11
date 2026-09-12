@@ -42,6 +42,11 @@ NAV_STATUS_TEXT = {
     RobotState.NAV_HOLD: ('양보 대기', '#fb923c'),
 }
 
+# fake_state_pub 노드가 그래프에 있으면 화면의 로봇은 가짜다.
+# launch 와 `ros2 run` 양쪽에서 이 이름으로 뜬다.
+FAKE_NODE_NAME = 'fake_state_pub'
+SIM_CHECK_PERIOD = 20          # _refresh(10Hz) 틱 기준 -> 약 2초마다 확인
+
 COMMAND_QOS = QoSProfile(
     history=QoSHistoryPolicy.KEEP_LAST,
     depth=10,
@@ -64,6 +69,15 @@ QPushButton:hover { background: #334155; }
 QPushButton:checked { background: #be123c; border-color: #fb7185; }
 QPushButton:disabled { color: #475569; border-color: #1e293b; }
 QDoubleSpinBox { background: #1e293b; border: 1px solid #334155; padding: 3px; }
+"""
+
+SIM_BANNER_STYLE = """
+background: #78350f;
+color: #fde68a;
+border: 1px solid #f59e0b;
+border-radius: 4px;
+padding: 6px;
+font-weight: bold;
 """
 
 
@@ -184,8 +198,11 @@ class FleetWindow(QMainWindow):
         self._states = {}
         self._paths = {}
         self._coordinator_status = None
+        self._sim_mode = None          # None = 아직 판정 전
+        self._sim_tick = 0
 
-        self.setWindowTitle('Pinky Fleet Station')
+        self._base_title = 'Pinky Fleet Station'
+        self.setWindowTitle(self._base_title)
         self.resize(1280, 820)
         self.setStyleSheet(STYLE)
 
@@ -293,12 +310,31 @@ class FleetWindow(QMainWindow):
         splitter.addWidget(scroll)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
-        self.setCentralWidget(splitter)
+
+        self._sim_banner = QLabel(
+            '시뮬레이션 모드 — 화면의 로봇은 fake_state_pub 이 만든 가짜입니다. '
+            '실제 핑키는 움직이지 않습니다.')
+        self._sim_banner.setAlignment(Qt.AlignCenter)
+        self._sim_banner.setWordWrap(True)
+        self._sim_banner.setStyleSheet(SIM_BANNER_STYLE)
+        self._sim_banner.hide()
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(6, 6, 6, 0)
+        container_layout.setSpacing(6)
+        container_layout.addWidget(self._sim_banner)
+        container_layout.addWidget(splitter, 1)
+        self.setCentralWidget(container)
 
         self.statusBar().showMessage('준비')
 
         self._pick_mode = None
         self._pick_robot = None
+
+        if not node.has_parameter('sim_mode'):
+            node.declare_parameter('sim_mode', False)
+        self._force_sim_mode = bool(node.get_parameter('sim_mode').value)
 
         self._setup_ros()
         self._load_map()
@@ -532,10 +568,37 @@ class FleetWindow(QMainWindow):
 
     # ------------------------------------------------------------------ 갱신
 
+    def _check_sim_mode(self):
+        """가짜 로봇(fake_state_pub)이 그래프에 있으면 시뮬레이션 모드로 표시한다.
+
+        실기라고 생각하고 fake_fleet.launch.xml 을 띄우는 실수를 화면에서 바로
+        알 수 있게 하는 것이 목적이다. 파라미터로 강제할 수도 있다.
+        """
+        if self._force_sim_mode:
+            sim = True
+        else:
+            try:
+                sim = FAKE_NODE_NAME in self._node.get_node_names()
+            except Exception:  # noqa: BLE001 - 그래프 조회 실패는 표시만 보류
+                return
+        if sim == self._sim_mode:
+            return
+        self._sim_mode = sim
+        self._sim_banner.setVisible(sim)
+        self.setWindowTitle(
+            f'{self._base_title} — [시뮬레이션 모드]' if sim else self._base_title)
+        if sim:
+            self._node.get_logger().warn(
+                '시뮬레이션 모드: fake_state_pub 이 떠 있어 화면의 로봇은 가짜입니다.')
+
     def _on_hover(self, wx, wy):
         self.statusBar().showMessage(f'커서: {wx:+.2f}, {wy:+.2f} m', 1500)
 
     def _refresh(self):
+        self._sim_tick += 1
+        if self._sim_mode is None or self._sim_tick % SIM_CHECK_PERIOD == 0:
+            self._check_sim_mode()
+
         render = {}
         for spec in self._mission.robots:
             name = spec['name']
