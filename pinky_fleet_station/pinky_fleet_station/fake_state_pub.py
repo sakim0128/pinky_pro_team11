@@ -50,6 +50,7 @@ class FakeRobot:
         self.x = spec['initial_pose']['x']
         self.y = spec['initial_pose']['y']
         self.yaw = spec['initial_pose']['yaw']
+        self.map_name = ''
         self.max_linear_vel = spec['max_linear_vel']
         self.max_angular_vel = spec['max_angular_vel']
         self.goal = (spec['goal']['x'], spec['goal']['y'], spec['goal']['yaw'])
@@ -121,6 +122,11 @@ class FakeStatePublisher(Node):
             robot.nav_status = RobotState.NAV_CANCELED
         elif msg.command == FleetCommand.CMD_SET_INITIAL_POSE:
             robot.x, robot.y, robot.yaw = msg.x, msg.y, msg.yaw
+        elif msg.command == FleetCommand.CMD_SET_MAP:
+            # 가짜 로봇은 맵을 실제로 로드하지 않는다. 이름만 받아 그대로 되돌려
+            # 보내서, 관제 PC 의 전송 경로가 살아 있는지 확인할 수 있게 한다.
+            robot.map_name = msg.map_name
+            self.get_logger().info(f'{name}: 맵 이름 수신 - {msg.map_name}')
         elif msg.command == FleetCommand.CMD_SET_SPEED:
             if msg.max_linear_vel > 0.0:
                 robot.max_linear_vel = msg.max_linear_vel
@@ -205,6 +211,8 @@ class FakeStatePublisher(Node):
             msg.nav_status = robot.nav_status
             msg.goal_valid = robot.goal_valid
             msg.goal_x, msg.goal_y, msg.goal_yaw = robot.goal
+            msg.map_name = robot.map_name
+            msg.map_known = False      # 규격은 모른다 (실제 맵을 로드하지 않으므로)
             msg.max_linear_vel = robot.max_linear_vel
             msg.max_angular_vel = robot.max_angular_vel
             msg.battery_percent = 100.0

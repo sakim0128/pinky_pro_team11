@@ -120,21 +120,32 @@ source install/setup.bash
 `pinky_navigation` 의존). 같은 이유로 이 워크스페이스에서 `rosdep install` 을
 인자 없이 돌리면 안 된다 — 없는 패키지를 찾다 실패한다.
 
-### 맵 파일 (관제 PC)
+### 맵 파일
 
-**GUI 가 맵 이미지를 로컬 파일에서 직접 로드**하므로, 로봇에 올린 것과 같은 맵이
-관제 PC 에도 있어야 한다.
+세 대가 **같은 이름의 맵**을 각자 가지고 있는 구조다. 경로는 달라도 된다 —
+관제 PC 는 **이름만** 보내고 로봇이 자기 디렉터리에서 찾는다.
+
+```
+관제 PC  ~/maps/pinklab.yaml  ──[이름 "pinklab"]──→  핑키  /home/pinky/map/pinklab.yaml
+```
+
+**로봇 2대** — 맵 디렉터리는 `/home/pinky/map` 이다 (`map_dir` 인자로 바꿀 수 있다).
+
+```bash
+mkdir -p /home/pinky/map
+cp ~/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.* /home/pinky/map/
+```
+
+**관제 PC** — GUI 가 맵 이미지를 로컬 파일에서 직접 로드하므로 사본이 필요하다.
 
 ```bash
 mkdir -p ~/maps
-scp pinky@<핑키1_IP>:~/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.* ~/maps/
+scp pinky@<핑키1_IP>:/home/pinky/map/pinklab.* ~/maps/
 ```
 
-그다음 GUI 를 띄워 사이드 패널 `맵` 의 **`[맵 열기]`** 로 복사한 yaml 을 고르면 된다.
+그다음 GUI 사이드 패널 `맵` 의 **`[맵 열기]`** 로 복사한 yaml 을 고른다.
 `[저장]` 을 누르면 그 경로가 `mission.yaml` 에 기록되어 다음 실행부터 바로 뜬다.
-
-yaml 을 직접 고쳐도 된다. 아래 파일의 `map.yaml_path` 를 복사한 경로
-(예: `/home/sungah/maps/pinklab.yaml`)로 바꾼다.
+yaml 을 직접 고쳐도 된다 — 아래 파일의 `map.yaml_path`.
 
 ```
 ~/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/mission.yaml
@@ -142,14 +153,22 @@ yaml 을 직접 고쳐도 된다. 아래 파일의 `map.yaml_path` 를 복사한
 
 같은 디렉터리의 `mission_deadlock_test.yaml` 도 마찬가지.
 
-**GUI 의 맵 선택은 관제 PC 화면에만 적용된다.** 로봇이 쓰는 맵은
-`robot.launch.xml` 의 `map:=` 인자로만 정해지고, 둘은 서로 전달되지 않는다.
-두 맵이 다르면 클릭 좌표가 로봇의 `map` 프레임과 어긋나므로 **반드시 같은 맵이어야 한다.**
+#### 맵을 고르면 로봇의 맵도 바뀐다
 
-이를 자동으로 잡기 위해 각 에이전트가 로봇 Nav2 의 `map` 토픽에서 실제 로드된 맵의
-규격(해상도 / 픽셀 크기 / 원점)을 읽어 `RobotState` 에 실어 보낸다. GUI 가 자기 맵과
-비교해 다르면 빨간 `맵 불일치` 배너에 어느 로봇의 무엇이 다른지 표시한다.
-파일 경로가 아니라 규격을 비교하므로 경로가 달라도 내용이 같으면 통과한다.
+`[맵 열기]` 로 맵을 고르면 GUI 가 **맵 이름**을 두 로봇에 자동 전송하고, 각 로봇은
+`<map_dir>/<이름>.yaml` 을 찾아 Nav2 의 `map_server/load_map` 으로 교체한다.
+경로가 아니라 이름을 보내는 이유는 관제 PC 와 로봇의 맵 디렉터리가 다르기 때문이다.
+
+- **GUI 시작 시 자동 로드에서는 보내지 않는다.** GUI 재시작만으로 주행 중인 로봇의
+  맵과 위치 추정이 리셋되면 위험하다. 다시 보내려면 `[로봇에 맵 전송]` 을 누른다.
+- 로봇이 이미 같은 이름의 맵을 쓰고 있으면 아무것도 하지 않는다.
+- **맵이 바뀌면 AMCL 의 기존 위치 추정이 무효가 된다.** 교체 후 각 로봇의
+  `[초기위치 지정]` 을 다시 해야 한다 (GUI 가 안내창을 띄운다).
+
+전송이 제대로 됐는지는 GUI 가 스스로 확인한다. 각 에이전트가 현재 로드한 맵의
+**이름**과, `map` 토픽에서 읽은 **규격**(해상도 / 픽셀 크기 / 원점)을 `RobotState` 로
+올려보내고, GUI 가 자기 맵과 비교해 다르면 빨간 `맵 불일치` 배너를 띄운다.
+로봇에 그 이름의 맵이 없어 교체에 실패하면 여기서 드러난다.
 
 ### 네트워크 전제
 
@@ -166,17 +185,13 @@ yaml 을 직접 고쳐도 된다. 아래 파일의 `map.yaml_path` 를 복사한
 로봇 2대를 먼저 띄운다. `domain_bridge` 는 퍼블리셔가 이미 떠 있을 때 QoS 매칭이 가장 안정적이다.
 
 ```bash
-# 로봇 pinky1 (SSH)
+# 로봇 pinky1 (SSH)   맵은 /home/pinky/map/pinklab.yaml 이 기본값
 export ROS_DOMAIN_ID=10
-ros2 launch pinky_fleet_agent robot.launch.xml \
-    robot_name:=pinky1 domain_id:=10 \
-    map:=$HOME/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.yaml
+ros2 launch pinky_fleet_agent robot.launch.xml robot_name:=pinky1 domain_id:=10
 
 # 로봇 pinky2 (SSH)
 export ROS_DOMAIN_ID=11
-ros2 launch pinky_fleet_agent robot.launch.xml \
-    robot_name:=pinky2 domain_id:=11 \
-    map:=$HOME/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.yaml
+ros2 launch pinky_fleet_agent robot.launch.xml robot_name:=pinky2 domain_id:=11
 
 # 관제 PC
 export ROS_DOMAIN_ID=0
@@ -188,7 +203,8 @@ ros2 launch pinky_fleet_station fleet.launch.xml \
 
 1. 맵이 안 보이면 `맵` 패널의 `[맵 열기]` 로 맵 yaml 을 고른다. 라벨에
    `pinklab.yaml · 207x293 px · 0.05 m/px` 처럼 표시되면 정상.
-   **로봇에 올린 것과 같은 맵이어야** 좌표가 맞는다.
+   **로봇에 올린 것과 같은 맵이어야** 좌표가 맞는다. 고르는 순간 이름이 로봇에
+   전송되어 로봇의 맵도 바뀐다.
 2. 각 로봇 카드의 `[초기위치 지정]` → 맵에서 실제 시작 위치를 **클릭 후 드래그**
    (드래그 방향이 로봇이 바라보는 방향). 위치가 맞게 표시되는지 확인.
 3. `[목표 지정]` → 목표를 클릭 후 드래그. (또는 `[불러오기]` 로 `mission.yaml` 적용)
@@ -341,7 +357,9 @@ upstream `nav2_params.yaml` 의 사본 + 아래 변경만 담는다 (`[fleet]` �
 | 명령이 로봇에 안 감 | 로봇에서 `ROS_DOMAIN_ID=10 ros2 topic echo /pinky1/command` |
 | state 는 오는데 GUI 에 로봇이 안 보임 | `localized` 가 `false` (AMCL 미수렴). 초기 위치를 다시 지정 |
 | 로봇이 맵의 엉뚱한 자리에 표시됨 | 두 로봇과 GUI 가 같은 맵 yaml 을 쓰는지 확인 |
-| 빨간 `맵 불일치` 배너가 뜸 | GUI 가 연 맵과 로봇 Nav2 가 로드한 맵이 다르다. 배너에 어느 로봇의 무엇이 다른지 나온다. 로봇의 `map:=` 인자와 GUI 의 `[맵 열기]` 를 같은 맵으로 맞춘다 |
+| 빨간 `맵 불일치` 배너가 뜸 | GUI 가 연 맵과 로봇이 로드한 맵이 다르다. 배너에 어느 로봇의 무엇이 다른지 나온다 |
+| 배너에 `맵 이름` 이 다르다고 나옴 | 로봇의 `/home/pinky/map` 에 그 이름의 맵이 없어 교체에 실패했다. 로봇 로그의 `맵 교체 실패` 를 보고 파일을 복사한다 |
+| 맵을 바꾼 뒤 로봇이 안 움직임 | 맵이 바뀌면 AMCL 위치 추정이 무효다. 각 로봇의 `[초기위치 지정]` 을 다시 한다 |
 | 맵이 같은데 `맵 불일치` 가 뜸 | 맵을 새로 만들고 한쪽만 갱신한 경우다. `ros2 topic echo /pinky1/state --field map_width` 로 로봇이 실제로 쓰는 규격을 확인 |
 | 교착인데 coordinator 가 개입하지 않음 | `conflict_distance` 가 실제 멈추는 거리보다 작음. `/fleet/coordinator_status` 의 `distance` 확인 후 키울 것 |
 | 불필요하게 자주 멈춤 | `stall_duration` 을 늘리거나 `conflict_distance` 를 줄인다 |

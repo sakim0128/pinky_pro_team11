@@ -297,7 +297,15 @@ class FleetWindow(QMainWindow):
         map_row.addWidget(open_map)
         map_row.addWidget(self._reload_map_button)
         map_layout.addLayout(map_row)
-        caution = QLabel('로봇에 올린 맵과 같은 파일이어야 위치가 맞습니다.')
+        self._send_map_button = QPushButton('로봇에 맵 전송')
+        self._send_map_button.setToolTip(
+            '맵 이름만 보낸다. 로봇은 자기 맵 디렉터리에서 같은 이름을 찾아 교체한다.')
+        self._send_map_button.clicked.connect(self.send_map_to_robots)
+        self._send_map_button.setEnabled(False)
+        map_layout.addWidget(self._send_map_button)
+        caution = QLabel(
+            '맵을 고르면 이름이 로봇에 자동 전송되어 로봇의 맵도 바뀝니다. '
+            '로봇의 맵 디렉터리에 같은 이름의 맵이 있어야 합니다.')
         caution.setWordWrap(True)
         caution.setStyleSheet('color: #64748b;')
         map_layout.addWidget(caution)
@@ -401,7 +409,8 @@ class FleetWindow(QMainWindow):
         msg = FleetCommand()
         msg.command = command
         for key, value in fields.items():
-            setattr(msg, key, float(value))
+            # map_name 은 문자열이고 나머지는 float 이다.
+            setattr(msg, key, value if isinstance(value, str) else float(value))
         self._command_pubs[name].publish(msg)
 
     # ------------------------------------------------------------------ 맵
@@ -438,6 +447,7 @@ class FleetWindow(QMainWindow):
         self._map_label.setToolTip(tooltip)
         self._map_label.setStyleSheet('' if loaded else 'color: #f87171;')
         self._reload_map_button.setEnabled(loaded)
+        self._send_map_button.setEnabled(loaded)
         self.statusBar().showMessage(message)
 
     def open_map_dialog(self):
@@ -451,13 +461,38 @@ class FleetWindow(QMainWindow):
             '맵 yaml (*.yaml *.yml)')
         if not path:
             return
-        if self._load_map(path, interactive=True):
-            self.statusBar().showMessage(
-                f'맵 로드: {path} — 이 경로를 유지하려면 [저장] 으로 mission.yaml 에 '
-                '기록하세요.')
+        if not self._load_map(path, interactive=True):
+            return
+        # 사용자가 직접 고른 경우에만 로봇까지 바꾼다. 시작 시 자동 로드에서는
+        # 보내지 않는다 — GUI 재시작만으로 주행 중인 로봇의 맵과 AMCL 을 리셋하면 위험하다.
+        self.send_map_to_robots(notify=True)
+        self.statusBar().showMessage(
+            f'맵 로드: {path} — 이 경로를 유지하려면 [저장] 으로 mission.yaml 에 '
+            '기록하세요.')
 
     def reload_map(self):
         self._load_map(self._mission.map_yaml_path, interactive=True)
+
+    def send_map_to_robots(self, notify=True):
+        """맵 "이름" 을 두 로봇에 보낸다. 로봇이 자기 디렉터리에서 찾아 교체한다.
+
+        경로가 아니라 이름을 보내는 이유는 관제 PC 와 로봇의 맵 디렉터리가 다르기
+        때문이다 (예: ~/maps vs /home/pinky/map).
+        """
+        if not self.canvas.has_map():
+            return
+        name = self.canvas.map_data().name
+        for spec in self._mission.robots:
+            self._publish(spec['name'], FleetCommand.CMD_SET_MAP, map_name=name)
+        self.statusBar().showMessage(f'맵 이름 "{name}" 을 두 로봇에 전송했습니다.')
+        if notify:
+            QMessageBox.information(
+                self, '맵 전송',
+                f'맵 이름 "{name}" 을 두 로봇에 보냈습니다.\n\n'
+                '로봇의 맵 디렉터리에 같은 이름의 맵이 있어야 교체됩니다. '
+                '실패하면 화면 위에 빨간 맵 불일치 경고가 남습니다.\n\n'
+                '맵이 바뀌면 AMCL 의 기존 위치 추정이 무효가 되므로, '
+                '각 로봇의 [초기위치 지정] 을 다시 해주세요.')
 
     # ------------------------------------------------------------- 클릭 모드
 
@@ -622,16 +657,23 @@ class FleetWindow(QMainWindow):
             problems = []
             for spec in self._mission.robots:
                 state = self._states.get(spec['name'])
-                if state is None or not state.map_known:
+                if state is None:
                     continue
-                issues = map_mismatches(
-                    map_data, state.map_resolution, state.map_width, state.map_height,
-                    state.map_origin_x, state.map_origin_y)
+                # 이름은 에이전트가 기억하는 값, 규격은 map 토픽에서 온 값이라
+                # 출처가 다르다. Nav2 가 아직 안 떠도 이름은 대조할 수 있다.
+                geometry = {}
+                if state.map_known:
+                    geometry = dict(
+                        resolution=state.map_resolution,
+                        width=state.map_width, height=state.map_height,
+                        origin_x=state.map_origin_x, origin_y=state.map_origin_y)
+                issues = map_mismatches(map_data, name=state.map_name, **geometry)
                 if issues:
                     problems.append(f"{spec['name']}: " + ', '.join(issues))
             if problems:
                 text = ('맵 불일치 — ' + ' / '.join(problems)
-                        + '. 클릭 좌표가 어긋납니다. 로봇의 map:= 인자를 확인하세요.')
+                        + '. 클릭 좌표가 어긋납니다. '
+                        '로봇의 맵 디렉터리에 같은 이름의 맵이 있는지 확인하세요.')
 
         if text == self._map_warn_text:
             return

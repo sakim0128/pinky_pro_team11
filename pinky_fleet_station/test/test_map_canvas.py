@@ -237,6 +237,37 @@ def test_all_fields_mismatch(tmp_path):
     assert len(issues) == 4, issues
 
 
+def test_map_name_is_basename_without_extension(tmp_path):
+    assert MapData(make_map(tmp_path)).name == 'map'
+
+
+def test_name_mismatch_is_reported(tmp_path):
+    m = MapData(make_map(tmp_path))
+    issues = map_mismatches(m, name='pinklab', **same_spec())
+    assert len(issues) == 1, issues
+    assert '맵 이름' in issues[0]
+    assert 'map' in issues[0] and 'pinklab' in issues[0]
+
+
+def test_matching_name_is_quiet(tmp_path):
+    m = MapData(make_map(tmp_path))
+    assert map_mismatches(m, name=m.name, **same_spec()) == []
+
+
+@pytest.mark.parametrize('name', [None, ''])
+def test_missing_name_is_skipped(tmp_path, name):
+    """이름을 보고하지 않는 구버전 에이전트에서도 규격 비교는 그대로 동작한다."""
+    m = MapData(make_map(tmp_path))
+    assert map_mismatches(m, name=name, **same_spec()) == []
+
+
+def test_geometry_can_be_omitted(tmp_path):
+    """Nav2 가 아직 안 떠 규격을 모를 때도 이름만으로 대조할 수 있다."""
+    m = MapData(make_map(tmp_path))
+    assert map_mismatches(m, name=m.name) == []
+    assert map_mismatches(m, name='other') == ['맵 이름 map != other']
+
+
 def test_two_real_maps_do_not_match(tmp_path):
     """서로 다른 맵을 열면 반드시 걸려야 한다 (pinklab vs my_map 규격)."""
     m = MapData(make_map(tmp_path))                       # pinklab 규격

@@ -95,6 +95,11 @@ class MapData:
             self._pixmap = QPixmap.fromImage(self.image)
         return self._pixmap
 
+    @property
+    def name(self):
+        """확장자를 뗀 맵 이름. 로봇에는 이 이름만 보낸다."""
+        return os.path.splitext(os.path.basename(self.yaml_path))[0]
+
     def summary(self):
         """GUI 라벨/상태바에 쓰는 한 줄 요약."""
         return (f'{os.path.basename(self.yaml_path)} · '
@@ -111,24 +116,32 @@ class MapData:
                 self.origin_y + (self.height - py) * self.resolution)
 
 
-def map_mismatches(map_data, resolution, width, height, origin_x, origin_y, tol=1e-6):
+def map_mismatches(map_data, resolution=None, width=None, height=None,
+                   origin_x=None, origin_y=None, name=None, tol=1e-6):
     """GUI 가 연 맵과 로봇이 로드한 맵의 차이를 사람이 읽을 문자열로 돌려준다.
 
-    빈 리스트면 같은 맵이다. 파일 경로가 아니라 규격을 비교하므로, 경로가 달라도
-    내용이 같으면 통과하고 경로가 같아도 내용이 다르면 잡힌다.
+    빈 리스트면 같은 맵이다. 파일 경로가 아니라 이름과 규격을 비교하므로, 경로가
+    달라도 내용이 같으면 통과하고 경로가 같아도 내용이 다르면 잡힌다.
+
+    각 인자는 ``None`` 이면 건너뛴다. 이름과 규격은 출처가 달라서 (이름은 에이전트가
+    기억하는 값, 규격은 map 토픽) 한쪽만 알 수 있는 상황이 있다 — 예를 들어 Nav2 가
+    아직 안 떠서 map 토픽을 못 받았어도 이름은 알 수 있다.
 
     ``resolution`` 은 OccupancyGrid 에서 float32 로 오기 때문에 (0.05 가
     0.05000000074505806 로 들어온다) 반드시 허용 오차를 두고 비교해야 한다.
     """
     issues = []
-    if abs(float(resolution) - map_data.resolution) > tol:
+    if name and name != map_data.name:
+        issues.append(f'맵 이름 {map_data.name} != {name}')
+    if resolution is not None and abs(float(resolution) - map_data.resolution) > tol:
         issues.append(f'해상도 {map_data.resolution:g} != {float(resolution):g}')
-    if int(width) != map_data.width or int(height) != map_data.height:
+    if width is not None and height is not None and (
+            int(width) != map_data.width or int(height) != map_data.height):
         issues.append(
             f'크기 {map_data.width}x{map_data.height} != {int(width)}x{int(height)}')
-    if abs(float(origin_x) - map_data.origin_x) > tol:
+    if origin_x is not None and abs(float(origin_x) - map_data.origin_x) > tol:
         issues.append(f'원점 x {map_data.origin_x:g} != {float(origin_x):g}')
-    if abs(float(origin_y) - map_data.origin_y) > tol:
+    if origin_y is not None and abs(float(origin_y) - map_data.origin_y) > tol:
         issues.append(f'원점 y {map_data.origin_y:g} != {float(origin_y):g}')
     return issues
 

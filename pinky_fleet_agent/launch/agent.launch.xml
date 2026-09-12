@@ -10,6 +10,10 @@
     <arg name="robot_base_frame" default="base_footprint"/>
     <arg name="map_topic" default="map"
          description="이 로봇이 로드한 맵의 규격을 읽어 관제 PC 로 올려보낸다 (맵 대조용)."/>
+    <arg name="map_dir" default="/home/pinky/map"
+         description="관제 PC 가 맵 이름을 보내면 이 디렉터리에서 &lt;이름&gt;.yaml 을 찾는다."/>
+    <arg name="map_name" default=""
+         description="기동 시 로드한 맵 이름 (확장자 없음). 관제 PC 에 보고용."/>
     <arg name="max_linear_vel" default="0.2"/>
     <arg name="max_angular_vel" default="1.5"/>
     <arg name="hold_watchdog" default="45.0"
@@ -24,6 +28,8 @@
         <param name="global_frame" value="$(var global_frame)"/>
         <param name="robot_base_frame" value="$(var robot_base_frame)"/>
         <param name="map_topic" value="$(var map_topic)"/>
+        <param name="map_dir" value="$(var map_dir)"/>
+        <param name="map_name" value="$(var map_name)"/>
         <param name="max_linear_vel" value="$(var max_linear_vel)"/>
         <param name="max_angular_vel" value="$(var max_angular_vel)"/>
         <param name="hold_watchdog" value="$(var hold_watchdog)"/>

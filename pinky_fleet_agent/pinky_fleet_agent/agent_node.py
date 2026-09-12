@@ -7,11 +7,13 @@ domain_bridge 가 토픽만 브리지해도 전체 시스템이 동작한다.
 """
 
 import math
+import os
 
 import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav2_msgs.action import NavigateToPose
+from nav2_msgs.srv import LoadMap
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
@@ -26,6 +28,8 @@ from std_msgs.msg import Float32
 from tf2_ros import Buffer, TransformListener
 
 from pinky_fleet_msgs.msg import FleetCommand, RobotState
+
+from .map_paths import resolve_map_path
 
 # RViz 의 2D Pose Estimate 와 동일한 공분산
 INITIAL_POSE_COV_XX = 0.25
@@ -53,6 +57,8 @@ class PinkyAgent(Node):
         self.declare_parameter('state_topic', '')     # 비우면 /<robot_name>/state
         self.declare_parameter('command_topic', '')   # 비우면 /<robot_name>/command
         self.declare_parameter('map_topic', 'map')
+        self.declare_parameter('map_dir', '/home/pinky/map')
+        self.declare_parameter('map_name', '')
         self.declare_parameter('state_rate', 10.0)
         self.declare_parameter('pose_timeout', 2.0)
         # 관제 PC 나 브리지가 죽어 CMD_RESUME 이 영영 오지 않는 경우를 대비한 자동 해제.
@@ -61,6 +67,7 @@ class PinkyAgent(Node):
         self.declare_parameter('robot_base_frame', 'base_footprint')
         self.declare_parameter('max_linear_vel', 0.2)
         self.declare_parameter('max_angular_vel', 1.5)
+        self.declare_parameter('map_server', '/map_server')
         self.declare_parameter('controller_server', '/controller_server')
         self.declare_parameter('velocity_smoother', '/velocity_smoother')
         self.declare_parameter('follow_path_plugin', 'FollowPath')
@@ -95,6 +102,8 @@ class PinkyAgent(Node):
         self._angular_velocity = 0.0
         self._battery_percent = float('nan')
         self._map_info = None        # 이 로봇 Nav2 가 실제로 로드한 맵의 규격
+        self._map_dir = self.get_parameter('map_dir').value
+        self._map_name = self.get_parameter('map_name').value or ''
 
         self._nav_status = RobotState.NAV_IDLE
         self._goal_valid = False
@@ -137,6 +146,10 @@ class PinkyAgent(Node):
         self._nav_client = ActionClient(
             self, NavigateToPose, 'navigate_to_pose', callback_group=cb)
 
+        map_server = self.get_parameter('map_server').value
+        self._load_map_client = self.create_client(
+            LoadMap, f'{map_server}/load_map', callback_group=cb)
+
         controller = self.get_parameter('controller_server').value
         smoother = self.get_parameter('velocity_smoother').value
         self._controller_params = self.create_client(
@@ -149,7 +162,8 @@ class PinkyAgent(Node):
 
         self.get_logger().info(
             f'pinky_fleet_agent 시작: name={self._name} domain_id={self._domain_id} '
-            f'state={self._state_topic} command={self._command_topic}')
+            f'state={self._state_topic} command={self._command_topic} '
+            f'map_dir={self._map_dir} map={self._map_name or "(미지정)"}')
 
     # ------------------------------------------------------------------ 구독
 
@@ -229,6 +243,9 @@ class PinkyAgent(Node):
         elif msg.command == FleetCommand.CMD_SET_SPEED:
             self._apply_speed(msg.max_linear_vel, msg.max_angular_vel)
 
+        elif msg.command == FleetCommand.CMD_SET_MAP:
+            self._set_map(msg.map_name)
+
         else:
             self.get_logger().warn(f'알 수 없는 command: {msg.command}')
 
@@ -305,6 +322,59 @@ class PinkyAgent(Node):
         if handle is None:
             return
         handle.cancel_goal_async()
+
+    # ------------------------------------------------------------------ 맵
+
+    def _set_map(self, map_name):
+        """관제 PC 가 보낸 맵 "이름" 으로 이 로봇의 맵을 바꾼다.
+
+        경로가 아니라 이름을 받는 이유는 관제 PC 와 로봇의 맵 디렉터리가 다르기
+        때문이다. 이름만 받아 <map_dir>/<name>.yaml 을 찾는다.
+        """
+        path, error = resolve_map_path(self._map_dir, map_name)
+        if error is not None:
+            self.get_logger().error(f'맵 교체 실패: {error}')
+            return
+
+        name = os.path.splitext(os.path.basename(path))[0]
+        if name == self._map_name:
+            # 관제 PC 가 같은 맵을 다시 보내도 주행 중인 로봇을 건드리지 않는다.
+            self.get_logger().info(f'맵 교체 생략: 이미 {name} 을 쓰고 있습니다.')
+            return
+
+        if not self._load_map_client.service_is_ready():
+            if not self._load_map_client.wait_for_service(timeout_sec=2.0):
+                self.get_logger().error(
+                    'map_server/load_map 서비스를 찾을 수 없습니다 (Nav2 기동 확인).')
+                return
+
+        request = LoadMap.Request()
+        request.map_url = path
+        future = self._load_map_client.call_async(request)
+        future.add_done_callback(
+            lambda f, n=name, p=path: self._on_load_map_result(f, n, p))
+        self.get_logger().info(f'맵 교체 요청: {name} ({path})')
+
+    def _on_load_map_result(self, future, name, path):
+        try:
+            result = future.result().result
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f'맵 교체 응답 수신 실패: {exc}')
+            return
+
+        if result != LoadMap.Response.RESULT_SUCCESS:
+            reason = {
+                LoadMap.Response.RESULT_MAP_DOES_NOT_EXIST: '맵 파일이 없음',
+                LoadMap.Response.RESULT_INVALID_MAP_DATA: '맵 이미지가 잘못됨',
+                LoadMap.Response.RESULT_INVALID_MAP_METADATA: '맵 yaml 이 잘못됨',
+            }.get(result, f'알 수 없는 오류 (result={result})')
+            self.get_logger().error(f'맵 교체 실패: {reason} — {path}')
+            return
+
+        self._map_name = name
+        self.get_logger().warn(
+            f'맵을 {name} 으로 교체했습니다. AMCL 의 기존 위치 추정은 무효가 되므로 '
+            '관제 GUI 에서 초기 위치를 다시 지정하세요.')
 
     # ------------------------------------------------------ initialpose / 속도
 
@@ -422,6 +492,7 @@ class PinkyAgent(Node):
         msg.max_angular_vel = self._max_ang
 
         info = self._map_info
+        msg.map_name = self._map_name
         msg.map_known = info is not None
         if info is not None:
             msg.map_resolution = info.resolution
