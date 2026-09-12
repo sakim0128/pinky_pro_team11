@@ -12,7 +12,7 @@ import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav2_msgs.action import NavigateToPose
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from rclpy.action import ActionClient
@@ -52,6 +52,7 @@ class PinkyAgent(Node):
         self.declare_parameter('domain_id', 10)
         self.declare_parameter('state_topic', '')     # 비우면 /<robot_name>/state
         self.declare_parameter('command_topic', '')   # 비우면 /<robot_name>/command
+        self.declare_parameter('map_topic', 'map')
         self.declare_parameter('state_rate', 10.0)
         self.declare_parameter('pose_timeout', 2.0)
         # 관제 PC 나 브리지가 죽어 CMD_RESUME 이 영영 오지 않는 경우를 대비한 자동 해제.
@@ -93,6 +94,7 @@ class PinkyAgent(Node):
         self._linear_velocity = 0.0
         self._angular_velocity = 0.0
         self._battery_percent = float('nan')
+        self._map_info = None        # 이 로봇 Nav2 가 실제로 로드한 맵의 규격
 
         self._nav_status = RobotState.NAV_IDLE
         self._goal_valid = False
@@ -105,6 +107,18 @@ class PinkyAgent(Node):
         self.create_subscription(Odometry, 'odom', self._on_odom, 10, callback_group=cb)
         self.create_subscription(
             Float32, 'battery/percent', self._on_battery, 10, callback_group=cb)
+
+        # map_server 는 맵을 latch 해서 한 번만 발행한다. 이미 발행된 것을 받으려면
+        # 구독도 TRANSIENT_LOCAL 이어야 한다.
+        map_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            OccupancyGrid, self.get_parameter('map_topic').value,
+            self._on_map, map_qos, callback_group=cb)
 
         command_qos = QoSProfile(
             history=QoSHistoryPolicy.KEEP_LAST,
@@ -145,6 +159,15 @@ class PinkyAgent(Node):
 
     def _on_battery(self, msg: Float32):
         self._battery_percent = float(msg.data)
+
+    def _on_map(self, msg: OccupancyGrid):
+        # info 만 남기고 data 배열(수만~수십만 셀)은 버린다.
+        info = msg.info
+        if self._map_info is None:
+            self.get_logger().info(
+                f'맵 확인: {info.width}x{info.height} px, {info.resolution:g} m/px, '
+                f'origin=({info.origin.position.x:.3f}, {info.origin.position.y:.3f})')
+        self._map_info = info
 
     def _update_pose_from_tf(self):
         try:
@@ -397,6 +420,16 @@ class PinkyAgent(Node):
         msg.goal_x, msg.goal_y, msg.goal_yaw = self._goal
         msg.max_linear_vel = self._max_lin
         msg.max_angular_vel = self._max_ang
+
+        info = self._map_info
+        msg.map_known = info is not None
+        if info is not None:
+            msg.map_resolution = info.resolution
+            msg.map_width = info.width
+            msg.map_height = info.height
+            msg.map_origin_x = info.origin.position.x
+            msg.map_origin_y = info.origin.position.y
+
         msg.battery_percent = self._battery_percent
         self._state_pub.publish(msg)
 

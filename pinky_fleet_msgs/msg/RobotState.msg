@@ -36,4 +36,14 @@ float64 goal_yaw
 float64 max_linear_vel
 float64 max_angular_vel
 
+# --- 이 로봇의 Nav2 가 실제로 로드한 맵의 규격 (map 토픽 OccupancyGrid.info) ---
+# 관제 PC 가 자기 맵과 비교해 서로 다른 맵을 쓰고 있는지 잡아내는 용도.
+# 파일 경로가 달라도 내용이 같으면 통과하고, 경로가 같아도 내용이 다르면 잡힌다.
+bool    map_known               # map 토픽을 받았는가 (Nav2 기동 전에는 false)
+float32 map_resolution          # m/px
+uint32  map_width               # px
+uint32  map_height              # px
+float64 map_origin_x
+float64 map_origin_y
+
 float32 battery_percent

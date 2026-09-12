@@ -111,6 +111,28 @@ class MapData:
                 self.origin_y + (self.height - py) * self.resolution)
 
 
+def map_mismatches(map_data, resolution, width, height, origin_x, origin_y, tol=1e-6):
+    """GUI 가 연 맵과 로봇이 로드한 맵의 차이를 사람이 읽을 문자열로 돌려준다.
+
+    빈 리스트면 같은 맵이다. 파일 경로가 아니라 규격을 비교하므로, 경로가 달라도
+    내용이 같으면 통과하고 경로가 같아도 내용이 다르면 잡힌다.
+
+    ``resolution`` 은 OccupancyGrid 에서 float32 로 오기 때문에 (0.05 가
+    0.05000000074505806 로 들어온다) 반드시 허용 오차를 두고 비교해야 한다.
+    """
+    issues = []
+    if abs(float(resolution) - map_data.resolution) > tol:
+        issues.append(f'해상도 {map_data.resolution:g} != {float(resolution):g}')
+    if int(width) != map_data.width or int(height) != map_data.height:
+        issues.append(
+            f'크기 {map_data.width}x{map_data.height} != {int(width)}x{int(height)}')
+    if abs(float(origin_x) - map_data.origin_x) > tol:
+        issues.append(f'원점 x {map_data.origin_x:g} != {float(origin_x):g}')
+    if abs(float(origin_y) - map_data.origin_y) > tol:
+        issues.append(f'원점 y {map_data.origin_y:g} != {float(origin_y):g}')
+    return issues
+
+
 class MapCanvas(QWidget):
     """맵 위에서 press -> drag -> release 로 (x, y, yaw) 를 고르는 캔버스."""
 
@@ -152,6 +174,9 @@ class MapCanvas(QWidget):
 
     def has_map(self):
         return self._map is not None
+
+    def map_data(self):
+        return self._map
 
     def set_mode(self, mode, robot_name=None):
         self._mode = mode

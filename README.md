@@ -62,6 +62,9 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 `pinky_fleet_msgs` 는 **관제 PC 에도 반드시 빌드·소싱**해야 한다. `domain_bridge` 가
 런타임에 메시지 타입서포트를 로드하기 때문이다.
 
+`pinky_fleet_msgs` 의 `.msg` 가 바뀌면 **세 대를 모두 다시 빌드**해야 한다.
+한쪽만 갱신하면 타입이 맞지 않아 브리지가 메시지를 넘기지 못한다.
+
 ## 설치
 
 세 대 모두 저장소를 받되, **빌드하는 패키지가 다르다.**
@@ -138,6 +141,15 @@ yaml 을 직접 고쳐도 된다. 아래 파일의 `map.yaml_path` 를 복사한
 ```
 
 같은 디렉터리의 `mission_deadlock_test.yaml` 도 마찬가지.
+
+**GUI 의 맵 선택은 관제 PC 화면에만 적용된다.** 로봇이 쓰는 맵은
+`robot.launch.xml` 의 `map:=` 인자로만 정해지고, 둘은 서로 전달되지 않는다.
+두 맵이 다르면 클릭 좌표가 로봇의 `map` 프레임과 어긋나므로 **반드시 같은 맵이어야 한다.**
+
+이를 자동으로 잡기 위해 각 에이전트가 로봇 Nav2 의 `map` 토픽에서 실제 로드된 맵의
+규격(해상도 / 픽셀 크기 / 원점)을 읽어 `RobotState` 에 실어 보낸다. GUI 가 자기 맵과
+비교해 다르면 빨간 `맵 불일치` 배너에 어느 로봇의 무엇이 다른지 표시한다.
+파일 경로가 아니라 규격을 비교하므로 경로가 달라도 내용이 같으면 통과한다.
 
 ### 네트워크 전제
 
@@ -329,6 +341,8 @@ upstream `nav2_params.yaml` 의 사본 + 아래 변경만 담는다 (`[fleet]` �
 | 명령이 로봇에 안 감 | 로봇에서 `ROS_DOMAIN_ID=10 ros2 topic echo /pinky1/command` |
 | state 는 오는데 GUI 에 로봇이 안 보임 | `localized` 가 `false` (AMCL 미수렴). 초기 위치를 다시 지정 |
 | 로봇이 맵의 엉뚱한 자리에 표시됨 | 두 로봇과 GUI 가 같은 맵 yaml 을 쓰는지 확인 |
+| 빨간 `맵 불일치` 배너가 뜸 | GUI 가 연 맵과 로봇 Nav2 가 로드한 맵이 다르다. 배너에 어느 로봇의 무엇이 다른지 나온다. 로봇의 `map:=` 인자와 GUI 의 `[맵 열기]` 를 같은 맵으로 맞춘다 |
+| 맵이 같은데 `맵 불일치` 가 뜸 | 맵을 새로 만들고 한쪽만 갱신한 경우다. `ros2 topic echo /pinky1/state --field map_width` 로 로봇이 실제로 쓰는 규격을 확인 |
 | 교착인데 coordinator 가 개입하지 않음 | `conflict_distance` 가 실제 멈추는 거리보다 작음. `/fleet/coordinator_status` 의 `distance` 확인 후 키울 것 |
 | 불필요하게 자주 멈춤 | `stall_duration` 을 늘리거나 `conflict_distance` 를 줄인다 |
 | 속도 적용이 안 됨 | 로봇에서 `ros2 param get /controller_server FollowPath.desired_linear_vel`. Nav2 가 아직 activate 되기 전이면 건너뛴다 (로그 확인) |

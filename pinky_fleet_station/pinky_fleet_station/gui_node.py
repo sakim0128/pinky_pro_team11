@@ -30,7 +30,9 @@ from std_msgs.msg import String
 
 from pinky_fleet_msgs.msg import FleetCommand, RobotState
 
-from .map_canvas import MapCanvas, MapData, MapLoadError, MODE_GOAL, MODE_INITIALPOSE
+from .map_canvas import (
+    MapCanvas, MapData, MapLoadError, MODE_GOAL, MODE_INITIALPOSE, map_mismatches,
+)
 from .mission_io import MissionError, load_mission, save_mission
 
 NAV_STATUS_TEXT = {
@@ -75,6 +77,15 @@ SIM_BANNER_STYLE = """
 background: #78350f;
 color: #fde68a;
 border: 1px solid #f59e0b;
+border-radius: 4px;
+padding: 6px;
+font-weight: bold;
+"""
+
+MAP_WARN_BANNER_STYLE = """
+background: #7f1d1d;
+color: #fecaca;
+border: 1px solid #ef4444;
 border-radius: 4px;
 padding: 6px;
 font-weight: bold;
@@ -200,6 +211,7 @@ class FleetWindow(QMainWindow):
         self._coordinator_status = None
         self._sim_mode = None          # None = 아직 판정 전
         self._sim_tick = 0
+        self._map_warn_text = ''
 
         self._base_title = 'Pinky Fleet Station'
         self.setWindowTitle(self._base_title)
@@ -319,11 +331,18 @@ class FleetWindow(QMainWindow):
         self._sim_banner.setStyleSheet(SIM_BANNER_STYLE)
         self._sim_banner.hide()
 
+        self._map_warn_banner = QLabel()
+        self._map_warn_banner.setAlignment(Qt.AlignCenter)
+        self._map_warn_banner.setWordWrap(True)
+        self._map_warn_banner.setStyleSheet(MAP_WARN_BANNER_STYLE)
+        self._map_warn_banner.hide()
+
         container = QWidget()
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(6, 6, 6, 0)
         container_layout.setSpacing(6)
         container_layout.addWidget(self._sim_banner)
+        container_layout.addWidget(self._map_warn_banner)
         container_layout.addWidget(splitter, 1)
         self.setCentralWidget(container)
 
@@ -591,6 +610,37 @@ class FleetWindow(QMainWindow):
             self._node.get_logger().warn(
                 '시뮬레이션 모드: fake_state_pub 이 떠 있어 화면의 로봇은 가짜입니다.')
 
+    def _check_map_match(self):
+        """로봇이 실제로 로드한 맵이 GUI 가 연 맵과 같은지 확인한다.
+
+        다르면 클릭 좌표가 조용히 어긋나므로(에러가 안 난다) 화면에 크게 띄운다.
+        GUI 에 맵이 없거나 로봇이 아직 맵을 못 받았으면(Nav2 기동 전) 아무 말 안 한다.
+        """
+        text = ''
+        if self.canvas.has_map():
+            map_data = self.canvas.map_data()
+            problems = []
+            for spec in self._mission.robots:
+                state = self._states.get(spec['name'])
+                if state is None or not state.map_known:
+                    continue
+                issues = map_mismatches(
+                    map_data, state.map_resolution, state.map_width, state.map_height,
+                    state.map_origin_x, state.map_origin_y)
+                if issues:
+                    problems.append(f"{spec['name']}: " + ', '.join(issues))
+            if problems:
+                text = ('맵 불일치 — ' + ' / '.join(problems)
+                        + '. 클릭 좌표가 어긋납니다. 로봇의 map:= 인자를 확인하세요.')
+
+        if text == self._map_warn_text:
+            return
+        self._map_warn_text = text
+        self._map_warn_banner.setText(text)
+        self._map_warn_banner.setVisible(bool(text))
+        if text:
+            self._node.get_logger().warn(text)
+
     def _on_hover(self, wx, wy):
         self.statusBar().showMessage(f'커서: {wx:+.2f}, {wy:+.2f} m', 1500)
 
@@ -617,6 +667,8 @@ class FleetWindow(QMainWindow):
         self.canvas.robots = render
         self.canvas.paths = self._paths
         self.canvas.update()
+
+        self._check_map_match()
 
         status = self._coordinator_status
         if status is None:

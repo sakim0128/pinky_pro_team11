@@ -20,7 +20,9 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pinky_fleet_station.map_canvas import MapData, MapLoadError  # noqa: E402
+from pinky_fleet_station.map_canvas import (  # noqa: E402
+    MapData, MapLoadError, map_mismatches,
+)
 
 # pinklab.yaml 과 같은 규격 (원본은 207x293 PNG)
 RESOLUTION = 0.05
@@ -186,3 +188,60 @@ def test_expands_user_and_env(tmp_path, monkeypatch):
     monkeypatch.setenv('PINKY_TEST_MAP_DIR', str(tmp_path))
     m = MapData('$PINKY_TEST_MAP_DIR/map.yaml')
     assert m.yaml_path == yaml_path
+
+
+# --- 로봇 맵과의 대조 ---------------------------------------------------
+
+def same_spec():
+    """로봇이 같은 맵을 로드했을 때 RobotState 에 실려 오는 값."""
+    return dict(resolution=RESOLUTION, width=WIDTH, height=HEIGHT,
+                origin_x=ORIGIN[0], origin_y=ORIGIN[1])
+
+
+def test_same_map_has_no_mismatch(tmp_path):
+    m = MapData(make_map(tmp_path))
+    assert map_mismatches(m, **same_spec()) == []
+
+
+def test_float32_resolution_is_not_a_false_alarm(tmp_path):
+    """OccupancyGrid.info.resolution 은 float32 라 0.05 가 그대로 오지 않는다."""
+    import numpy as np
+    m = MapData(make_map(tmp_path))
+    spec = same_spec()
+    spec['resolution'] = float(np.float32(RESOLUTION))
+    assert spec['resolution'] != RESOLUTION        # 실제로 값이 다르다
+    assert map_mismatches(m, **spec) == []         # 그래도 경고하면 안 된다
+
+
+@pytest.mark.parametrize('field,value,keyword', [
+    ('resolution', 0.10, '해상도'),
+    ('width', 100, '크기'),
+    ('height', 100, '크기'),
+    ('origin_x', 1.0, '원점 x'),
+    ('origin_y', 1.0, '원점 y'),
+])
+def test_single_field_mismatch_is_reported(tmp_path, field, value, keyword):
+    m = MapData(make_map(tmp_path))
+    spec = same_spec()
+    spec[field] = value
+    issues = map_mismatches(m, **spec)
+    assert len(issues) == 1, issues
+    assert keyword in issues[0]
+
+
+def test_all_fields_mismatch(tmp_path):
+    m = MapData(make_map(tmp_path))
+    issues = map_mismatches(m, resolution=0.1, width=10, height=20,
+                            origin_x=1.0, origin_y=2.0)
+    # 해상도 / 크기 / 원점 x / 원점 y
+    assert len(issues) == 4, issues
+
+
+def test_two_real_maps_do_not_match(tmp_path):
+    """서로 다른 맵을 열면 반드시 걸려야 한다 (pinklab vs my_map 규격)."""
+    m = MapData(make_map(tmp_path))                       # pinklab 규격
+    issues = map_mismatches(m, resolution=0.05, width=82, height=63,
+                            origin_x=-2.05, origin_y=-1.62)
+    assert any('크기' in i for i in issues)
+    assert any('원점 x' in i for i in issues)
+    assert any('원점 y' in i for i in issues)

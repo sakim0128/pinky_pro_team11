@@ -8,6 +8,8 @@
     <arg name="use_sim_time" default="False"/>
     <arg name="global_frame" default="map"/>
     <arg name="robot_base_frame" default="base_footprint"/>
+    <arg name="map_topic" default="map"
+         description="이 로봇이 로드한 맵의 규격을 읽어 관제 PC 로 올려보낸다 (맵 대조용)."/>
     <arg name="max_linear_vel" default="0.2"/>
     <arg name="max_angular_vel" default="1.5"/>
     <arg name="hold_watchdog" default="45.0"
@@ -21,6 +23,7 @@
         <param name="use_sim_time" value="$(var use_sim_time)"/>
         <param name="global_frame" value="$(var global_frame)"/>
         <param name="robot_base_frame" value="$(var robot_base_frame)"/>
+        <param name="map_topic" value="$(var map_topic)"/>
         <param name="max_linear_vel" value="$(var max_linear_vel)"/>
         <param name="max_angular_vel" value="$(var max_angular_vel)"/>
         <param name="hold_watchdog" value="$(var hold_watchdog)"/>
