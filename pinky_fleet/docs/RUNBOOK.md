@@ -230,6 +230,84 @@ ros2 run pinky_fleet fleet_master --goal 2.5 1.0 90 -y
 
 ---
 
+## Nav2 파라미터 튜닝 결과 저장하기
+
+rqt_reconfigure 로 `inflation_radius` 같은 값을 만졌다면 **그 값은 노드를 재시작하면
+사라진다.** ROS2 의 rqt 에는 ROS1 의 dynamic_reconfigure 같은 save 버튼이 없다.
+파일로 남겨야 다음에 로봇을 껐다 켜도 같은 주행이 나온다.
+
+**로봇이 두 대이므로 양쪽에 똑같이 적용해야 한다.** 한쪽만 고치면 같은 목적지 좌표에
+대해 두 대가 다르게 움직인다.
+
+### 1. 지금 값을 덤프한다
+
+파라미터는 서비스라 PC 에서 도메인만 맞추면 읽힌다. SSH 할 필요 없다.
+
+```bash
+tools/dump_nav2_params.sh 10          # 로봇1 → ./nav2_params_dump_domain10/
+tools/dump_nav2_params.sh 11          # 로봇2
+```
+
+노드 하나만 보려면:
+
+```bash
+ROS_DOMAIN_ID=10 ros2 param dump /local_costmap/local_costmap > lc10.yaml
+```
+
+> `ros2 param dump` 는 Jazzy 에서 **stdout 으로만** 출력한다.
+> 구버전 문서에 나오는 `--output-dir` / `--print` 옵션은 제거됐다. `>` 로 리다이렉트한다.
+> 최상위 키는 `/local_costmap/local_costmap:` 처럼 노드의 완전한 이름이다.
+
+값 하나만 확인할 거면 덤프도 필요 없다:
+
+```bash
+ROS_DOMAIN_ID=10 ros2 param get /local_costmap/local_costmap inflation_layer.inflation_radius
+```
+
+### 2. 바꾼 항목만 골라낸다
+
+```bash
+grep -n "inflation_radius\|cost_scaling_factor" nav2_params_dump_domain10/*costmap*.yaml
+```
+
+> **덤프 파일을 그대로 params 파일로 쓰지 않는다.**
+> 덤프에는 `use_sim_time`, `qos_overrides.*`, 플러그인이 런타임에 추가한 항목까지
+> 전부 들어 있고, 원본의 주석과 구조도 사라진다. 런타임에만 존재하는 항목이 섞여
+> 기동 때 문제를 만들 수도 있다.
+> **덤프는 "내가 뭘 바꿨는지" 를 찾는 용도로 쓰고, 바뀐 항목만 원본에 옮긴다.**
+
+### 3. 로봇의 params 파일에 옮긴다
+
+```bash
+ssh pinky@<로봇1_IP>
+find "$(ros2 pkg prefix pinky_navigation)/share/pinky_navigation" -name '*.yaml'
+ros2 launch pinky_navigation bringup_launch.xml --show-args    # params_file 인자가 있나?
+```
+
+- `params_file` 인자가 **있으면** — 원본을 홈에 복사해 고치고 그걸 넘긴다.
+  설치 경로를 건드리지 않아 가장 안전하다.
+  ```bash
+  cp <원본>.yaml ~/my_nav2.yaml
+  nano ~/my_nav2.yaml
+  ros2 launch pinky_navigation bringup_launch.xml map:=<맵>.yaml params_file:=~/my_nav2.yaml
+  ```
+- **없으면** — 설치된 yaml 을 직접 고친다. **반드시 먼저 백업한다.**
+  ```bash
+  sudo cp <원본>.yaml <원본>.yaml.bak
+  sudo nano <원본>.yaml
+  ```
+
+### 4. 두 로봇 다 재기동해서 확인
+
+```bash
+ROS_DOMAIN_ID=10 ros2 param get /local_costmap/local_costmap inflation_layer.inflation_radius
+ROS_DOMAIN_ID=11 ros2 param get /local_costmap/local_costmap inflation_layer.inflation_radius
+```
+
+두 값이 같고 내가 넣은 값이면 끝이다.
+
+---
+
 ## 문제 해결
 
 | 증상 | 원인 후보 | 확인 / 조치 |
@@ -248,6 +326,8 @@ ros2 run pinky_fleet fleet_master --goal 2.5 1.0 90 -y
 | 재빌드해도 설정이 그대로 | `install/` 안의 파일을 고쳤음 | `src/` 를 고치고 다시 `colcon build` |
 | `Duplicate package names not supported` | `pinky_fleet` 사본이 여러 곳에 있음 | 워크스페이스 `src/` 에 하나만 남긴다. **홈에서 `colcon build` 하지 않는다** |
 | 로봇이 엉뚱한 데로 간다 | 두 로봇의 맵이 다름 | 0.1 로 돌아가 **같은 파일**을 다시 복사 |
+| 재시작하니 주행이 다시 이상해짐 | rqt 로 만진 파라미터는 재시작하면 사라진다 | [Nav2 파라미터 튜닝 결과 저장하기](#nav2-파라미터-튜닝-결과-저장하기) |
+| 두 로봇의 주행 성향이 다르다 | 파라미터를 한쪽에만 적용했다 | 같은 절의 4단계로 양쪽 값을 대조 |
 | 클릭해도 반응 없다 | 상태가 `WAIT_GOAL` 이 아님 | `fleet_master` 터미널의 `[STATE]` 확인. `Publish Point` 도구를 눌렀는지 확인 |
 | 브리지가 자기 메시지를 되받음 | 도메인 겹침 | `mission.yaml` 로더가 막지만, 수동 설정 시 주의 |
 | 목표를 계속 거부(`goToPose` false) | costmap 상 도달 불가 지점 | 벽/inflation 안쪽을 찍었을 가능성. 통로 중앙을 다시 클릭 |
