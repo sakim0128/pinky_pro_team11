@@ -68,7 +68,7 @@ class PinkyAgent(Node):
         self.declare_parameter('state_rate', 10.0)
         self.declare_parameter('pose_timeout', 2.0)
         # 관제 PC 나 브리지가 죽어 CMD_RESUME 이 영영 오지 않는 경우를 대비한 자동 해제.
-        self.declare_parameter('hold_watchdog', 45.0)
+        self.declare_parameter('hold_watchdog', 20.0)
         # 데드맨 스위치. 관제 PC 의 하트비트가 이만큼 끊기면 스스로 주행을 멈춘다.
         # 0 이면 비활성. 0.2 m/s 로 달리는 로봇이 3초면 0.6m 를 더 간다.
         # 지켜야 할 관계: heartbeat 주기 x 3 <= command_timeout << hold_watchdog
@@ -560,10 +560,10 @@ class PinkyAgent(Node):
         """양보가 너무 오래 이어지면 목표를 버리고 대기 상태로 돌아간다.
 
         예전에는 여기서 마지막 목표를 **재전송**했다. 그게 위험했다 - 관제 PC 가 죽어
-        멈춘 로봇이 45초 뒤 아무도 중재하지 않는 상태에서 혼자 다시 움직였다.
+        멈춘 로봇이 한참 뒤 아무도 중재하지 않는 상태에서 혼자 다시 움직였다.
         지금은 취소만 한다. 재출발이 필요한 정상 상황은 이미 두 군데가 덮는다.
 
-        * coordinator 가 살아 있는데 RESUME 을 잊음 -> 관제 PC 쪽 resume_timeout(30s)
+        * coordinator 가 살아 있는데 RESUME 을 잊음 -> 관제 PC 쪽 resume_timeout(15s)
         * 관제 PC 가 죽음 -> 데드맨(command_timeout, 기본 3s)이 훨씬 먼저 잡는다
 
         그래서 이 워치독은 둘 다 실패했을 때만 도는 마지막 그물이고, 그때 해야 할 일은

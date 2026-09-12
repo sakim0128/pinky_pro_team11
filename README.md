@@ -370,7 +370,7 @@ coordinator:
   clear_distance:    0.70      # m   이 이상 벌어지면 양보 해제 (히스테리시스)
   stall_speed:       0.03      # m/s 미만이면 "정지"로 간주
   stall_duration:    3.0       # s   근접+정지가 이만큼 지속되면 교착 판정
-  resume_timeout:   30.0       # s   양보 대기 최대 시간 (안전장치)
+  resume_timeout:   15.0       # s   양보 대기 최대 시간. hold_watchdog(20s) 보다 작아야 한다
   cooldown:          2.0       # s   해제 직후 재진입 방지
   state_timeout:     2.0       # s   state 가 끊기면 개입하지 않음
 
@@ -401,9 +401,19 @@ robots:
 | `obstacle_max_range` / `raytrace_max_range` | 1.5 / 2.0 m | 맵 대각선 약 2.9m |
 | `local_costmap` 크기 | 2 x 2 m | 맵 전체보다 크면 낭비 |
 | `lookahead_dist` (min/max) | 0.25 (0.15/0.4) | 크면 코너를 잘라 벽에 붙는다 |
+| `use_regulated_linear_velocity_scaling` | true | **급커브 감속.** upstream 은 꺼져 있다 |
+| `regulated_linear_scaling_min_radius` | 0.5 m | 이보다 좁은 커브에서 감속 시작 |
+| `regulated_linear_scaling_min_speed` | 0.05 m/s | 커브에서의 속도 하한 |
 
 데드맨 관련 값(`command_timeout` 3초 = 0.2 m/s 기준 0.6m)도 맵 크기를 따른다.
 더 넓은 공간에서는 그대로 두거나 조금 키워도 되지만, 이 맵에서 5초는 너무 길다.
+
+급커브 감속은 곡률 반경 `r` 이 `min_radius` 보다 작아질 때
+`v = desired_linear_vel x r / min_radius` 로 줄인다. 0.2 m/s 기준 반경 0.3m 코너에서
+0.12 m/s 다. 더 일찍 크게 줄이려면 `min_radius` 를 올리고, **코너에서 아예 멈춰 버리면**
+`min_speed` 를 0.08 정도로 올린다 (정지 마찰을 못 이기는 경우다).
+20도 이상의 방향 전환은 `use_rotate_to_heading` 이 제자리 회전으로 처리하므로, 이 설정이
+담당하는 것은 그 사이의 커브다.
 
 라이다는 바닥에서 **12.5cm** 높이다 (`base_footprint→base_link` 0.028 +
 `→rplidar_mount` 0.067 + `→rplidar_link` 0.030). 20cm 벽은 여유 있게 스캔되지만,
@@ -443,7 +453,7 @@ sequenceDiagram
         CO->>P2: FleetCommand(CMD_RESUME)
     else leader 주행 종료 (SUCCEEDED / ABORTED / CANCELED)
         CO->>P2: FleetCommand(CMD_RESUME)
-    else resume_timeout 30초 초과 (안전장치)
+    else resume_timeout 15초 초과 (안전장치)
         CO->>P2: FleetCommand(CMD_RESUME)
     end
 
@@ -467,7 +477,7 @@ YIELD
   아래 중 하나면 양보 해제 (CMD_RESUME) → NORMAL (cooldown 동안 재진입 차단)
     · 거리 > clear_distance
     · leader 의 주행이 끝남 (SUCCEEDED / ABORTED / CANCELED)
-    · resume_timeout 초과 (안전장치)
+    · resume_timeout(15s) 초과 (안전장치)
 ```
 
 안전장치 세 겹:
@@ -475,10 +485,46 @@ YIELD
   중단. 오래된 데이터로 멀쩡한 로봇을 세우는 것이 가장 위험하다.
 - **에이전트 데드맨** (`command_timeout` 3초): 관제 PC 의 하트비트가 끊기면 로봇이 스스로
   주행을 취소한다. 아래 [관제 PC 를 끄면 로봇은 어떻게 되나](#관제-pc-를-끄면-로봇은-어떻게-되나) 참조.
-- **에이전트 HOLD 워치독** (`hold_watchdog` 45초): 양보가 이만큼 이어지면 목표를 버리고
+- **에이전트 HOLD 워치독** (`hold_watchdog` 20초): 양보가 이만큼 이어지면 목표를 버리고
   대기 상태로 돌아간다. 위 둘이 모두 실패했을 때만 도는 마지막 그물이다.
 
-`command_timeout` ≪ `hold_watchdog` 관계를 유지해야 워치독이 그물 역할에 머문다.
+값의 순서를 지켜야 각 층이 제 역할에 머문다.
+`pinky_fleet_station/test/test_timing_invariants.py` 가 이 순서를 검사한다.
+
+```
+cooldown(2) < stall_duration(3) < resume_timeout(15) < hold_watchdog(20)
+command_timeout(3) x 3 <= hold_watchdog(20)
+```
+
+`resume_timeout` 이 `hold_watchdog` 보다 크면 안 된다. 로봇이 먼저 목표를 버린 뒤에
+`CMD_RESUME` 이 도착하면 되살릴 목표가 없어 아무 일도 일어나지 않는다.
+**양보한 로봇이 실제로 기다리는 최대 시간은 `resume_timeout` 15초**이고, 보통은 거리가
+벌어지거나 leader 가 도착하면서 몇 초 안에 풀린다.
+
+### 로봇을 3대 이상 넣으면
+
+`mission.yaml` · 브리지 · GUI · 에이전트는 **그대로 동작한다.** 데이터 경로는 전부 로봇
+목록을 순회하도록 짜여 있고 대수 상한도 없다. 로봇당 할 일은 `mission.yaml` 에 항목
+추가, `bridge_fleet.yaml` 에 토픽 3개(state/command/plan) 추가, 그 로봇에서
+`robot_name:=pinky3 domain_id:=12` 로 기동하는 것뿐이다.
+
+**다만 교착 중재는 `domain_id` 가 가장 작은 2대에만 적용된다.**
+`coordinator_node.py` 가 `self._pair = self._robots[:2]` 로 잘라 쓰기 때문이다
+(기동 시 경고 로그가 찍힌다). 나머지 로봇은 Nav2 자체 회피에만 의존하므로,
+그 로봇들에 대해서는 미션 요구사항 4·5번이 성립하지 않는다.
+
+N대로 확장하려면 전역 NORMAL/YIELD 하나를 **쌍마다 stall 타이머 + 로봇별 정지 사유
+집합**으로 바꿔야 한다. 한 로봇이 어떤 쌍에서는 leader 이고 다른 쌍에서는 yielder 일 수
+있어서, 모든 사유가 사라질 때만 `CMD_RESUME` 을 보내야 한다.
+
+함께 걸리는 작은 것들:
+
+| 증상 | 위치 |
+|---|---|
+| 맵의 거리선이 사라진다 (위치가 잡힌 로봇이 정확히 2대일 때만 그린다) | `map_canvas.py:375` |
+| `color` 를 안 적은 로봇이 전부 같은 색이 된다 | `mission_io.py:95` |
+| `/fleet/coordinator_status` 가 충돌 1건만 표현한다 | `coordinator_node.py` `_publish_status` |
+| `test_mission_io.py` 의 로봇 이름 목록 단언이 깨진다 | `test_mission_io.py:35` |
 
 **알려진 한계**: leader 가 좁은 통로 위에서 목표에 도달해 멈춰 버리면 `NAV_ACTIVE` 조건이
 깨져 교착 판정이 되지 않는다. 이 경우 yielder 는 Nav2 자체 회피와 recovery behavior 에
@@ -533,8 +579,8 @@ sequenceDiagram
   전송 계층으로 들어오는 셈이다. 그래서 복구 직후 `restore_grace`(기본 1초) 동안은
   이동 명령을 무시한다. 재전송분은 복구 직후 몇 ms 안에 몰려 오고, 사람이 누르는 출발은
   몇 초 뒤다.
-- `hold_watchdog` 은 예전에 마지막 목표를 **재전송**했다. 관제가 죽어 멈춘 로봇이 45초 뒤
-  혼자 다시 움직였다는 뜻이다. 지금은 취소만 한다.
+- `hold_watchdog` 은 예전에 마지막 목표를 **재전송**했다. 관제가 죽어 멈춘 로봇이 한참
+  뒤에 혼자 다시 움직였다는 뜻이다. 지금은 취소만 한다.
 
 ### 데드맨이 오작동하지 않는 이유
 
@@ -560,7 +606,9 @@ sequenceDiagram
 | 파라미터 | 기본값 | 어디 |
 |---|---|---|
 | `command_timeout` | 3.0 s | 로봇 `agent.launch.xml` / `robot.launch.xml` |
-| `restore_grace` | 1.0 s | 로봇 `agent.launch.xml` |
+| `restore_grace` | 1.0 s | 로봇 `agent.launch.xml` / `robot.launch.xml` |
+| `hold_watchdog` | 20.0 s | 로봇 `agent.launch.xml` / `robot.launch.xml` |
+| `resume_timeout` | 15.0 s | 관제 `mission.yaml` |
 | `heartbeat_rate` | 1.0 Hz | 관제 `coordinator_node` (GUI 는 `HEARTBEAT_PERIOD_MS`) |
 
 `command_timeout` 은 0.2 m/s 기준 **0.6m 의 추가 주행**을 뜻한다. 1.5 x 2.5m 맵에서는

@@ -26,9 +26,12 @@
     <arg name="use_sim_time" default="False"/>
     <arg name="max_linear_vel" default="0.2"/>
     <arg name="max_angular_vel" default="1.5"/>
-    <arg name="hold_watchdog" default="45.0"/>
-    <arg name="command_timeout" default="2.0"
+    <arg name="hold_watchdog" default="20.0"
+         description="양보가 이만큼(s) 이어지면 목표를 버리고 대기 상태로 돌아간다."/>
+    <arg name="command_timeout" default="3.0"
          description="관제 PC 하트비트가 이만큼(s) 끊기면 로봇이 스스로 주행을 멈춘다."/>
+    <arg name="restore_grace" default="1.0"
+         description="연결 복구 직후 이만큼(s) 이동 명령을 무시한다 (재전송 방어)."/>
     <arg name="launch_bringup" default="True"
          description="시뮬레이션에서 돌릴 때는 False 로 두고 pinky_gz_sim 을 따로 띄운다."/>
 
@@ -63,6 +66,7 @@
         <arg name="max_angular_vel" value="$(var max_angular_vel)"/>
         <arg name="hold_watchdog" value="$(var hold_watchdog)"/>
         <arg name="command_timeout" value="$(var command_timeout)"/>
+        <arg name="restore_grace" value="$(var restore_grace)"/>
         <arg name="map_dir" value="$(var map_dir)"/>
         <arg name="map_name" value="$(var map_name)"/>
     </include>

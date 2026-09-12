@@ -124,7 +124,12 @@ controller_server:
       rotate_to_heading_angular_vel: 1.0     # [rad/s] 제자리 회전할 때의 회전 속도
 
       # 커브길 감속 (Regulated)
-      use_regulated_linear_velocity_scaling: false  # 급커브에서 속도 줄이기
+      # # [fleet-tune 1.5x2.5m] false -> true. 좁은 맵에서 코너를 전속으로 돌면 벽에 붙는다.
+      #   곡률 반경 r 이 min_radius 보다 작으면 v = desired_linear_vel * r / min_radius 로
+      #   줄이고 min_speed 밑으로는 안 내려간다. 0.2 m/s 기준 반경 0.3m 코너에서 0.12 m/s.
+      #   더 일찍 크게 줄이려면 min_radius 를 올린다. 코너에서 아예 서 버리면 min_speed 를
+      #   올린다 (정지 마찰을 못 이기는 경우).
+      use_regulated_linear_velocity_scaling: true   # 급커브에서 속도 줄이기
       regulated_linear_scaling_min_radius: 0.5     # [m] 이 반경보다 좁은 커브를 돌 때는 속도를 최소로 낮춤
       regulated_linear_scaling_min_speed: 0.05     # [m/s] 커브를 돌 때 낼 수 있는 최소 속도 방어선
 

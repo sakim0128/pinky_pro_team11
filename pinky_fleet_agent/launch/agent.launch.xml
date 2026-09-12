@@ -20,9 +20,11 @@
          description="기동 시 로드한 맵 이름 (확장자 없음). 관제 PC 에 보고용."/>
     <arg name="max_linear_vel" default="0.2"/>
     <arg name="max_angular_vel" default="1.5"/>
-    <arg name="command_timeout" default="2.0"
+    <arg name="command_timeout" default="3.0"
          description="데드맨 스위치. 관제 PC 하트비트가 이만큼(s) 끊기면 스스로 주행을 멈춘다. 0 이면 비활성."/>
-    <arg name="hold_watchdog" default="45.0"
+    <arg name="restore_grace" default="1.0"
+         description="연결 복구 직후 이만큼(s) 이동 명령을 무시한다 (RELIABLE QoS 재전송 방어)."/>
+    <arg name="hold_watchdog" default="20.0"
          description="관제 PC 가 죽어도 로봇이 영원히 서 있지 않도록 HOLD 를 자동 해제하는 시간(s). 0 이면 비활성."/>
 
     <node pkg="pinky_fleet_agent" exec="agent_node" name="pinky_fleet_agent" output="screen">
@@ -41,6 +43,7 @@
         <param name="max_linear_vel" value="$(var max_linear_vel)"/>
         <param name="max_angular_vel" value="$(var max_angular_vel)"/>
         <param name="command_timeout" value="$(var command_timeout)"/>
+        <param name="restore_grace" value="$(var restore_grace)"/>
         <param name="hold_watchdog" value="$(var hold_watchdog)"/>
     </node>
 </launch>

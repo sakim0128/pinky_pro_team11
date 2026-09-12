@@ -13,7 +13,7 @@ DEFAULT_COORDINATOR = {
     'clear_distance': 1.00,
     'stall_speed': 0.03,
     'stall_duration': 3.0,
-    'resume_timeout': 30.0,
+    'resume_timeout': 15.0,
     'cooldown': 2.0,
     'state_timeout': 2.0,
 }
