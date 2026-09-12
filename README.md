@@ -21,25 +21,42 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 
 ## 구조
 
+로봇마다 `ROS_DOMAIN_ID` 가 다르다. 관제 PC 의 `domain_bridge` 가 **토픽 3종류**만
+도메인 사이로 옮기고, Nav2 액션 / 서비스 / TF 는 전부 로봇 안에서만 쓰인다.
+
+```mermaid
+flowchart TB
+    subgraph R1["pinky1 &nbsp;·&nbsp; ROS_DOMAIN_ID 10"]
+        NAV1["pinky_bringup + sllidar<br/>Nav2 (amcl / planner / controller)"]
+        AG1["pinky_fleet_agent<br/>에이전트 노드"]
+        NAV1 <-->|"Nav2 → 에이전트 : TF map→base_footprint, /odom, /map, /plan<br/>에이전트 → Nav2 : navigate_to_pose 액션, /initialpose,<br/>load_map · set_parameters 서비스"| AG1
+    end
+
+    subgraph R2["pinky2 &nbsp;·&nbsp; ROS_DOMAIN_ID 11"]
+        NAV2["pinky_bringup + sllidar<br/>Nav2 (amcl / planner / controller)"]
+        AG2["pinky_fleet_agent<br/>에이전트 노드"]
+        NAV2 <-->|"Nav2 → 에이전트 : TF map→base_footprint, /odom, /map, /plan<br/>에이전트 → Nav2 : navigate_to_pose 액션, /initialpose,<br/>load_map · set_parameters 서비스"| AG2
+    end
+
+    subgraph PC["관제 PC &nbsp;·&nbsp; ROS_DOMAIN_ID 0"]
+        BR["domain_bridge<br/>bridge_fleet.yaml"]
+        CO["coordinator_node<br/>교착 감지 → 순차 발진"]
+        GUI["gui_node<br/>PyQt5 화면"]
+        BR <-->|"coordinator 가 받음 : state<br/>coordinator 가 보냄 : CMD_STOP, CMD_RESUME"| CO
+        BR <-->|"GUI 가 받음 : state, plan<br/>GUI 가 보냄 : CMD_GOTO, CMD_CANCEL, CMD_SET_INITIAL_POSE,<br/>CMD_SET_SPEED, CMD_SET_MAP"| GUI
+        CO -.->|"/fleet/coordinator_status"| GUI
+    end
+
+    AG1 <==>|"로봇 → 관제 : /pinky1/state (10Hz), /pinky1/plan<br/>관제 → 로봇 : /pinky1/command"| BR
+    AG2 <==>|"로봇 → 관제 : /pinky2/state (10Hz), /pinky2/plan<br/>관제 → 로봇 : /pinky2/command"| BR
 ```
-┌── ROS_DOMAIN_ID=10 ───────────┐   ┌── ROS_DOMAIN_ID=11 ───────────┐
-│ pinky1                        │   │ pinky2                        │
-│  pinky_bringup / sllidar      │   │  (동일)                        │
-│  Nav2 (amcl, controller, ...) │   │                               │
-│    ▲ navigate_to_pose 액션     │   │                               │
-│    │ initialpose/set_parameters│   │                               │
-│  pinky_fleet_agent ───────────┤   │  pinky_fleet_agent ───────────┤
-│   pub /pinky1/state   (10Hz)  │   │   pub /pinky2/state           │
-│   sub /pinky1/command         │   │   sub /pinky2/command         │
-└───────────────┬───────────────┘   └───────────────┬───────────────┘
-                │        (같은 Wi-Fi LAN / DDS)      │
-┌───────────────▼───────────────────────────────────▼───────────────┐
-│ ROS_DOMAIN_ID=0  (관제 PC)                                         │
-│   domain_bridge  (pinky_fleet_station/config/bridge_fleet.yaml)    │
-│   coordinator_node  — 교착 감지 / 양보 / 재출발                     │
-│   fleet_gui_node    — PyQt5. 맵 pgm·png 로컬 로드, 클릭→목표         │
-└────────────────────────────────────────────────────────────────────┘
-```
+
+**굵은 선만 도메인을 넘는다.** 액션(`navigate_to_pose`)과 서비스(`load_map`,
+`set_parameters`)는 전부 로봇 안에서 끝나고, 도메인 사이로는 토픽만 오간다.
+
+`/tf` `/map` `/scan` `/odom` 은 넘기지 않는다 — 두 로봇의 `odom` / `base_footprint`
+프레임 이름이 같아 합치면 충돌하고, 관제 PC 는 map 좌표 숫자만 쓰므로 TF 트리 자체가
+필요 없다.
 
 ### 왜 에이전트 노드가 필요한가
 
@@ -47,9 +64,13 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 못한다.** Nav2 의 `navigate_to_pose` 는 액션이고 속도 변경은 `set_parameters` 서비스다.
 또 `domain_bridge` 는 메시지 안의 `frame_id` 를 재작성하지 않는다.
 
-그래서 각 로봇 도메인 안에 경량 에이전트를 두고, 관제 PC 와는 **토픽 2개**(`state` /
-`command`)로만 대화한다. 액션·서비스·TF 는 전부 로봇 도메인 내부에서만 쓰이므로
+그래서 각 로봇 도메인 안에 경량 에이전트를 두고, 관제 PC 와는 **토픽 3개**(`state` /
+`command` / `plan`)로만 대화한다. 액션·서비스·TF 는 전부 로봇 도메인 내부에서만 쓰이므로
 관제 PC 에는 TF 트리가 아예 필요 없다.
+
+`plan` 도 같은 이유다. Nav2 는 namespace 를 쓰지 않아 두 로봇이 똑같이 `/plan` 으로
+발행하는데, `domain_bridge` 의 `topics` 는 YAML 매핑이라 키가 겹치면 2대를 한 파일에
+적을 수 없다. 그래서 에이전트가 도메인을 넘기기 전에 `/<로봇이름>/plan` 으로 이름을 붙인다.
 
 ## 패키지
 
@@ -260,6 +281,41 @@ GUI 는 `fake_state_pub` 노드가 그래프에 있는지 2초마다 확인해 �
 
 맵 조작: 휠 = 확대·축소, 우클릭(또는 가운데 버튼) 드래그 = 이동, `[화면에 맞추기]`.
 
+### 목표를 찍으면 벌어지는 일
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as 사용자
+    participant GUI as gui_node<br/>도메인 0
+    participant BR as domain_bridge
+    participant AG as pinky_fleet_agent<br/>도메인 10
+    participant NAV as Nav2<br/>도메인 10
+
+    U->>GUI: 맵에서 목표를 클릭 후 드래그
+    Note over GUI: 화면 픽셀을 map 좌표로 변환<br/>wx = origin_x + px × 해상도<br/>wy = origin_y + (높이 - py) × 해상도
+    GUI->>BR: /pinky1/command<br/>FleetCommand(CMD_GOTO, x, y, yaw)
+    BR->>AG: 도메인 0 에서 10 으로 전달
+    AG->>NAV: navigate_to_pose 액션 goal
+    NAV-->>AG: goal accepted
+
+    loop 10 Hz
+        NAV-->>AG: TF map→base_footprint, /odom, /plan
+        AG->>BR: /pinky1/state (위치, 속도, nav_status, 맵 규격)
+        AG->>BR: /pinky1/plan (전역 경로)
+        BR->>GUI: 도메인 10 에서 0 으로 전달
+        GUI->>U: 맵 위에 로봇과 경로 갱신
+    end
+
+    NAV-->>AG: result SUCCEEDED
+    AG->>BR: /pinky1/state (nav_status = NAV_SUCCEEDED)
+    BR->>GUI: 도착 표시
+```
+
+화면의 픽셀 좌표는 **GUI 안에서** 맵 yaml 의 `origin` 과 `resolution` 을 써서 map 프레임의
+미터 좌표로 바뀐 뒤 전송된다. 로봇에는 이미 변환된 실제 좌표가 도착한다. 그래서 GUI 와
+로봇이 **같은 맵**을 써야 값이 맞고, 다르면 빨간 `맵 불일치` 배너가 뜬다.
+
 ## 실기 없이 검증하기
 
 > **실제 핑키는 움직이지 않는다.** 화면의 로봇은 `fake_state_pub` 이 지어낸 것이고
@@ -301,8 +357,8 @@ defaults:
   max_angular_vel: 1.50        # rad/s → velocity_smoother max_velocity[2]
 
 coordinator:
-  conflict_distance: 0.70      # m   이 거리 이내면 "근접"
-  clear_distance:    1.00      # m   이 이상 벌어지면 양보 해제 (히스테리시스)
+  conflict_distance: 0.45      # m   이 거리 이내면 "근접"  (1.5 x 2.5m 맵 기준)
+  clear_distance:    0.70      # m   이 이상 벌어지면 양보 해제 (히스테리시스)
   stall_speed:       0.03      # m/s 미만이면 "정지"로 간주
   stall_duration:    3.0       # s   근접+정지가 이만큼 지속되면 교착 판정
   resume_timeout:   30.0       # s   양보 대기 최대 시간 (안전장치)
@@ -342,13 +398,52 @@ robots:
 그보다 낮은 장애물은 보이지 않는다.
 
 `conflict_distance` 는 **두 로봇이 실제로 서로 막혀 멈추는 거리보다 커야 한다.**
-작게 잡으면 교착이 감지되지 않는다. footprint 12cm 정사각 + `inflation_radius` 0.15m
-기준으로 두 로봇의 인플레이션이 겹치기 시작하는 거리가 약 0.47m 이라 0.70m 을 기본값으로 두었다.
+작게 잡으면 교착이 감지되지 않는다. footprint 12cm 정사각(외접 반경 0.085) + 조정된
+`inflation_radius` 0.10m 기준으로 두 로봇의 인플레이션이 겹치기 시작하는 거리가
+약 0.37m (2 x 0.085 + 2 x 0.10) 이라 0.45m 을 기본값으로 두었다.
+맵 폭이 1.5m 이므로 예전 값 0.70m 은 거의 항상 "근접" 으로 잡혀 쓸 수 없다.
 
 ## 교착 회피 동작
 
 평소 회피는 각 로봇의 Nav2 로컬 플래너가 한다 (서로를 라이다 장애물로 인식).
 coordinator 는 Nav2 가 스스로 못 빠져나가는 상황만 잡아낸다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P1 as pinky1<br/>domain_id 10 · leader
+    participant CO as coordinator_node<br/>도메인 0
+    participant P2 as pinky2<br/>domain_id 11 · yielder
+
+    Note over P1,P2: 동시 출발 후 좁은 길에서 마주침.<br/>서로를 라이다 장애물로 보고 둘 다 멈춘다.
+
+    P1->>CO: RobotState(NAV_ACTIVE, 속도 거의 0)
+    P2->>CO: RobotState(NAV_ACTIVE, 속도 거의 0)
+
+    Note over CO: 두 대 거리가 conflict_distance 0.45m 미만<br/>이고 둘 다 stall_speed 0.03 m/s 미만인 상태가<br/>stall_duration 3초 지속 → 교착 판정
+    Note over CO: domain_id 가 큰 pinky2 가 양보 (미션 5번)
+
+    CO->>P2: FleetCommand(CMD_STOP)
+    P2->>P2: 진행 중인 액션 취소 → NAV_HOLD
+    Note over P1: pinky1 만 계속 주행해서 먼저 통과
+
+    alt 거리가 clear_distance 0.70m 초과
+        CO->>P2: FleetCommand(CMD_RESUME)
+    else leader 주행 종료 (SUCCEEDED / ABORTED / CANCELED)
+        CO->>P2: FleetCommand(CMD_RESUME)
+    else resume_timeout 30초 초과 (안전장치)
+        CO->>P2: FleetCommand(CMD_RESUME)
+    end
+
+    P2->>P2: 원래 목표로 navigate_to_pose 재전송
+    Note over CO: cooldown 2초 동안 다시 판정하지 않는다
+```
+
+그림에서는 생략했지만 `RobotState` 와 `FleetCommand` 는 모두 `domain_bridge` 를 거친다.
+coordinator 는 로봇의 도메인을 직접 알지 못하고 `mission.yaml` 에 적힌 토픽 이름만 쓴다 —
+그래서 가짜 로봇(`fake_state_pub`)으로도 이 흐름을 그대로 재현할 수 있다.
+
+상태 정의는 이렇다.
 
 ```
 NORMAL
@@ -379,10 +474,17 @@ YIELD
 upstream `nav2_params.yaml` 의 사본 + 아래 변경만 담는다 (`[fleet]` 주석으로 표시).
 `bringup_launch.xml` 이 `params_file` 을 통째로 한 번만 읽어서 부분 오버레이가 불가능하기 때문이다.
 
-1. `amcl.set_initial_pose` `true` → `false` — 초기 위치는 GUI / `mission.yaml` 이 준다.
-2. `amcl.initial_pose: [0, 0, 0]` 제거 — nav2 규격(`{x:, y:, z:, yaw:}`)과 형식이 달라 어차피 무시되던 값.
-3. `controller_server.use_sim_time` 하드코딩 제거 — launch 인자로만 결정.
-4. `bt_navigator.robot_base_frame` `base_link` → `base_footprint` — costmap / behavior_server 와 통일.
+1. `amcl.set_initial_pose` **`true` 를 유지**하고 `initial_pose` 를 nav2 규격
+   (`{x: 0.0, y: 0.0, z: 0.0, yaw: 0.0}`)으로 고쳤다. upstream 의 `[0, 0, 0]` 리스트
+   형식은 nav2 가 읽지 못한다.
+   한때 "초기 위치는 GUI 가 주니까" 라며 `false` 로 바꿨다가 되돌렸다 (`ec88800`).
+   AMCL 은 초기 위치를 받기 전까지 `map → odom` TF 를 발행하지 않는데, 그러면
+   `global_costmap` 이 변환을 기다리다 타임아웃되어 GUI 가 위치를 보내 볼 기회도 없이
+   **Nav2 전체가 기동에 실패한다** (`Failed to bring up all requested nodes`).
+2. `controller_server.use_sim_time` 하드코딩 제거 — launch 인자로만 결정.
+3. `bt_navigator.robot_base_frame` `base_link` → `base_footprint` — costmap / behavior_server 와 통일.
+4. 1.5 x 2.5m 맵에 맞춘 파라미터 조정 — `[fleet-tune 1.5x2.5m]` 주석. 위의
+   [맵 크기에 맞춘 튜닝](#맵-크기에-맞춘-튜닝) 참조.
 
 `lifecycle_nodes_nav` 에 `smoother_server` 를 넣는 것은 `robot.launch.xml` 이 인자로 처리한다
 (`bringup_launch.xml` 의 기본값이 이를 빠뜨려 `smoother_server` 가 unconfigured 로 방치된다).
@@ -397,14 +499,24 @@ upstream `nav2_params.yaml` 의 사본 + 아래 변경만 담는다 (`[fleet]` �
 |---|---|---|
 | `/pinkyN/state` | `pinky_fleet_msgs/msg/RobotState` | 로봇(도메인 N) → 관제(0), 10Hz |
 | `/pinkyN/command` | `pinky_fleet_msgs/msg/FleetCommand` | 관제(0) → 로봇(도메인 N) |
-| `/pinkyN/plan` | `nav_msgs/msg/Path` | 로봇 → 관제 (GUI 경로 표시, 선택) |
+| `/pinkyN/plan` | `nav_msgs/msg/Path` | 로봇 → 관제. 에이전트가 Nav2 의 `/plan` 을 이 이름으로 중계한다 (GUI 경로 오버레이) |
 | `/fleet/coordinator_status` | `std_msgs/msg/String` (JSON) | coordinator → GUI (도메인 0 내부) |
 
 `FleetCommand.command`: `CMD_GOTO` / `CMD_STOP` / `CMD_RESUME` / `CMD_CANCEL` /
-`CMD_SET_INITIAL_POSE` / `CMD_SET_SPEED`.
+`CMD_SET_INITIAL_POSE` / `CMD_SET_SPEED` / `CMD_SET_MAP`.
+`CMD_STOP` 과 `CMD_RESUME` 은 coordinator 만 보내고, 나머지는 GUI 가 보낸다.
+
+`RobotState` 에는 위치·속도·`nav_status` 외에 **그 로봇이 실제로 로드한 맵**
+(`map_name`, `map_known`, `map_resolution`, `map_width` / `map_height`,
+`map_origin_x` / `map_origin_y`)이 함께 실린다. GUI 가 자기 맵과 비교해 `맵 불일치`
+배너를 띄우는 근거다.
 
 `/tf`, `/map`, `/odom`, `/scan` 은 브리지하지 않는다. 두 로봇의 `odom` / `base_footprint`
 프레임 이름이 같아 합치면 충돌하고, 관제 PC 는 map frame 스칼라 좌표만 쓰므로 필요가 없다.
+
+Nav2 의 `/plan` 을 브리지 설정에서 직접 remap 하지 않고 에이전트가 중계하는 이유는,
+`domain_bridge` 의 `topics` 가 YAML 매핑이라 **키(`/plan`)가 겹치면 로봇 2대를 한 파일에
+쓸 수 없기** 때문이다. 이름을 붙이는 일은 도메인을 넘기 전에 로봇 쪽에서 끝낸다.
 
 ## 트러블슈팅
 
@@ -423,4 +535,5 @@ upstream `nav2_params.yaml` 의 사본 + 아래 변경만 담는다 (`[fleet]` �
 | 맵이 같은데 `맵 불일치` 가 뜸 | 맵을 새로 만들고 한쪽만 갱신한 경우다. `ros2 topic echo /pinky1/state --field map_width` 로 로봇이 실제로 쓰는 규격을 확인 |
 | 교착인데 coordinator 가 개입하지 않음 | `conflict_distance` 가 실제 멈추는 거리보다 작음. `/fleet/coordinator_status` 의 `distance` 확인 후 키울 것 |
 | 불필요하게 자주 멈춤 | `stall_duration` 을 늘리거나 `conflict_distance` 를 줄인다 |
+| GUI 에 경로(파란 선)가 안 보임 | 로봇에서 `ROS_DOMAIN_ID=10 ros2 topic hz /pinky1/plan`. 안 나오면 에이전트 빌드가 오래된 것이다 (`/plan` 중계는 나중에 추가됐다). 로봇에서 `ros2 topic hz /plan` 이 나오는지도 확인 |
 | 속도 적용이 안 됨 | 로봇에서 `ros2 param get /controller_server FollowPath.desired_linear_vel`. Nav2 가 아직 activate 되기 전이면 건너뛴다 (로그 확인) |
