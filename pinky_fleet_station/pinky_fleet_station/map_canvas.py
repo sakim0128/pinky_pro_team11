@@ -65,7 +65,10 @@ class MapData:
             raise MapLoadError(f'맵 이미지를 읽을 수 없습니다: {image_path}')
         self.width = source.width()
         self.height = source.height()
-        self.pixmap = QPixmap.fromImage(self._colorize(source))
+        self.image = self._colorize(source)
+        # QPixmap 은 QApplication 이 있어야 만들 수 있다. 맵 로딩 자체를 GUI 기동과
+        # 분리해 두려고 첫 렌더링 때까지 미룬다 (단위 테스트도 이 덕분에 가능).
+        self._pixmap = None
 
     def _colorize(self, source):
         """nav2_map_server 의 trinary 규칙대로 점유/자유/미지를 색칠한다."""
@@ -85,6 +88,17 @@ class MapData:
         rgb = np.ascontiguousarray(rgb)
         image = QImage(rgb.data, width, height, 3 * width, QImage.Format_RGB888)
         return image.copy()          # numpy 버퍼와 수명을 끊는다
+
+    @property
+    def pixmap(self):
+        if self._pixmap is None:
+            self._pixmap = QPixmap.fromImage(self.image)
+        return self._pixmap
+
+    def summary(self):
+        """GUI 라벨/상태바에 쓰는 한 줄 요약."""
+        return (f'{os.path.basename(self.yaml_path)} · '
+                f'{self.width}x{self.height} px · {self.resolution:g} m/px')
 
     # --- 좌표 변환 ---------------------------------------------------
 
@@ -249,7 +263,7 @@ class MapCanvas(QWidget):
         if self._map is None:
             painter.setPen(QColor('#9ca3af'))
             painter.drawText(self.rect(), Qt.AlignCenter,
-                             '맵이 없습니다.\nmission.yaml 의 map.yaml_path 를 확인하세요.')
+                             '맵이 없습니다.\n오른쪽 [맵 열기] 로 맵 yaml 을 선택하세요.')
             return
 
         if self._fit_pending:

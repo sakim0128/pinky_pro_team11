@@ -253,6 +253,27 @@ class FleetWindow(QMainWindow):
         view_layout.addWidget(fit)
         side_layout.addWidget(view_box)
 
+        map_box = QGroupBox('맵')
+        map_layout = QVBoxLayout(map_box)
+        self._map_label = QLabel('맵 없음')
+        self._map_label.setWordWrap(True)
+        map_layout.addWidget(self._map_label)
+        map_row = QHBoxLayout()
+        open_map = QPushButton('맵 열기')
+        open_map.clicked.connect(self.open_map_dialog)
+        self._reload_map_button = QPushButton('다시 불러오기')
+        self._reload_map_button.setToolTip('같은 파일을 다시 읽는다 (맵을 새로 만든 뒤).')
+        self._reload_map_button.clicked.connect(self.reload_map)
+        self._reload_map_button.setEnabled(False)
+        map_row.addWidget(open_map)
+        map_row.addWidget(self._reload_map_button)
+        map_layout.addLayout(map_row)
+        caution = QLabel('로봇에 올린 맵과 같은 파일이어야 위치가 맞습니다.')
+        caution.setWordWrap(True)
+        caution.setStyleSheet('color: #64748b;')
+        map_layout.addWidget(caution)
+        side_layout.addWidget(map_box)
+
         mission_box = QGroupBox('mission.yaml')
         mission_layout = QHBoxLayout(mission_box)
         load = QPushButton('불러오기')
@@ -330,18 +351,58 @@ class FleetWindow(QMainWindow):
 
     # ------------------------------------------------------------------ 맵
 
-    def _load_map(self):
-        path = self._mission.map_yaml_path
+    def _load_map(self, path=None, interactive=False):
+        """맵 yaml 을 읽어 캔버스에 건다.
+
+        interactive=False (시작 시, mission.yaml 로드 시) 에는 실패해도 모달을 띄우지
+        않는다. 경로가 틀렸다고 창이 뜨기도 전에 막히면 [맵 열기] 를 누를 수가 없다.
+        """
+        path = path or self._mission.map_yaml_path
         if not path:
-            self.statusBar().showMessage('mission.yaml 에 map.yaml_path 가 없습니다.')
-            return
+            self._set_map_status('맵 없음', 'mission.yaml 에 map.yaml_path 가 없습니다.')
+            return False
+
         try:
-            self.canvas.set_map(MapData(path))
+            map_data = MapData(path)
         except MapLoadError as exc:
-            self.statusBar().showMessage(str(exc))
-            QMessageBox.warning(self, '맵 로드 실패', str(exc))
+            self._set_map_status('맵 로드 실패', str(exc), tooltip=str(path))
+            if interactive:
+                QMessageBox.warning(self, '맵 로드 실패', str(exc))
+            return False
+
+        self.canvas.set_map(map_data)
+        self.canvas.fit_to_view()
+        # expanduser / expandvars 가 적용된 실제 경로를 되돌려 받아 저장에 반영한다.
+        self._mission.map_yaml_path = map_data.yaml_path
+        self._set_map_status(map_data.summary(), f'맵 로드: {map_data.yaml_path}',
+                             tooltip=map_data.yaml_path, loaded=True)
+        return True
+
+    def _set_map_status(self, label, message, tooltip='', loaded=False):
+        self._map_label.setText(label)
+        self._map_label.setToolTip(tooltip)
+        self._map_label.setStyleSheet('' if loaded else 'color: #f87171;')
+        self._reload_map_button.setEnabled(loaded)
+        self.statusBar().showMessage(message)
+
+    def open_map_dialog(self):
+        start = ''
+        for candidate in (self._mission.map_yaml_path, self._mission.path):
+            if candidate and os.path.isdir(os.path.dirname(candidate)):
+                start = os.path.dirname(candidate)
+                break
+        path, _ = QFileDialog.getOpenFileName(
+            self, '맵 yaml 선택', start or os.path.expanduser('~'),
+            '맵 yaml (*.yaml *.yml)')
+        if not path:
             return
-        self.statusBar().showMessage(f'맵 로드: {path}')
+        if self._load_map(path, interactive=True):
+            self.statusBar().showMessage(
+                f'맵 로드: {path} — 이 경로를 유지하려면 [저장] 으로 mission.yaml 에 '
+                '기록하세요.')
+
+    def reload_map(self):
+        self._load_map(self._mission.map_yaml_path, interactive=True)
 
     # ------------------------------------------------------------- 클릭 모드
 

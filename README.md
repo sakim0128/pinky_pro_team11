@@ -127,7 +127,11 @@ mkdir -p ~/maps
 scp pinky@<핑키1_IP>:~/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.* ~/maps/
 ```
 
-그다음 아래 파일의 `map.yaml_path` 를 복사한 경로(예: `/home/sungah/maps/pinklab.yaml`)로 고친다.
+그다음 GUI 를 띄워 사이드 패널 `맵` 의 **`[맵 열기]`** 로 복사한 yaml 을 고르면 된다.
+`[저장]` 을 누르면 그 경로가 `mission.yaml` 에 기록되어 다음 실행부터 바로 뜬다.
+
+yaml 을 직접 고쳐도 된다. 아래 파일의 `map.yaml_path` 를 복사한 경로
+(예: `/home/sungah/maps/pinklab.yaml`)로 바꾼다.
 
 ```
 ~/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/mission.yaml
@@ -170,12 +174,18 @@ ros2 launch pinky_fleet_station fleet.launch.xml \
 
 ### GUI 조작 순서
 
-1. 각 로봇 카드의 `[초기위치 지정]` → 맵에서 실제 시작 위치를 **클릭 후 드래그**
+1. 맵이 안 보이면 `맵` 패널의 `[맵 열기]` 로 맵 yaml 을 고른다. 라벨에
+   `pinklab.yaml · 207x293 px · 0.05 m/px` 처럼 표시되면 정상.
+   **로봇에 올린 것과 같은 맵이어야** 좌표가 맞는다.
+2. 각 로봇 카드의 `[초기위치 지정]` → 맵에서 실제 시작 위치를 **클릭 후 드래그**
    (드래그 방향이 로봇이 바라보는 방향). 위치가 맞게 표시되는지 확인.
-2. `[목표 지정]` → 목표를 클릭 후 드래그. (또는 `[불러오기]` 로 `mission.yaml` 적용)
-3. 속도를 바꾸려면 `최대 직진 / 최대 회전` 값을 넣고 `[속도 적용]`.
-4. `[동시 출발]`.
-5. `coordinator [NORMAL/YIELD]` 표시와 두 로봇 사이 거리선으로 개입 상황을 확인.
+3. `[목표 지정]` → 목표를 클릭 후 드래그. (또는 `[불러오기]` 로 `mission.yaml` 적용)
+4. 속도를 바꾸려면 `최대 직진 / 최대 회전` 값을 넣고 `[속도 적용]`.
+5. `[동시 출발]`.
+6. `coordinator [NORMAL/YIELD]` 표시와 두 로봇 사이 거리선으로 개입 상황을 확인.
+
+맵과 목표 좌표를 다음 실행에도 쓰려면 `mission.yaml` 패널의 `[저장]` 을 누른다
+(자동 저장하지 않는다). 맵을 SLAM 으로 다시 만들었다면 `[다시 불러오기]`.
 
 맵 조작: 휠 = 확대·축소, 우클릭(또는 가운데 버튼) 드래그 = 이동, `[화면에 맞추기]`.
 
