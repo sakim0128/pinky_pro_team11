@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<!-- 에이전트 노드만 띄운다. bringup / Nav2 가 이미 떠 있을 때 사용. -->
+<launch>
+    <arg name="robot_name" default="pinky1"/>
+    <arg name="domain_id" default="11"/>
+    <arg name="state_topic" default="" description="비우면 /&lt;robot_name&gt;/state"/>
+    <arg name="command_topic" default="" description="비우면 /&lt;robot_name&gt;/command"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="global_frame" default="map"/>
+    <arg name="robot_base_frame" default="base_footprint"/>
+    <arg name="max_linear_vel" default="0.2"/>
+    <arg name="max_angular_vel" default="1.5"/>
+    <arg name="hold_watchdog" default="45.0"
+         description="관제 PC 가 죽어도 로봇이 영원히 서 있지 않도록 HOLD 를 자동 해제하는 시간(s). 0 이면 비활성."/>
+
+    <node pkg="pinky_fleet_agent" exec="agent_node" name="pinky_fleet_agent" output="screen">
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="domain_id" value="$(var domain_id)"/>
+        <param name="state_topic" value="$(var state_topic)"/>
+        <param name="command_topic" value="$(var command_topic)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="global_frame" value="$(var global_frame)"/>
+        <param name="robot_base_frame" value="$(var robot_base_frame)"/>
+        <param name="max_linear_vel" value="$(var max_linear_vel)"/>
+        <param name="max_angular_vel" value="$(var max_angular_vel)"/>
+        <param name="hold_watchdog" value="$(var hold_watchdog)"/>
+    </node>
+</launch>

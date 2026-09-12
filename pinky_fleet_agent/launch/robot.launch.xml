@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<!--
+  로봇 1대에서 실행하는 최상위 launch.
+
+    export ROS_DOMAIN_ID=11
+    ros2 launch pinky_fleet_agent robot.launch.xml \
+        robot_name:=pinky1 domain_id:=11 map:=$HOME/maps/pinklab.yaml
+
+  bringup(모터/라이다/TF) + Nav2 + 관제 에이전트를 한 번에 띄운다.
+  로봇마다 도메인이 분리되어 있으므로 namespace 는 쓰지 않는다.
+-->
+<launch>
+    <arg name="robot_name" default="pinky1"/>
+    <arg name="domain_id" default="11"/>
+    <arg name="map" description="AMCL 이 쓸 맵 yaml 경로 (두 로봇이 동일한 파일을 써야 한다)"/>
+    <arg name="params_file"
+         default="$(find-pkg-share pinky_fleet_agent)/params/nav2_params_fleet.yaml"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="max_linear_vel" default="0.2"/>
+    <arg name="max_angular_vel" default="1.5"/>
+    <arg name="hold_watchdog" default="45.0"/>
+    <arg name="launch_bringup" default="True"
+         description="시뮬레이션에서 돌릴 때는 False 로 두고 pinky_gz_sim 을 따로 띄운다."/>
+
+    <include file="$(find-pkg-share pinky_bringup)/launch/bringup_robot.launch.xml"
+             if="$(var launch_bringup)">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <include file="$(find-pkg-share pinky_navigation)/launch/bringup_launch.xml">
+        <arg name="map" value="$(var map)"/>
+        <arg name="params_file" value="$(var params_file)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+        <!--
+          bringup_launch.xml 의 lifecycle_nodes_nav 기본값에는 smoother_server 가
+          빠져 있어서, navigation_launch.xml 이 띄운 smoother_server 가 unconfigured
+          상태로 방치된다. 여기서 명시적으로 넣어 준다.
+        -->
+        <arg name="lifecycle_nodes_nav" value="['controller_server',
+                           'smoother_server',
+                           'planner_server',
+                           'behavior_server',
+                           'bt_navigator',
+                           'waypoint_follower',
+                           'velocity_smoother']"/>
+    </include>
+
+    <include file="$(find-pkg-share pinky_fleet_agent)/launch/agent.launch.xml">
+        <arg name="robot_name" value="$(var robot_name)"/>
+        <arg name="domain_id" value="$(var domain_id)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+        <arg name="max_linear_vel" value="$(var max_linear_vel)"/>
+        <arg name="max_angular_vel" value="$(var max_angular_vel)"/>
+        <arg name="hold_watchdog" value="$(var hold_watchdog)"/>
+    </include>
+</launch>

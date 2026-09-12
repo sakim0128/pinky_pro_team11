@@ -1,0 +1,93 @@
+# domain_bridge 설정 — 핑키 2대(도메인 11, 12)와 관제 PC(도메인 0)를 잇는다.
+#
+#   ros2 run domain_bridge domain_bridge <이 파일 경로>
+#
+# 설계 메모
+#  * 로봇의 에이전트가 처음부터 /pinky1/state, /pinky1/command 처럼 자기 이름이
+#    붙은 토픽을 쓴다. 덕분에 remap 이 전혀 필요 없고, topics 가 YAML "맵" 이라는
+#    제약(키 중복 불가)에도 걸리지 않아 파일 하나로 2대를 모두 처리할 수 있다.
+#  * domain_bridge 의 토픽 키는 그대로 토픽 이름으로 쓰인다 (슬래시를 자동으로
+#    붙여 주지 않는다). 반드시 선행 슬래시를 포함한 완전수식명으로 적는다.
+#  * qos 를 명시적으로 고정한다. 생략하면 브리지가 기존 퍼블리셔의 QoS 를
+#    자동 감지하는데, "브리지보다 나중에 뜬 퍼블리셔는 브리지되지 않을 수 있다"는
+#    알려진 제약이 있다. 명시해 두면 기동 순서와 무관해진다.
+#  * 액션과 서비스는 domain_bridge 가 YAML 로 브리지할 수 없다. 그래서 Nav2
+#    navigate_to_pose 액션과 set_parameters 서비스는 로봇 도메인 안의
+#    pinky_fleet_agent 가 대신 호출한다.
+#
+# 브리지하지 않는 것과 이유
+#  /tf, /tf_static : 두 로봇의 odom/base_footprint 프레임 이름이 같아 합치면 충돌.
+#                    관제 PC 는 map frame 스칼라 좌표만 쓰므로 TF 자체가 필요 없다.
+#  /map            : GUI 가 맵 파일(pgm/png)을 로컬에서 직접 로드한다.
+#  /odom           : 필요한 속도는 RobotState 에 이미 들어 있다.
+#  /scan           : frame_id 가 rplidar_link 라 관제 PC 에서 map 좌표로 그릴 수 없고
+#                    대역폭도 크다. 장애물 확인은 로봇에서 RViz 로 한다.
+
+name: pinky_fleet_bridge
+mode: normal
+
+topics:
+
+  # ------------------------- pinky1 (domain 11) -------------------------
+  /pinky1/state:
+    type: pinky_fleet_msgs/msg/RobotState
+    from_domain: 11
+    to_domain: 0
+    qos:
+      reliability: reliable
+      durability: volatile
+      history: keep_last
+      depth: 10
+
+  /pinky1/command:
+    type: pinky_fleet_msgs/msg/FleetCommand
+    from_domain: 0
+    to_domain: 11
+    qos:
+      reliability: reliable
+      # transient_local 을 쓰면 에이전트 재시작 시 오래된 STOP 이 되살아난다.
+      durability: volatile
+      history: keep_last
+      depth: 10
+
+  # GUI 의 전역 경로 오버레이용. frame_id 가 map 이라 TF 없이 그릴 수 있다.
+  /pinky1/plan:
+    type: nav_msgs/msg/Path
+    from_domain: 11
+    to_domain: 0
+    qos:
+      reliability: reliable
+      durability: volatile
+      history: keep_last
+      depth: 1
+
+  # ------------------------- pinky2 (domain 12) -------------------------
+  /pinky2/state:
+    type: pinky_fleet_msgs/msg/RobotState
+    from_domain: 12
+    to_domain: 0
+    qos:
+      reliability: reliable
+      durability: volatile
+      history: keep_last
+      depth: 10
+
+  /pinky2/command:
+    type: pinky_fleet_msgs/msg/FleetCommand
+    from_domain: 0
+    to_domain: 12
+    qos:
+      reliability: reliable
+      durability: volatile
+      history: keep_last
+      depth: 10
+
+  /pinky2/plan:
+    type: nav_msgs/msg/Path
+    from_domain: 12
+    to_domain: 0
+    qos:
+      reliability: reliable
+      durability: volatile
+      history: keep_last
+      depth: 1

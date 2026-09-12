@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!--
+  실기 / 시뮬레이터 없이 coordinator 와 GUI 를 검증하는 launch.
+  가짜 로봇 2대를 관제 도메인에 직접 띄우므로 domain_bridge 도 필요 없다.
+
+    export ROS_DOMAIN_ID=0
+    ros2 launch pinky_fleet_station fake_fleet.launch.xml \
+        mission:=$HOME/pinky_pro_team11/config/mission.yaml
+
+  mission.yaml 의 두 goal 을 서로 교차하게 잡아 두면, 두 로봇이 가운데서
+  맞물려 멈추고 coordinator 가 domain_id 가 큰 쪽에 STOP 을 내는 것을
+  GUI 와 `ros2 topic echo /fleet/coordinator_status` 로 확인할 수 있다.
+-->
+<launch>
+    <arg name="mission"
+         default="$(find-pkg-share pinky_fleet_station)/config/mission.yaml"/>
+    <arg name="auto_start" default="False"
+         description="True 면 GUI 의 [동시 출발] 없이 바로 목표를 향해 움직인다."/>
+    <arg name="block_distance" default="0.5"
+         description="상대가 이 거리 안에 있으면 못 가는 것으로 흉내낸다."/>
+    <arg name="use_gui" default="True"/>
+
+    <node pkg="pinky_fleet_station" exec="fake_state_pub" name="fake_state_pub"
+          output="screen">
+        <param name="mission" value="$(var mission)"/>
+        <param name="auto_start" value="$(var auto_start)"/>
+        <param name="block_distance" value="$(var block_distance)"/>
+    </node>
+
+    <include file="$(find-pkg-share pinky_fleet_station)/launch/fleet.launch.xml">
+        <arg name="mission" value="$(var mission)"/>
+        <arg name="use_bridge" value="False"/>
+        <arg name="use_gui" value="$(var use_gui)"/>
+    </include>
+</launch>
