@@ -266,9 +266,36 @@ ROS_DOMAIN_ID=10 ros2 param get /local_costmap/local_costmap inflation_layer.inf
 
 ### 2. 바꾼 항목만 골라낸다
 
+바꾼 파라미터 이름을 알면 바로 찾는다:
+
 ```bash
 grep -n "inflation_radius\|cost_scaling_factor" nav2_params_dump_domain10/*costmap*.yaml
 ```
+
+**뭘 바꿨는지 기억이 안 나면 — 손대지 않은 다른 로봇과 비교한다.**
+두 로봇이 같은 params 파일로 떴으므로, 튜닝하지 않은 쪽의 덤프가 곧 "원본" 이다.
+
+```bash
+tools/dump_nav2_params.sh 10 ~/d10_tuned     # rqt 로 만진 쪽
+tools/dump_nav2_params.sh 11 ~/d11_orig      # 손대지 않은 쪽
+diff -ru ~/d11_orig ~/d10_tuned
+```
+
+이 diff 가 곧 rqt 로 바꾼 항목 전부다. (2D Pose Estimate 를 서로 다르게 했다면
+`amcl` 의 `initial_pose.*` 가 같이 뜨는데, 그건 튜닝이 아니므로 무시한다)
+
+### 2-1. 급하면 — 파일 안 고치고 다른 로봇에 즉시 복제
+
+오늘 시연을 먼저 돌려야 할 때 쓴다. **재시작하면 사라지므로 임시 방편이고,
+반드시 3단계로 파일에 남긴다.**
+
+```bash
+ROS_DOMAIN_ID=11 ros2 param load /local_costmap/local_costmap \
+    ~/d10_tuned/local_costmap__local_costmap.yaml
+```
+
+read-only 파라미터를 만나면 `Set parameter ... failed` 를 stderr 에 찍고
+**중단 없이 나머지를 계속 적용한다.** 그 메시지는 무시해도 된다.
 
 > **덤프 파일을 그대로 params 파일로 쓰지 않는다.**
 > 덤프에는 `use_sim_time`, `qos_overrides.*`, 플러그인이 런타임에 추가한 항목까지
@@ -276,25 +303,40 @@ grep -n "inflation_radius\|cost_scaling_factor" nav2_params_dump_domain10/*costm
 > 기동 때 문제를 만들 수도 있다.
 > **덤프는 "내가 뭘 바꿨는지" 를 찾는 용도로 쓰고, 바뀐 항목만 원본에 옮긴다.**
 
-### 3. 로봇의 params 파일에 옮긴다
+### 3. 로봇의 params 파일에 옮긴다 — PC 에서 한 벌 만들어 두 대에 뿌린다
+
+두 로봇이 **같은 파일**을 쓰게 하는 게 핵심이다. 로봇마다 따로 고치면 어긋난다.
 
 ```bash
-ssh pinky@<로봇1_IP>
-find "$(ros2 pkg prefix pinky_navigation)/share/pinky_navigation" -name '*.yaml'
-ros2 launch pinky_navigation bringup_launch.xml --show-args    # params_file 인자가 있나?
+# (1) 어디에 있는지, launch 가 params_file 인자를 받는지 확인
+ssh pinky@<로봇1_IP> "find \$(ros2 pkg prefix pinky_navigation)/share/pinky_navigation -name '*.yaml'"
+ros2 launch pinky_navigation bringup_launch.xml --show-args
+
+# (2) 원본을 PC 로 가져온다
+scp pinky@<로봇1_IP>:<원본경로>.yaml ~/nav2_params_team11.yaml
+
+# (3) PC 에서 2단계 diff 로 찾은 항목만 고친다
+nano ~/nav2_params_team11.yaml
+
+# (4) 두 로봇에 같은 파일을 뿌린다
+scp ~/nav2_params_team11.yaml pinky@<로봇1_IP>:~/
+scp ~/nav2_params_team11.yaml pinky@<로봇2_IP>:~/
 ```
 
-- `params_file` 인자가 **있으면** — 원본을 홈에 복사해 고치고 그걸 넘긴다.
-  설치 경로를 건드리지 않아 가장 안전하다.
+> **덤프 파일을 그대로 scp 하지 않는다.** (2단계 상자 참고)
+> 옮기는 것은 원본 params 파일 + 바뀐 항목이다.
+
+(5) 로봇에서 띄울 때 — `--show-args` 결과에 따라 갈린다.
+
+- `params_file` 인자가 **있으면** (권장) — 설치 경로를 건드리지 않는다. 두 로봇 모두:
   ```bash
-  cp <원본>.yaml ~/my_nav2.yaml
-  nano ~/my_nav2.yaml
-  ros2 launch pinky_navigation bringup_launch.xml map:=<맵>.yaml params_file:=~/my_nav2.yaml
+  ros2 launch pinky_navigation bringup_launch.xml \
+      map:=<맵>.yaml params_file:=~/nav2_params_team11.yaml
   ```
-- **없으면** — 설치된 yaml 을 직접 고친다. **반드시 먼저 백업한다.**
+- **없으면** — 설치된 yaml 을 덮어쓴다. **반드시 먼저 백업한다.** 두 로봇 모두:
   ```bash
   sudo cp <원본>.yaml <원본>.yaml.bak
-  sudo nano <원본>.yaml
+  sudo cp ~/nav2_params_team11.yaml <원본>.yaml
   ```
 
 ### 4. 두 로봇 다 재기동해서 확인
