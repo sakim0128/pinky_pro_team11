@@ -66,35 +66,70 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 
 세 대 모두 저장소를 받되, **빌드하는 패키지가 다르다.**
 
-### 로봇 2대 (SSH)
+저장소는 반드시 colcon 워크스페이스의 `src/` 아래에 둔다. colcon 이 워크스페이스
+루트의 `src/` 를 훑어 `package.xml` 을 찾기 때문에, 홈 디렉터리에 그냥 받아두면
+빌드되지 않는다. 저장소 루트의 `config/` 를 `pinky_fleet_station/setup.py` 가
+참조하므로 **패키지 디렉터리만 따로 옮기지 말고 저장소를 통째로** 넣는다.
+
+### 로봇 2대 (SSH, 계정 `pinky`)
+
+기존 `pinky_pro` 워크스페이스를 그대로 쓴다. `pinky_fleet_agent` 의 launch 가
+`pinky_bringup` / `pinky_navigation` 을 include 하므로 같은 워크스페이스여야 한다.
 
 ```bash
-cd ~/pinky_pro/src
-git clone -b mini_project_1 https://github.com/sakim0128/pinky_pro_team11.git
+git clone -b mini_project_1 \
+    https://github.com/sakim0128/pinky_pro_team11.git ~/pinky_pro/src/pinky_pro_team11
+# 이미 홈에 받아 뒀다면:  mv ~/pinky_pro_team11 ~/pinky_pro/src/
+
 cd ~/pinky_pro
 colcon build --packages-select pinky_fleet_msgs pinky_fleet_agent
 source install/setup.bash
 ```
 
+`--packages-select` 는 필수다. 빼면 `pinky_pro` 전체와, 로봇에는 필요 없는
+`pinky_fleet_station`(PyQt5 의존)까지 다시 빌드한다.
+
+`~/.bashrc` 에 아래를 넣어 두면 접속할 때마다 손이 덜 간다 (핑키 2호는 `11`).
+
+```bash
+export ROS_DOMAIN_ID=10
+source ~/pinky_pro/install/setup.bash
+```
+
 ### 관제 PC
+
+`pinky_pro` 가 필요 없으므로 별도 워크스페이스를 만든다.
 
 ```bash
 sudo apt install ros-jazzy-domain-bridge python3-pyqt5 python3-numpy
 
-mkdir -p ~/fleet_ws/src && cd ~/fleet_ws/src
-git clone -b mini_project_1 https://github.com/sakim0128/pinky_pro_team11.git
+mkdir -p ~/fleet_ws/src
+git clone -b mini_project_1 \
+    https://github.com/sakim0128/pinky_pro_team11.git ~/fleet_ws/src/pinky_pro_team11
+# 이미 홈에 받아 뒀다면:  mv ~/pinky_pro_team11 ~/fleet_ws/src/
+
 cd ~/fleet_ws
 colcon build --packages-select pinky_fleet_msgs pinky_fleet_station
 source install/setup.bash
 ```
 
-관제 PC 에는 `pinky_pro` 자체가 필요 없다. 대신 **GUI 가 맵을 직접 로드**하므로
-로봇에 올린 것과 같은 맵 파일을 복사해 오고 `mission.yaml` 의 `map.yaml_path` 를 그 경로로 맞춘다.
+`pinky_fleet_agent` 는 관제 PC 에서 빌드하지 않는다 (`pinky_bringup`,
+`pinky_navigation` 의존). 같은 이유로 이 워크스페이스에서 `rosdep install` 을
+인자 없이 돌리면 안 된다 — 없는 패키지를 찾다 실패한다.
+
+### 맵 파일 (관제 PC)
+
+**GUI 가 맵 이미지를 로컬 파일에서 직접 로드**하므로, 로봇에 올린 것과 같은 맵이
+관제 PC 에도 있어야 한다.
 
 ```bash
 mkdir -p ~/maps
-scp pinky@<로봇IP>:~/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.* ~/maps/
+scp pinky@<핑키1_IP>:~/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.* ~/maps/
 ```
+
+그다음 `~/fleet_ws/src/pinky_pro_team11/config/mission.yaml` 의 `map.yaml_path` 를
+복사한 경로(예: `/home/sungah/maps/pinklab.yaml`)로 고친다.
+`config/mission_deadlock_test.yaml` 도 마찬가지.
 
 ### 네트워크 전제
 

@@ -7,7 +7,7 @@ package_name = 'pinky_fleet_station'
 
 # config/ 는 저장소 루트에 두고 사용자가 편집한다. 빌드 시 패키지 share 로 복사해
 # launch 파일의 $(find-pkg-share ...) 기본값이 바로 동작하게 한다.
-_here = os.path.dirname(os.path.abspath(__file__))
+_here = os.path.dirname(os.path.realpath(__file__))
 _repo_config = os.path.join(os.path.dirname(_here), 'config')
 
 setup(
