@@ -11,9 +11,11 @@
 
 import json
 import math
+import signal
 
 import rclpy
 from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import String
 
@@ -39,6 +41,11 @@ class Coordinator(Node):
 
         self.declare_parameter('mission', '')
         self.declare_parameter('tick_rate', 10.0)
+        # 로봇의 데드맨 스위치를 먹여 살리는 생존 신호 발행 주기(Hz).
+        # GUI 도 같은 주기로 따로 보낸다. 에이전트의 command_timeout(기본 3s)보다
+        # 충분히 빨라야 하고, 명령 큐(depth 10)를 하트비트로 밀어내지 않을 만큼
+        # 느려야 한다. 1Hz 면 두 발행자를 합쳐도 큐에 5초치 여유가 남는다.
+        self.declare_parameter('heartbeat_rate', 1.0)
 
         mission_path = self.get_parameter('mission').value
         if not mission_path:
@@ -92,6 +99,10 @@ class Coordinator(Node):
         self._last_tick = self._now()
         self.create_timer(self._tick_period, self._tick)
 
+        heartbeat_rate = float(self.get_parameter('heartbeat_rate').value)
+        if heartbeat_rate > 0.0:
+            self.create_timer(1.0 / heartbeat_rate, self._publish_heartbeats)
+
         names = ' < '.join(f"{r['name']}(domain {r['domain_id']})" for r in self._pair)
         self.get_logger().info(f'fleet_coordinator 시작. 우선순위: {names}')
 
@@ -116,6 +127,27 @@ class Coordinator(Node):
         self._command_pubs[name].publish(msg)
 
     # ------------------------------------------------------------------
+
+    def _publish_heartbeats(self):
+        """관제 PC 가 살아 있다는 신호. 로봇은 이게 끊기면 스스로 멈춘다.
+
+        교착 판단(_tick)과 완전히 분리된 타이머다. 로봇 상태가 아직 안 올라온
+        기동 직후에도, 판단 로직이 조기 return 하는 경우에도 하트비트는 나가야 한다.
+        """
+        for robot in self._mission.robots:
+            self._publish_command(robot['name'], FleetCommand.CMD_HEARTBEAT)
+
+    def shutdown_robots(self):
+        """종료 직전에 두 로봇의 주행을 취소한다 (best-effort).
+
+        Ctrl+C 는 domain_bridge 에도 동시에 가므로 이 명령이 로봇까지 닿는다는 보장은
+        없다. 확실한 보장은 로봇 쪽 데드맨 스위치(command_timeout)다.
+        """
+        # CMD_STOP 이 아니라 CMD_CANCEL 이다. STOP 은 "목표를 들고 RESUME 을 기다려라"
+        # 라는 뜻인데, 관제가 내려가는 마당에 RESUME 을 보낼 주체가 없다.
+        for robot in self._mission.robots:
+            self._publish_command(robot['name'], FleetCommand.CMD_CANCEL)
+        self.get_logger().info('종료: 로봇에 정지 명령을 보냈습니다.')
 
     def _tick(self):
         now = self._now()
@@ -219,17 +251,33 @@ class Coordinator(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
+    # rclpy 기본 SIGINT 핸들러는 컨텍스트를 즉시 내려 버려서, 종료 직전에 정지 명령을
+    # 발행할 틈이 없다. 핸들러를 직접 잡아 플래그만 세우고, 컨텍스트가 살아 있는 동안
+    # 작별 명령을 보낸 뒤 내려간다.
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     try:
         node = Coordinator()
     except MissionError as exc:
         print(f'[fleet_coordinator] mission.yaml 오류: {exc}')
         rclpy.shutdown()
         return
+
+    stopping = []
+
+    def _request_stop(_signum, _frame):
+        stopping.append(True)
+
+    signal.signal(signal.SIGINT, _request_stop)
+    signal.signal(signal.SIGTERM, _request_stop)
+
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+        while rclpy.ok() and not stopping:
+            rclpy.spin_once(node, timeout_sec=0.1)
+        if rclpy.ok():
+            node.shutdown_robots()
+            # DDS 가 실제로 내보낼 시간을 준다.
+            for _ in range(6):
+                rclpy.spin_once(node, timeout_sec=0.05)
     finally:
         node.destroy_node()
         if rclpy.ok():

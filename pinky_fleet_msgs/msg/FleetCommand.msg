@@ -7,6 +7,7 @@ uint8 CMD_CANCEL=3              # goal 취소 + 폐기
 uint8 CMD_SET_INITIAL_POSE=4    # initialpose 발행 (AMCL 재초기화)
 uint8 CMD_SET_SPEED=5           # 속도 제한 변경
 uint8 CMD_SET_MAP=6             # map_name 으로 로봇의 맵 교체
+uint8 CMD_HEARTBEAT=7           # 관제 PC 생존 신호. 로봇은 수신 시각만 갱신한다.
 
 uint8   command
 

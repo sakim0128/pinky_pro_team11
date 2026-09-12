@@ -42,8 +42,8 @@ flowchart TB
         BR["domain_bridge<br/>bridge_fleet.yaml"]
         CO["coordinator_node<br/>교착 감지 → 순차 발진"]
         GUI["gui_node<br/>PyQt5 화면"]
-        BR <-->|"coordinator 가 받음 : state<br/>coordinator 가 보냄 : CMD_STOP, CMD_RESUME"| CO
-        BR <-->|"GUI 가 받음 : state, plan<br/>GUI 가 보냄 : CMD_GOTO, CMD_CANCEL, CMD_SET_INITIAL_POSE,<br/>CMD_SET_SPEED, CMD_SET_MAP"| GUI
+        BR <-->|"coordinator 가 받음 : state<br/>coordinator 가 보냄 : CMD_STOP, CMD_RESUME,<br/>CMD_HEARTBEAT (1Hz)"| CO
+        BR <-->|"GUI 가 받음 : state, plan<br/>GUI 가 보냄 : CMD_GOTO, CMD_CANCEL, CMD_SET_INITIAL_POSE,<br/>CMD_SET_SPEED, CMD_SET_MAP,<br/>CMD_HEARTBEAT (1Hz)"| GUI
         CO -.->|"/fleet/coordinator_status"| GUI
     end
 
@@ -85,6 +85,11 @@ flowchart TB
 
 `pinky_fleet_msgs` 의 `.msg` 가 바뀌면 **세 대를 모두 다시 빌드**해야 한다.
 한쪽만 갱신하면 타입이 맞지 않아 브리지가 메시지를 넘기지 못한다.
+
+단, `CMD_HEARTBEAT` / `NAV_LINK_LOST` 처럼 **상수만 추가**된 경우는 직렬화 형식이 그대로라
+통신은 계속 된다. 대신 재빌드를 빠뜨린 쪽에서 그 이름을 못 찾아 `AttributeError` 가 나고,
+로봇의 에이전트가 옛 빌드면 **데드맨이 아예 없다** (관제를 꺼도 계속 달린다).
+어느 쪽이든 세 대를 같이 빌드하는 것이 맞다.
 
 ## 설치
 
@@ -281,6 +286,10 @@ GUI 는 `fake_state_pub` 노드가 그래프에 있는지 2초마다 확인해 �
 
 맵 조작: 휠 = 확대·축소, 우클릭(또는 가운데 버튼) 드래그 = 이동, `[화면에 맞추기]`.
 
+끝낼 때는 **GUI 창을 먼저 닫고** 나서 터미널을 `Ctrl+C` 한다. 창을 닫는 순간 로봇에
+정지 명령이 나간다. 순서를 지키지 않아도 로봇은 3초 안에 스스로 멈춘다 —
+[관제 PC 를 끄면 로봇은 어떻게 되나](#관제-pc-를-끄면-로봇은-어떻게-되나) 참조.
+
 ### 목표를 찍으면 벌어지는 일
 
 ```mermaid
@@ -393,6 +402,9 @@ robots:
 | `local_costmap` 크기 | 2 x 2 m | 맵 전체보다 크면 낭비 |
 | `lookahead_dist` (min/max) | 0.25 (0.15/0.4) | 크면 코너를 잘라 벽에 붙는다 |
 
+데드맨 관련 값(`command_timeout` 3초 = 0.2 m/s 기준 0.6m)도 맵 크기를 따른다.
+더 넓은 공간에서는 그대로 두거나 조금 키워도 되지만, 이 맵에서 5초는 너무 길다.
+
 라이다는 바닥에서 **12.5cm** 높이다 (`base_footprint→base_link` 0.028 +
 `→rplidar_mount` 0.067 + `→rplidar_link` 0.030). 20cm 벽은 여유 있게 스캔되지만,
 그보다 낮은 장애물은 보이지 않는다.
@@ -458,15 +470,111 @@ YIELD
     · resume_timeout 초과 (안전장치)
 ```
 
-안전장치 두 겹:
-- **coordinator**: 한쪽 `state` 가 `state_timeout` 넘게 끊기면 즉시 `CMD_RESUME` 후 개입 중단.
-  오래된 데이터로 멀쩡한 로봇을 세우는 것이 가장 위험하다.
-- **에이전트**: HOLD 상태에서 `hold_watchdog`(기본 45초) 동안 아무 명령도 못 받으면
-  스스로 HOLD 를 푼다. 관제 PC 나 브리지가 죽어도 로봇이 영원히 서 있지 않는다.
+안전장치 세 겹:
+- **coordinator** (`state_timeout` 2초): 한쪽 `state` 가 끊기면 즉시 `CMD_RESUME` 후 개입
+  중단. 오래된 데이터로 멀쩡한 로봇을 세우는 것이 가장 위험하다.
+- **에이전트 데드맨** (`command_timeout` 3초): 관제 PC 의 하트비트가 끊기면 로봇이 스스로
+  주행을 취소한다. 아래 [관제 PC 를 끄면 로봇은 어떻게 되나](#관제-pc-를-끄면-로봇은-어떻게-되나) 참조.
+- **에이전트 HOLD 워치독** (`hold_watchdog` 45초): 양보가 이만큼 이어지면 목표를 버리고
+  대기 상태로 돌아간다. 위 둘이 모두 실패했을 때만 도는 마지막 그물이다.
+
+`command_timeout` ≪ `hold_watchdog` 관계를 유지해야 워치독이 그물 역할에 머문다.
 
 **알려진 한계**: leader 가 좁은 통로 위에서 목표에 도달해 멈춰 버리면 `NAV_ACTIVE` 조건이
 깨져 교착 판정이 되지 않는다. 이 경우 yielder 는 Nav2 자체 회피와 recovery behavior 에
 의존한다. 두 로봇의 목표를 서로의 경로를 막지 않는 곳에 잡는 것이 전제다.
+
+## 관제 PC 를 끄면 로봇은 어떻게 되나
+
+**로봇의 `ros2 launch` 는 끄지 않는다.** Nav2 도 bringup 도 라이다도 계속 떠 있다.
+멈추는 것은 **주행뿐**이다. 관제 PC 를 다시 켜면 SSH 로 들어갈 필요 없이 바로 이어서 쓴다.
+
+안전장치가 세 겹인 이유는 각각 못 덮는 구멍이 있기 때문이다.
+
+| 층 | 무엇을 덮나 | 지연 | 보장 |
+|---|---|---|---|
+| ① GUI 창 닫기 → `CMD_CANCEL` | X 버튼, GUI 종료 | 즉시 | 확실 |
+| ② SIGINT/SIGTERM 작별 인사 | 관제 터미널 `Ctrl+C` | 즉시 | **best-effort** |
+| ③ 에이전트 데드맨 | Wi-Fi 끊김, PC 멈춤/전원 차단, 브리지 사망, `kill -9` | 약 3초 | **확실** |
+
+②가 best-effort 인 이유: `Ctrl+C` 는 `fleet.launch.xml` 이 띄운 모든 프로세스에 동시에
+가고, 거기엔 `domain_bridge` 도 포함된다. 작별 명령이 브리지 종료와 경쟁하므로 닿지
+못할 수 있다. **진짜 보장은 ③이다.**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ST as 관제 PC<br/>coordinator + gui_node
+    participant AG as pinky_fleet_agent<br/>도메인 10
+    participant NAV as Nav2
+
+    loop 1초마다 (두 노드가 각각)
+        ST->>AG: FleetCommand(CMD_HEARTBEAT)
+    end
+
+    Note over ST: 전원 차단 / Wi-Fi 끊김 / 프로세스 사망
+    Note over AG: 하트비트가 끊긴다
+
+    AG->>AG: command_timeout 3초 경과 → 데드맨 발동
+    AG->>NAV: navigate_to_pose 취소
+    AG->>AG: 목표 폐기, nav_status = NAV_LINK_LOST
+    Note over NAV: Nav2 와 bringup 은 계속 떠 있다
+```
+
+### 자동 재개는 없다
+
+연결이 돌아와도 로봇은 **스스로 출발하지 않는다.** 운영자가 GUI 에서 목표를 다시 찍어야
+한다. 아무도 보고 있지 않은 사이에 로봇이 혼자 움직이는 것이 가장 위험하기 때문이다.
+
+같은 이유로 두 가지 장치가 더 있다.
+
+- `/pinkyN/command` 는 RELIABLE QoS 라 **끊겼다 붙는 순간 끊기기 전의 `CMD_GOTO` 가
+  재전송된다.** 그대로 받으면 로봇이 혼자 출발한다 — 데드맨이 막으려던 바로 그 사고가
+  전송 계층으로 들어오는 셈이다. 그래서 복구 직후 `restore_grace`(기본 1초) 동안은
+  이동 명령을 무시한다. 재전송분은 복구 직후 몇 ms 안에 몰려 오고, 사람이 누르는 출발은
+  몇 초 뒤다.
+- `hold_watchdog` 은 예전에 마지막 목표를 **재전송**했다. 관제가 죽어 멈춘 로봇이 45초 뒤
+  혼자 다시 움직였다는 뜻이다. 지금은 취소만 한다.
+
+### 데드맨이 오작동하지 않는 이유
+
+| 상황 | 왜 안 터지나 |
+|---|---|
+| 로봇만 먼저 켜고 관제 PC 는 아직 | **하트비트를 한 번이라도 받아야 무장한다** |
+| 관제 PC 가 하트비트를 모르는 옛 빌드 | 같은 이유로 무장하지 않고 예전처럼 동작한다 |
+| 목표 없이 대기 중 | 멈출 주행이 없으면 상태만 표시하고 아무것도 건드리지 않는다 |
+| 부팅 뒤 첫 NTP 동기화로 시계가 몇 시간 점프 | 자기 호출 간격이 비정상이면 기준 시각을 다시 잡는다 (핑키에는 RTC 가 없다) |
+| coordinator 만 죽고 GUI 는 살아 있음 | **GUI 도 따로 하트비트를 보낸다.** 둘 중 하나만 살아 있으면 로봇은 계속 달린다 |
+
+마지막 줄이 중요하다. coordinator 만 하트비트를 보내게 하면, coordinator 가 죽었을 때
+화면은 멀쩡해 보이는데 목표를 줄 때마다 로봇이 3초 뒤 스스로 취소하는 상태가 된다.
+
+### 정상 종료 순서
+
+1. GUI 창을 먼저 닫는다 (이때 `CMD_CANCEL` 이 나간다)
+2. 관제 터미널에서 `Ctrl+C`
+3. 로봇은 그대로 둔다. 실습이 끝났으면 각 로봇 터미널에서 `Ctrl+C`
+
+### 파라미터
+
+| 파라미터 | 기본값 | 어디 |
+|---|---|---|
+| `command_timeout` | 3.0 s | 로봇 `agent.launch.xml` / `robot.launch.xml` |
+| `restore_grace` | 1.0 s | 로봇 `agent.launch.xml` |
+| `heartbeat_rate` | 1.0 Hz | 관제 `coordinator_node` (GUI 는 `HEARTBEAT_PERIOD_MS`) |
+
+`command_timeout` 은 0.2 m/s 기준 **0.6m 의 추가 주행**을 뜻한다. 1.5 x 2.5m 맵에서는
+작지 않지만, 이 창 동안에도 Nav2 와 라이다 회피는 계속 돌고 있다. 감시자가 없을 뿐 눈이
+먼 것은 아니다. 더 줄이면 Wi-Fi 순간 끊김에 오작동하고, 5초면 맵 단축을 가로지른다.
+지켜야 할 관계는 이렇다.
+
+```
+하트비트 주기 x 3  <=  command_timeout  <<  hold_watchdog
+command_timeout  <=  명령 큐 depth(10) / 전체 하트비트 주기(2Hz) = 5초
+```
+
+두 번째 줄은 하트비트가 명령 큐에서 진짜 명령을 밀어내지 않게 하는 조건이다.
+`0` 으로 두면 데드맨을 끌 수 있다 (실기 없이 디버깅할 때).
 
 ## upstream `pinky_pro` 와의 관계
 
@@ -503,13 +611,18 @@ upstream `nav2_params.yaml` 의 사본 + 아래 변경만 담는다 (`[fleet]` �
 | `/fleet/coordinator_status` | `std_msgs/msg/String` (JSON) | coordinator → GUI (도메인 0 내부) |
 
 `FleetCommand.command`: `CMD_GOTO` / `CMD_STOP` / `CMD_RESUME` / `CMD_CANCEL` /
-`CMD_SET_INITIAL_POSE` / `CMD_SET_SPEED` / `CMD_SET_MAP`.
-`CMD_STOP` 과 `CMD_RESUME` 은 coordinator 만 보내고, 나머지는 GUI 가 보낸다.
+`CMD_SET_INITIAL_POSE` / `CMD_SET_SPEED` / `CMD_SET_MAP` / `CMD_HEARTBEAT`.
+`CMD_STOP` 과 `CMD_RESUME` 은 coordinator 만, `CMD_HEARTBEAT` 는 coordinator 와 GUI 가
+각각 1Hz 로, 나머지는 GUI 가 보낸다.
 
 `RobotState` 에는 위치·속도·`nav_status` 외에 **그 로봇이 실제로 로드한 맵**
 (`map_name`, `map_known`, `map_resolution`, `map_width` / `map_height`,
 `map_origin_x` / `map_origin_y`)이 함께 실린다. GUI 가 자기 맵과 비교해 `맵 불일치`
 배너를 띄우는 근거다.
+
+`nav_status` 에는 `NAV_LINK_LOST` 가 있다. 관제 PC 신호가 끊겨 **로봇이 스스로** 주행을
+끊은 상태로, 사용자가 누른 정지(`NAV_CANCELED`)와 구분된다. GUI 는 이때 빨간
+`통신 두절` 배너를 띄운다.
 
 `/tf`, `/map`, `/odom`, `/scan` 은 브리지하지 않는다. 두 로봇의 `odom` / `base_footprint`
 프레임 이름이 같아 합치면 충돌하고, 관제 PC 는 map frame 스칼라 좌표만 쓰므로 필요가 없다.
@@ -536,4 +649,8 @@ Nav2 의 `/plan` 을 브리지 설정에서 직접 remap 하지 않고 에이전
 | 교착인데 coordinator 가 개입하지 않음 | `conflict_distance` 가 실제 멈추는 거리보다 작음. `/fleet/coordinator_status` 의 `distance` 확인 후 키울 것 |
 | 불필요하게 자주 멈춤 | `stall_duration` 을 늘리거나 `conflict_distance` 를 줄인다 |
 | GUI 에 경로(파란 선)가 안 보임 | 로봇에서 `ROS_DOMAIN_ID=10 ros2 topic hz /pinky1/plan`. 안 나오면 에이전트 빌드가 오래된 것이다 (`/plan` 중계는 나중에 추가됐다). 로봇에서 `ros2 topic hz /plan` 이 나오는지도 확인 |
+| 로봇이 갑자기 멈추고 빨간 `통신 두절` 배너 | 데드맨이 발동했다. Wi-Fi, 브리지(`ros2 node list`), coordinator 생존을 확인한다. 로봇에서 `ROS_DOMAIN_ID=10 ros2 topic echo /pinky1/command` 에 `command: 7` 이 1초마다 찍혀야 정상. 링크가 원래 불안정하면 `command_timeout` 을 키운다 |
+| 관제 PC 를 껐는데 로봇이 계속 감 | 로봇의 에이전트 빌드가 데드맨 추가 이전 것이다. 로봇에서 `colcon build --packages-select pinky_fleet_msgs pinky_fleet_agent` 후 재기동 |
+| 재연결 직후 로봇이 혼자 출발함 | RELIABLE QoS 재전송이다. `restore_grace` 가 0 이 아닌지 확인 |
+| 통신은 되는데 `NAV_LINK_LOST` 가 안 풀림 | 새 목표를 받아야 풀린다. 자동 재출발은 의도적으로 없다 |
 | 속도 적용이 안 됨 | 로봇에서 `ros2 param get /controller_server FollowPath.desired_linear_vel`. Nav2 가 아직 activate 되기 전이면 건너뛴다 (로그 확인) |

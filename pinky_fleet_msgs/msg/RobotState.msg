@@ -23,6 +23,7 @@ uint8 NAV_SUCCEEDED=2
 uint8 NAV_ABORTED=3
 uint8 NAV_CANCELED=4
 uint8 NAV_HOLD=5                # coordinator 가 양보시켜 대기 중
+uint8 NAV_LINK_LOST=6           # 관제 PC 신호가 끊겨 로봇이 스스로 주행을 중단함
 
 uint8   nav_status
 

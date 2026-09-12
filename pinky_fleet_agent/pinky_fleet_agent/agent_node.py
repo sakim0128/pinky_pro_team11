@@ -8,6 +8,7 @@ domain_bridge 가 토픽만 브리지해도 전체 시스템이 동작한다.
 
 import math
 import os
+import signal
 
 import rclpy
 from action_msgs.msg import GoalStatus
@@ -23,12 +24,14 @@ from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from std_msgs.msg import Float32
 from tf2_ros import Buffer, TransformListener
 
 from pinky_fleet_msgs.msg import FleetCommand, RobotState
 
+from .link_watch import ARMED, LOST, RESTORED, LinkWatch
 from .map_paths import resolve_map_path
 
 # RViz 의 2D Pose Estimate 와 동일한 공분산
@@ -66,6 +69,12 @@ class PinkyAgent(Node):
         self.declare_parameter('pose_timeout', 2.0)
         # 관제 PC 나 브리지가 죽어 CMD_RESUME 이 영영 오지 않는 경우를 대비한 자동 해제.
         self.declare_parameter('hold_watchdog', 45.0)
+        # 데드맨 스위치. 관제 PC 의 하트비트가 이만큼 끊기면 스스로 주행을 멈춘다.
+        # 0 이면 비활성. 0.2 m/s 로 달리는 로봇이 3초면 0.6m 를 더 간다.
+        # 지켜야 할 관계: heartbeat 주기 x 3 <= command_timeout << hold_watchdog
+        self.declare_parameter('command_timeout', 3.0)
+        # 연결 복구 직후 이만큼(s) 이동 명령을 무시한다 (RELIABLE QoS 재전송 방어).
+        self.declare_parameter('restore_grace', 1.0)
         self.declare_parameter('global_frame', 'map')
         self.declare_parameter('robot_base_frame', 'base_footprint')
         self.declare_parameter('max_linear_vel', 0.2)
@@ -85,6 +94,8 @@ class PinkyAgent(Node):
             self.get_parameter('plan_topic').value or f'/{self._name}/plan')
         self._pose_timeout = float(self.get_parameter('pose_timeout').value)
         self._hold_watchdog = float(self.get_parameter('hold_watchdog').value)
+        self._link = LinkWatch(self.get_parameter('command_timeout').value,
+                               self.get_parameter('restore_grace').value)
         self._global_frame = self.get_parameter('global_frame').value
         self._base_frame = self.get_parameter('robot_base_frame').value
         self._max_lin = float(self.get_parameter('max_linear_vel').value)
@@ -116,6 +127,7 @@ class PinkyAgent(Node):
         self._goal_handle = None
         self._hold = False           # CMD_STOP 으로 대기 중인가 (RESUME 대상)
         self._hold_since = None      # HOLD 진입 시각 (워치독용)
+        self._link_lost = False      # 데드맨이 발동해 주행을 끊었는가
         self._goal_seq = 0           # 취소/재전송 중 낡은 콜백을 무시하기 위한 순번
 
         self.create_subscription(Odometry, 'odom', self._on_odom, 10, callback_group=cb)
@@ -183,7 +195,7 @@ class PinkyAgent(Node):
         self.get_logger().info(
             f'pinky_fleet_agent 시작: name={self._name} domain_id={self._domain_id} '
             f'state={self._state_topic} command={self._command_topic} '
-            f'plan={self._plan_topic} '
+            f'plan={self._plan_topic} command_timeout={self._link.timeout:.1f}s '
             f'map_dir={self._map_dir} map={self._map_name or "(미지정)"}')
 
     # ------------------------------------------------------------------ 구독
@@ -220,6 +232,9 @@ class PinkyAgent(Node):
         self._yaw = yaw_from_quaternion(tf.transform.rotation)
         self._last_pose_time = self.get_clock().now()
 
+    def _seconds(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
     def _localized(self):
         if self._last_pose_time is None:
             return False
@@ -229,6 +244,30 @@ class PinkyAgent(Node):
     # ------------------------------------------------------------------ 명령
 
     def _on_command(self, msg: FleetCommand):
+        # 어떤 명령이든 관제 PC 가 살아 있다는 증거다. 단 감시를 "시작" 하는 것은
+        # 하트비트뿐이다 (하트비트를 모르는 옛 관제 PC 와 섞여도 안전하도록).
+        now = self._seconds()
+        event = self._link.on_command(
+            now, heartbeat=(msg.command == FleetCommand.CMD_HEARTBEAT))
+        if event == ARMED:
+            self.get_logger().info(
+                f'관제 PC 연결 확인. 데드맨 감시 시작 (command_timeout='
+                f'{self._link.timeout:.1f}s)')
+        elif event == RESTORED:
+            self._link_lost = False
+            self.get_logger().warn('관제 PC 연결 복구. 목표를 다시 지정하세요.')
+
+        if msg.command == FleetCommand.CMD_HEARTBEAT:
+            return                       # 수신 시각 갱신이 전부다
+
+        # 끊겼다 붙는 순간 RELIABLE QoS 가 끊기기 전의 CMD_GOTO 를 재전송한다.
+        # 그대로 받으면 로봇이 혼자 출발한다 - 데드맨이 막으려던 바로 그 사고다.
+        if msg.command in (FleetCommand.CMD_GOTO, FleetCommand.CMD_SET_INITIAL_POSE):
+            if not self._link.accepts_motion_command(now):
+                self.get_logger().warn(
+                    f'연결 복구 직후 재전송으로 보이는 명령({msg.command})을 무시합니다.')
+                return
+
         if msg.command == FleetCommand.CMD_GOTO:
             self._hold = False
             self._hold_since = None
@@ -341,6 +380,18 @@ class PinkyAgent(Node):
         else:
             self._nav_status = RobotState.NAV_ABORTED
             self.get_logger().warn(f'주행 실패 (status={status})')
+
+    def shutdown_navigation(self):
+        """종료 직전에 진행 중인 주행을 취소한다.
+
+        이게 없으면 로봇의 launch 를 Ctrl+C 했을 때 Nav2 액션 goal 이 살아 있는 채로
+        프로세스가 죽어, 종료 순서에 따라 로봇이 마지막 속도로 계속 나갈 수 있다.
+        """
+        if self._goal_handle is None:
+            return
+        self.get_logger().info('종료: 진행 중인 주행을 취소합니다.')
+        self._goal_valid = False
+        self._cancel_goal()
 
     def _cancel_goal(self):
         handle = self._goal_handle
@@ -478,25 +529,65 @@ class PinkyAgent(Node):
 
     # ------------------------------------------------------------------ 상태
 
+    def _check_link(self):
+        """관제 PC 하트비트가 끊기면 스스로 주행을 멈춘다 (데드맨 스위치).
+
+        관제 PC 가 정상 종료되면 GUI / coordinator 가 CMD_CANCEL 을 보내 주지만,
+        Wi-Fi 가 끊기거나 PC 가 멈추거나 브리지가 죽으면 그 명령은 오지 않는다.
+        그 경우를 여기서 잡는다.
+        """
+        now = self._seconds()
+        if self._link.poll(now) != LOST:
+            return
+        self._link_lost = True
+        if not (self._goal_valid or self._hold):
+            # 멈출 것이 없다. 상태만 표시하고 아무것도 건드리지 않는다.
+            self.get_logger().warn('관제 PC 신호가 끊겼습니다 (주행 중은 아님).')
+            return
+        silence = self._link.silence(now)
+        self.get_logger().warn(
+            f'관제 PC 명령이 {silence:.1f}s 끊겨 주행을 중단합니다 '
+            '(Wi-Fi / 관제 PC / 브리지 확인). 복구되어도 자동 재출발하지 않습니다.')
+        self._hold = False
+        self._hold_since = None
+        self._goal_valid = False
+        # 진행 중인 액션 콜백이 뒤늦게 상태를 덮어쓰지 않도록 순번을 넘긴다.
+        self._goal_seq += 1
+        self._cancel_goal()
+        self._goal_handle = None
+
     def _check_hold_watchdog(self):
-        """관제 PC 가 죽어도 로봇이 영원히 서 있지 않도록 스스로 HOLD 를 푼다."""
+        """양보가 너무 오래 이어지면 목표를 버리고 대기 상태로 돌아간다.
+
+        예전에는 여기서 마지막 목표를 **재전송**했다. 그게 위험했다 - 관제 PC 가 죽어
+        멈춘 로봇이 45초 뒤 아무도 중재하지 않는 상태에서 혼자 다시 움직였다.
+        지금은 취소만 한다. 재출발이 필요한 정상 상황은 이미 두 군데가 덮는다.
+
+        * coordinator 가 살아 있는데 RESUME 을 잊음 -> 관제 PC 쪽 resume_timeout(30s)
+        * 관제 PC 가 죽음 -> 데드맨(command_timeout, 기본 3s)이 훨씬 먼저 잡는다
+
+        그래서 이 워치독은 둘 다 실패했을 때만 도는 마지막 그물이고, 그때 해야 할 일은
+        재출발이 아니라 정지다.
+        """
         if not self._hold or self._hold_since is None or self._hold_watchdog <= 0.0:
             return
         held = (self.get_clock().now() - self._hold_since).nanoseconds * 1e-9
         if held < self._hold_watchdog:
             return
         self.get_logger().warn(
-            f'HOLD 가 {held:.0f}s 지속되어 워치독으로 자동 해제합니다 '
-            '(관제 PC 또는 브리지 연결을 확인하세요).')
+            f'HOLD 가 {held:.0f}s 지속되어 목표를 취소합니다. 재출발은 하지 않습니다 '
+            '(관제 PC 또는 브리지 연결을 확인하고 목표를 다시 지정하세요).')
         self._hold = False
         self._hold_since = None
-        if self._goal_valid:
-            self._send_goal()
-        else:
-            self._nav_status = RobotState.NAV_IDLE
+        self._goal_valid = False
+        self._goal_seq += 1
+        self._cancel_goal()
+        self._goal_handle = None
+        self._nav_status = RobotState.NAV_IDLE
 
     def _publish_state(self):
         self._update_pose_from_tf()
+        self._check_link()
         self._check_hold_watchdog()
 
         msg = RobotState()
@@ -510,7 +601,10 @@ class PinkyAgent(Node):
         msg.yaw = self._yaw
         msg.linear_velocity = self._linear_velocity
         msg.angular_velocity = self._angular_velocity
-        msg.nav_status = self._nav_status
+        # 연결이 끊긴 동안은 Nav2 가 뭐라고 하든 그 사실이 먼저다. _nav_status 자체를
+        # 덮지 않아서, 연결이 돌아오면 실제 주행 상태가 그대로 다시 보인다.
+        msg.nav_status = (
+            RobotState.NAV_LINK_LOST if self._link_lost else self._nav_status)
         msg.goal_valid = self._goal_valid
         msg.goal_x, msg.goal_y, msg.goal_yaw = self._goal
         msg.max_linear_vel = self._max_lin
@@ -531,14 +625,29 @@ class PinkyAgent(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
+    # rclpy 기본 SIGINT 핸들러는 컨텍스트를 즉시 내려 버려서, 종료 직전에 주행을
+    # 취소할 틈이 없다. 로봇의 launch 를 Ctrl+C 했을 때 Nav2 가 계속 달리는 것을
+    # 막으려면 컨텍스트가 살아 있는 동안 취소를 보내야 한다.
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = PinkyAgent()
     executor = MultiThreadedExecutor()
     executor.add_node(node)
+
+    stopping = []
+
+    def _request_stop(_signum, _frame):
+        stopping.append(True)
+
+    signal.signal(signal.SIGINT, _request_stop)
+    signal.signal(signal.SIGTERM, _request_stop)
+
     try:
-        executor.spin()
-    except KeyboardInterrupt:
-        pass
+        while rclpy.ok() and not stopping:
+            executor.spin_once(timeout_sec=0.1)
+        if rclpy.ok():
+            node.shutdown_navigation()
+            for _ in range(6):
+                executor.spin_once(timeout_sec=0.05)
     finally:
         executor.shutdown()
         node.destroy_node()

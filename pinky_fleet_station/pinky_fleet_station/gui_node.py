@@ -12,6 +12,7 @@ rclpy 와 Qt 는 한 프로세스에서 돈다. 별도 스레드 대신 QTimer �
 import json
 import math
 import os
+import signal
 import sys
 
 import rclpy
@@ -26,6 +27,7 @@ from PyQt5.QtWidgets import (
 from rclpy.qos import (
     QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy,
 )
+from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
 
 from pinky_fleet_msgs.msg import FleetCommand, RobotState
@@ -42,12 +44,17 @@ NAV_STATUS_TEXT = {
     RobotState.NAV_ABORTED: ('실패', '#f87171'),
     RobotState.NAV_CANCELED: ('취소됨', '#fbbf24'),
     RobotState.NAV_HOLD: ('양보 대기', '#fb923c'),
+    RobotState.NAV_LINK_LOST: ('관제 연결 끊김', '#f87171'),
 }
 
 # fake_state_pub 노드가 그래프에 있으면 화면의 로봇은 가짜다.
 # launch 와 `ros2 run` 양쪽에서 이 이름으로 뜬다.
 FAKE_NODE_NAME = 'fake_state_pub'
 SIM_CHECK_PERIOD = 20          # _refresh(10Hz) 틱 기준 -> 약 2초마다 확인
+
+# 로봇의 데드맨 스위치를 먹여 살리는 생존 신호 주기(ms).
+# coordinator 도 같은 주기로 보낸다. 둘 중 하나만 살아 있어도 로봇은 계속 달린다.
+HEARTBEAT_PERIOD_MS = 1000
 
 COMMAND_QOS = QoSProfile(
     history=QoSHistoryPolicy.KEEP_LAST,
@@ -345,12 +352,20 @@ class FleetWindow(QMainWindow):
         self._map_warn_banner.setStyleSheet(MAP_WARN_BANNER_STYLE)
         self._map_warn_banner.hide()
 
+        # 로봇이 스스로 멈춘 것은 카드 안 작은 글씨로는 놓치기 쉽다.
+        self._link_banner = QLabel()
+        self._link_banner.setAlignment(Qt.AlignCenter)
+        self._link_banner.setWordWrap(True)
+        self._link_banner.setStyleSheet(MAP_WARN_BANNER_STYLE)
+        self._link_banner.hide()
+
         container = QWidget()
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(6, 6, 6, 0)
         container_layout.setSpacing(6)
         container_layout.addWidget(self._sim_banner)
         container_layout.addWidget(self._map_warn_banner)
+        container_layout.addWidget(self._link_banner)
         container_layout.addWidget(splitter, 1)
         self.setCentralWidget(container)
 
@@ -366,9 +381,20 @@ class FleetWindow(QMainWindow):
         self._setup_ros()
         self._load_map()
 
+        # 시그널 핸들러는 플래그만 세우고, Qt 는 여기서 건드린다.
+        self._quit_requested = False
+        self._closing_by_signal = False
+
         self._ros_timer = QTimer(self)
         self._ros_timer.timeout.connect(self._spin_ros)
         self._ros_timer.start(20)
+
+        # GUI 도 coordinator 와 별개로 생존 신호를 보낸다. coordinator 만 보내면,
+        # coordinator 가 죽고 GUI 만 살아 있을 때 화면은 멀쩡한데 목표를 줄 때마다
+        # 로봇이 3초 뒤 스스로 취소하는 이상한 상태가 된다.
+        self._hb_timer = QTimer(self)
+        self._hb_timer.timeout.connect(self._publish_heartbeats)
+        self._hb_timer.start(HEARTBEAT_PERIOD_MS)
 
         self._ui_timer = QTimer(self)
         self._ui_timer.timeout.connect(self._refresh)
@@ -393,7 +419,21 @@ class FleetWindow(QMainWindow):
             String, '/fleet/coordinator_status', self._on_coordinator_status, 10))
 
     def _spin_ros(self):
-        rclpy.spin_once(self._node, timeout_sec=0.0)
+        if self._quit_requested and not self._closing_by_signal:
+            # Ctrl+C / SIGTERM. 확인 대화상자 없이 바로 닫는다 (아무도 답할 수 없다).
+            self._closing_by_signal = True
+            self.close()
+            return
+        if rclpy.ok():
+            rclpy.spin_once(self._node, timeout_sec=0.0)
+
+    def _publish_heartbeats(self):
+        for spec in self._mission.robots:
+            self._publish(spec['name'], FleetCommand.CMD_HEARTBEAT)
+
+    def request_quit(self):
+        """시그널 핸들러에서 호출된다. Qt 위젯을 직접 건드리지 않는다."""
+        self._quit_requested = True
 
     def _on_path(self, name, msg: Path):
         self._paths[name] = [
@@ -711,6 +751,7 @@ class FleetWindow(QMainWindow):
         self.canvas.update()
 
         self._check_map_match()
+        self._check_link_lost()
 
         status = self._coordinator_status
         if status is None:
@@ -725,14 +766,55 @@ class FleetWindow(QMainWindow):
             self._coord_label.setStyleSheet(
                 'color: #fb923c;' if state == 'YIELD' else 'color: #22c55e;')
 
+    def _check_link_lost(self):
+        """로봇이 관제 신호를 놓쳐 스스로 멈췄으면 크게 알린다."""
+        lost = [name for name, state in self._states.items()
+                if state.nav_status == RobotState.NAV_LINK_LOST]
+        if lost:
+            self._link_banner.setText(
+                f'통신 두절 — {", ".join(sorted(lost))} 이(가) 관제 신호를 놓쳐 스스로 '
+                '정지했습니다. Wi-Fi / 브리지 / coordinator 를 확인하고 목표를 다시 '
+                '지정하세요 (자동 재출발하지 않습니다).')
+        self._link_banner.setVisible(bool(lost))
+
+    def _driving_robots(self):
+        return [name for name, state in self._states.items()
+                if state.nav_status == RobotState.NAV_ACTIVE]
+
     def closeEvent(self, event):
+        """창을 닫기 전에 두 로봇을 반드시 세운다.
+
+        GUI 가 사라지면 아무도 로봇에 정지를 보낼 수 없다. Nav2 액션 goal 은 로봇
+        도메인 안에 그대로 살아 있어서, 그냥 닫으면 핑키는 목표까지 계속 간다.
+        """
+        driving = self._driving_robots()
+        if driving and not self._closing_by_signal:
+            answer = QMessageBox.question(
+                self, '종료',
+                f'{", ".join(driving)} 이(가) 주행 중입니다.\n'
+                '종료하면 정지 명령을 보내고 창을 닫습니다. 계속할까요?',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                event.ignore()
+                return
+
+        if rclpy.ok():
+            self.send_cancel_all()
+            # DDS 가 실제로 내보낼 시간을 준다.
+            for _ in range(6):
+                rclpy.spin_once(self._node, timeout_sec=0.05)
+
+        self._hb_timer.stop()
         self._ros_timer.stop()
         self._ui_timer.stop()
         super().closeEvent(event)
 
 
 def main(args=None):
-    rclpy.init(args=args)
+    # rclpy 기본 SIGINT 핸들러는 컨텍스트를 즉시 내려 버려서 종료 직전에 정지 명령을
+    # 보낼 수 없다. 핸들러를 직접 잡는다. 또 app.exec_() 안에서는 파이썬 시그널
+    # 핸들러가 곧바로 돌지 않는데, 20ms 로 도는 _ros_timer 덕분에 금방 처리된다.
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node('fleet_gui')
     node.declare_parameter('mission', '')
     mission_path = node.get_parameter('mission').value
@@ -759,6 +841,13 @@ def main(args=None):
 
     window = FleetWindow(node, mission)
     window.show()
+
+    def _request_stop(_signum, _frame):
+        window.request_quit()
+
+    signal.signal(signal.SIGINT, _request_stop)
+    signal.signal(signal.SIGTERM, _request_stop)
+
     try:
         app.exec_()
     finally:
