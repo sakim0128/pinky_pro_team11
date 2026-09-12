@@ -33,18 +33,121 @@
 | [RUNBOOK.md](pinky_fleet/docs/RUNBOOK.md) | 현장 실행 순서, 문제 해결 |
 | [VERIFICATION.md](pinky_fleet/docs/VERIFICATION.md) | L0~L4 단계별 검증 절차 |
 
+## 설치 — PC 에만 한다
+
+`pinky_fleet` 은 **PC 전용 패키지**다. 로봇에는 아무것도 넣지 않는다.
+로봇에서 도는 것은 핑키 이미지에 이미 있는 `pinky_bringup` / `pinky_navigation` 뿐이고,
+우리 코드는 DDS(토픽 + `NavigateToPose` 액션)로만 로봇과 대화한다.
+
+### 1) 인증 — 저장소가 private 이라 필요하다
+
+**Personal Access Token** (추가 설치 없음)
+
+브라우저에서 GitHub → **Settings → Developer settings → Personal access tokens →
+Fine-grained tokens → Generate new token**
+
+- Repository access: **Only select repositories** → 이 저장소
+- Permissions → Repository permissions → **Contents: Read and write**
+  (받기만 할 거면 Read-only)
+
+생성 직후 토큰 문자열을 복사해 둔다. 창을 닫으면 다시 볼 수 없다.
+
+**또는 SSH 키** (만료 없음)
+
+```bash
+ssh-keygen -t ed25519 -C "<본인 이메일>"      # 엔터 3번
+cat ~/.ssh/id_ed25519.pub                     # 출력을 GitHub → Settings → SSH and GPG keys 에 등록
+ssh -T git@github.com                         # "Hi <계정>!" 이 나오면 성공
+```
+
+### 2) 워크스페이스 `src/` 아래에 clone
+
+```bash
+cd ~/<워크스페이스>/src
+
+# PAT 방식
+git config --global credential.helper store   # 한 번만 입력하면 기억한다
+git clone -b dual-control https://github.com/sakim0128/pinky_pro_team11.git
+#   Username: <계정>
+#   Password: <토큰>          ← GitHub 비밀번호가 아니라 토큰
+
+# 또는 SSH 방식
+git clone -b dual-control git@github.com:sakim0128/pinky_pro_team11.git
+```
+
+저장소 루트가 패키지가 아니라 `pinky_fleet/` 을 담고 있는 구조라, 통째로 clone 해도
+colcon 이 재귀 탐색으로 패키지를 찾는다.
+
+```
+~/<워크스페이스>/
+├── src/
+│   └── pinky_pro_team11/
+│       ├── README.md
+│       └── pinky_fleet/          ← colcon 이 찾는 패키지
+├── build/  install/  log/
+```
+
+> `credential.helper store` 는 `~/.git-credentials` 에 **평문으로** 저장한다.
+> 공용 PC 면 `store` 대신 `cache --timeout=28800` (8시간, 메모리에만) 을 쓴다.
+
+### 3) 빌드
+
+```bash
+cd ~/<워크스페이스>
+
+colcon list --packages-select pinky_fleet
+#   pinky_fleet   src/pinky_pro_team11/pinky_fleet   (ament_python)
+#   ← 반드시 한 줄만 나와야 한다
+
+colcon build --packages-select pinky_fleet
+source install/setup.bash
+ros2 run pinky_fleet preflight --help
+```
+
+> **`src/` 에 `pinky_fleet` 사본이 둘 이상이면 colcon 이 빌드를 거부한다**
+> (`Duplicate package names not supported`). 압축을 풀어 복사해 둔 게 남아 있으면 치운다.
+>
+> ```bash
+> mkdir -p ~/_fleet_old && mv ~/<워크스페이스>/src/pinky_fleet ~/_fleet_old/copied
+> ```
+>
+> **홈(`~`)에서 `colcon build` 하지 않는다.** 홈 전체를 훑어서 `~/venv/*` 안의
+> numpy 테스트 폴더까지 패키지로 인식하려다 에러가 쏟아진다. 항상 워크스페이스 루트에서.
+
+### 4) 필요한 ROS 패키지
+
+```bash
+sudo apt install -y ros-jazzy-domain-bridge ros-jazzy-nav2-simple-commander ros-jazzy-turtlesim
+```
+
+`preflight` 가 무엇이 없는지 알려준다.
+
+### 5) 갱신 받기
+
+```bash
+cd ~/<워크스페이스>/src/pinky_pro_team11 && git pull
+cd ~/<워크스페이스> && colcon build --packages-select pinky_fleet && source install/setup.bash
+```
+
+`config/mission.yaml` 은 git 이 추적하는 파일이다. 현장 실측 `home` 좌표를 넣었다면
+`git pull` 때 충돌할 수 있다 — 커밋해서 남기거나(권장) `git stash` 로 잠시 치운다.
+
 ## 빠른 시작
 
 ```bash
-# 0) 빌드
-cd ~/ros2_ws/src && ln -s <이 저장소>/pinky_fleet .
-cd ~/ros2_ws && colcon build --packages-select pinky_fleet && source install/setup.bash
+# 0) PC 사전 점검 — 로봇·네트워크·시계까지 한 번에
+ros2 run pinky_fleet preflight
 
-# 1) 로봇 준비 — 각 로봇에 SSH (도메인 10 / 11)
+# 1) 로봇 준비 — 각 로봇에 SSH (도메인 10 / 11), 세션마다 export 필요
+export ROS_DOMAIN_ID=10 && export ROS_LOCALHOST_ONLY=0
 ros2 launch pinky_bringup bringup_robot.launch.xml
 ros2 launch pinky_navigation bringup_launch.xml map:=<맵이름>.yaml
 
-# 2) PC
+# 2) 출발지 좌표 실측 (1회) — 로봇 도메인에서 RViz 를 띄워 2D Pose Estimate
+ROS_DOMAIN_ID=10 ros2 launch pinky_navigation nav2_view.launch.xml
+ros2 run pinky_fleet preflight --print-home     # 출력을 src 의 mission.yaml 에 붙여넣고 재빌드
+
+# 3) PC
 ros2 launch pinky_fleet fleet_bridge.launch.py      # 관제 평면
 ros2 launch pinky_fleet fleet_view.launch.py        # rviz2 (도메인 20)
 ros2 run    pinky_fleet fleet_master                # 미션
@@ -52,11 +155,17 @@ ros2 run    pinky_fleet fleet_master                # 미션
 # RViz 의 Publish Point 로 2번 클릭 (목적지 → 바라볼 방향) 후 Enter
 ```
 
+> `2D Pose Estimate` 는 **관제 도메인(20)의 RViz 에서는 먹지 않는다.** 브리지가
+> 로봇 → 관제 단방향이라 `/initialpose` 가 로봇으로 넘어가지 않는다. 그래서 2)에서만
+> 로봇 도메인의 RViz 를 쓴다. 본 미션은 `fleet_master` 가 `setInitialPose()` 로 넣는다.
+
 로봇 없이 로직만 확인:
 
 ```bash
 cd pinky_fleet && PYTHONPATH=. python3 -m pinky_fleet.fleet_master --dry-run
 ```
+
+자세한 현장 절차는 [RUNBOOK.md](pinky_fleet/docs/RUNBOOK.md) 에 있다.
 
 ## 설정
 
