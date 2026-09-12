@@ -1,4 +1,15 @@
 # make_bridge_yaml.py 가 mission.yaml 로부터 생성한다. 커밋하지 않는다.
 config/fleet_bridge_*.yaml
+
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# colcon 산출물. 워크스페이스 루트에서 빌드하는 것이 정석이지만,
+# 패키지 폴더 안에서 빌드해도 git 이 더러워지지 않도록 함께 무시한다.
+build/
+install/
+log/
+
+# dump_nav2_params.sh 의 기본 출력 위치
+nav2_params_dump_domain*/
