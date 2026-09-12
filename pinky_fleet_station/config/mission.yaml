@@ -1,0 +1,43 @@
+# 핑키 프로 2대 미션 정의 파일
+# - 관제 PC 에서 편집하거나 GUI 의 [불러오기] / [저장] 으로 읽고 쓴다.
+# - coordinator_node 와 fleet_gui_node 가 이 파일 하나를 공유한다.
+
+map:
+  # 두 로봇에 올린 것과 "동일한" 맵 yaml. GUI 가 이 파일과 옆의 pgm/png 를 직접 로드한다.
+  yaml_path: "$HOME/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.yaml"
+
+defaults:
+  max_linear_vel:  0.20        # m/s   -> controller_server FollowPath.desired_linear_vel
+  max_angular_vel: 1.50        # rad/s -> velocity_smoother max_velocity[2]
+
+coordinator:
+  # 1.5 x 2.5 m 맵 기준. 맵 폭이 1.5m 라 0.70 을 "근접" 으로 보면 거의 항상 교착 판정이
+  # 뜬다. 두 로봇이 실제로 맞물려 멈추는 거리(inflation_radius 0.10 기준 약 0.3~0.4m)
+  # 보다는 커야 한다. clear_distance > conflict_distance 는 반드시 유지 (히스테리시스).
+  conflict_distance: 0.45      # m   두 로봇이 이 거리 이내면 "근접"
+  clear_distance:    0.70      # m   이 이상 벌어지면 양보 해제 (히스테리시스)
+  stall_speed:       0.03      # m/s 이 미만이면 "정지" 로 간주
+  stall_duration:    3.0       # s   근접 + 정지가 이만큼 지속되면 교착 판정
+  resume_timeout:   30.0       # s   양보 대기 최대 시간 (안전장치)
+  cooldown:          2.0       # s   해제 직후 재진입 방지
+  state_timeout:     2.0       # s   state 가 이만큼 끊기면 해당 로봇을 신뢰하지 않음
+
+robots:
+  - name: pinky1
+    domain_id: 10              # 작을수록 먼저 출발 (미션 5번)
+    # 시뮬(namespace) <-> 실기(domain_bridge) 를 이 두 줄만 바꿔 전환한다.
+    state_topic:   /pinky1/state
+    command_topic: /pinky1/command
+    color: "#ff5a7a"
+    initial_pose: {x: 0.0, y: 0.0, yaw: 0.0}
+    goal:         {x: 1.5, y: 2.0, yaw: 0.0}
+    # max_linear_vel / max_angular_vel 를 생략하면 defaults 값을 쓴다.
+
+  - name: pinky2
+    domain_id: 11
+    state_topic:   /pinky2/state
+    command_topic: /pinky2/command
+    color: "#38bdf8"
+    initial_pose: {x: 0.5, y: 0.0, yaw: 0.0}
+    goal:         {x: -1.0, y: 2.5, yaw: 3.14159}
+    max_linear_vel: 0.15

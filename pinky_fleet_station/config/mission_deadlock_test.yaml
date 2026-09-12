@@ -1,0 +1,51 @@
+# 교착 회피(미션 4·5번) 검증용 미션.
+#
+# 두 로봇이 같은 직선 위에서 정면으로 마주 보게 목표를 잡았다.
+# 실기 없이 확인하려면:
+#
+#   export ROS_DOMAIN_ID=0
+#   ros2 launch pinky_fleet_station fake_fleet.launch.xml \
+#       mission:=<repo>/pinky_fleet_station/config/mission_deadlock_test.yaml \
+#       auto_start:=True
+#
+#   ros2 topic echo /fleet/coordinator_status
+#
+# 기대 동작
+#   1) 두 로봇이 마주 오다 가운데에서 맞물려 정지
+#   2) 3초 뒤 coordinator 가 domain_id 가 큰 pinky2 에 CMD_STOP
+#   3) pinky1 이 멈춰 선 pinky2 를 우회해 통과
+#   4) 거리가 clear_distance 이상 벌어지면 pinky2 에 CMD_RESUME
+#   5) 두 대 모두 목표 도달
+
+map:
+  yaml_path: "$HOME/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.yaml"
+
+defaults:
+  max_linear_vel:  0.20
+  max_angular_vel: 1.50
+
+coordinator:
+  conflict_distance: 0.70
+  clear_distance:    1.00
+  stall_speed:       0.03
+  stall_duration:    3.0
+  resume_timeout:   30.0
+  cooldown:          2.0
+  state_timeout:     2.0
+
+robots:
+  - name: pinky1
+    domain_id: 10
+    state_topic:   /pinky1/state
+    command_topic: /pinky1/command
+    color: "#ff5a7a"
+    initial_pose: {x: 1.0, y: -5.0, yaw: 0.0}
+    goal:         {x: 6.0, y: -5.0, yaw: 0.0}
+
+  - name: pinky2
+    domain_id: 11
+    state_topic:   /pinky2/state
+    command_topic: /pinky2/command
+    color: "#38bdf8"
+    initial_pose: {x: 6.0, y: -5.0, yaw: 3.14159}
+    goal:         {x: 1.0, y: -5.0, yaw: 3.14159}

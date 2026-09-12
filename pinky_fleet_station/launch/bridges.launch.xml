@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!--
+  domain_bridge 를 띄워 로봇 도메인(10, 11)의 토픽을 관제 도메인(0)으로 모은다.
+
+    sudo apt install ros-jazzy-domain-bridge
+
+  주의: 관제 PC 에도 pinky_fleet_msgs 가 빌드/소싱 되어 있어야 한다.
+        domain_bridge 는 런타임에 메시지 타입서포트를 찾아 로드한다.
+-->
+<launch>
+    <arg name="bridge_config"
+         default="$(find-pkg-share pinky_fleet_station)/config/bridge_fleet.yaml"/>
+
+    <node pkg="domain_bridge" exec="domain_bridge" name="pinky_fleet_bridge"
+          args="$(var bridge_config)" output="screen"/>
+</launch>
