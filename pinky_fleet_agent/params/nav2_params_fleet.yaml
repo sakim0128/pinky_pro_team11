@@ -3,10 +3,10 @@
 # pinklab-art/pinky_pro 의 pinky_navigation/params/nav2_params.yaml 사본에
 # 멀티로봇 관제(fleet)용 수정만 얹은 파일. 수정 지점은 "[fleet]" 주석으로 표시했다.
 #
-#  1. amcl.set_initial_pose  true -> false  (GUI/mission.yaml 에서 초기 위치를 준다)
-#  2. amcl.initial_pose      제거          (nav2 규격과 형식이 달라 무시되던 값)
-#  3. controller_server.use_sim_time 하드코딩 제거 (launch 인자로만 결정)
-#  4. bt_navigator.robot_base_frame base_link -> base_footprint (다른 노드와 통일)
+#  1. amcl.initial_pose 를 nav2 규격인 매핑 형식으로 고침
+#     (upstream 의 [0, 0, 0] 리스트 형식은 nav2 가 읽지 못해 무시된다)
+#  2. controller_server.use_sim_time 하드코딩 제거 (launch 인자로만 결정)
+#  3. bt_navigator.robot_base_frame base_link -> base_footprint (다른 노드와 통일)
 #
 # 로봇마다 ROS_DOMAIN_ID 가 분리되어 있으므로 costmap 의 `topic: /scan` 절대경로,
 # odom/base_footprint 프레임 이름 등은 충돌하지 않아 그대로 둔다.
@@ -50,10 +50,16 @@ amcl:
     z_rand: 0.5
     z_short: 0.05
     scan_topic: scan
-    # [fleet] 관제 PC(GUI/mission.yaml)에서 initialpose 를 주므로 원점 강제 초기화를 끈다.
-    set_initial_pose: false
-    # [fleet] upstream 의 initial_pose: [0, 0, 0] 은 nav2 규격({x:,y:,z:,yaw:})과 달라 무시된다.
-    #         set_initial_pose 를 false 로 두었으므로 제거.
+    # [fleet] 반드시 true 로 둔다. AMCL 은 초기 위치를 받기 전까지 map -> odom TF 를
+    #         발행하지 않는데, 그러면 global_costmap 이 map -> base_footprint 변환을
+    #         기다리다 타임아웃되어 Nav2 기동 전체가 abort 한다. Nav2 가 죽어버리면
+    #         관제 GUI 로 초기 위치를 줄 기회조차 없다.
+    set_initial_pose: true
+    # [fleet] upstream 의 [0, 0, 0] 리스트 형식은 nav2 가 읽지 못한다. 매핑 형식이어야 한다.
+    #         원점에서 시작해도 무방하다 — GUI 의 [초기위치 지정] 이 /initialpose 를
+    #         발행하면 AMCL 이 실제 위치로 재수렴한다. 중요한 건 기동 시점에 TF 가
+    #         끊기지 않는 것이다.
+    initial_pose: {x: 0.0, y: 0.0, z: 0.0, yaw: 0.0}
 
 bt_navigator:
   ros__parameters:

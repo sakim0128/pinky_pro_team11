@@ -74,6 +74,22 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 빌드되지 않는다. 한 저장소에 세 패키지가 같이 들어 있으므로 **패키지 디렉터리만
 따로 옮기지 말고 저장소를 통째로** 넣는다.
 
+**`colcon build` 는 반드시 워크스페이스 루트(`~/pinky_pro`, `~/fleet_ws`)에서 돌린다.**
+저장소 디렉터리 안에서 돌리면 `src/pinky_pro_team11/install/` 이라는 워크스페이스가
+하나 더 생기고, 그쪽이 `AMENT_PREFIX_PATH` 를 선점해 `git pull` 을 해도 옛 빌드가 계속
+쓰인다. 증상이 헷갈린다 — 소스는 최신인데 launch 인자가 예전 것으로 동작한다.
+그런 상태라면 이렇게 정리한다.
+
+```bash
+rm -rf ~/pinky_pro/src/pinky_pro_team11/{build,install,log}
+grep -n "setup.bash" ~/.bashrc          # 중첩 install 을 source 하는 줄이 있으면 삭제
+# 새 터미널을 열고 다시 빌드
+```
+
+```bash
+ros2 pkg prefix pinky_fleet_agent       # ~/pinky_pro/install/... 이어야 정상
+```
+
 ### 로봇 2대 (SSH, 계정 `pinky`)
 
 기존 `pinky_pro` 워크스페이스를 그대로 쓴다. `pinky_fleet_agent` 의 launch 가
@@ -179,6 +195,27 @@ yaml 을 직접 고쳐도 된다 — 아래 파일의 `map.yaml_path`.
   공용 실습망이면 `pinky_fleet_station/config/bridge_fleet.yaml` 의
   `to_domain: 0` / `from_domain: 0` 을
   다른 값(예: 20)으로 바꾸고 관제 PC 도 같은 값으로 띄운다.
+
+### DDS 인터페이스 고정 (세 대 모두, 최초 1회)
+
+**여분 네트워크 인터페이스가 있으면 세 대가 서로를 발견하지 못한다.** 핑키에는 자체
+핫스팟 `ap0`(192.168.4.1)가 기본으로 떠 있고, 관제 PC 에 VPN(`tailscale0` 등)이 있으면
+같은 문제가 생긴다.
+
+Fast DDS 는 멀티캐스트로 자기를 알릴 때 모든 인터페이스 주소를 함께 광고하고 상대가
+그중 하나로 유니캐스트 응답을 보내는데, 닿지 않는 주소를 고르면 핸드셰이크가 끝나지
+않는다. 증상이 고약하다 — `ros2 multicast send` / `receive` 는 양방향으로 잘 통하는데
+`ros2 node list` 에는 상대 노드가 하나도 안 보이고 에러도 없다.
+
+```bash
+bash scripts/setup_dds_interface.sh          # 기본 경로의 인터페이스를 자동 탐지
+bash scripts/setup_dds_interface.sh wlan0    # 직접 지정
+```
+
+`~/fastdds_wifi.xml` 을 만들고 `~/.bashrc` 에 `FASTRTPS_DEFAULT_PROFILES_FILE` 을
+등록한다. 실행 후 `ros2 daemon stop` 하고 **새 터미널**을 열어야 적용된다.
+
+IP 가 바뀌면(DHCP) 다시 실행해야 하므로, 공유기에서 세 대에 고정 IP 를 주는 편이 낫다.
 
 ## 실행
 
@@ -357,6 +394,8 @@ upstream `nav2_params.yaml` 의 사본 + 아래 변경만 담는다 (`[fleet]` �
 | 명령이 로봇에 안 감 | 로봇에서 `ROS_DOMAIN_ID=10 ros2 topic echo /pinky1/command` |
 | state 는 오는데 GUI 에 로봇이 안 보임 | `localized` 가 `false` (AMCL 미수렴). 초기 위치를 다시 지정 |
 | 로봇이 맵의 엉뚱한 자리에 표시됨 | 두 로봇과 GUI 가 같은 맵 yaml 을 쓰는지 확인 |
+| 세 대가 서로를 못 봄 (`ros2 node list` 가 빔) | 여분 인터페이스(`ap0`, `tailscale0` 등) 때문이다. 세 대 모두 `bash scripts/setup_dds_interface.sh` 실행 후 `ros2 daemon stop` + 새 터미널. 위 **DDS 인터페이스 고정** 참조 |
+| 로봇 기동 중 `Failed to bring up all requested nodes` | `global_costmap` 이 `map -> base_footprint` 변환을 못 받아 Nav2 가 abort 한 것. AMCL 이 초기 위치를 받기 전까지 `map -> odom` 을 발행하지 않기 때문이다. 이 저장소는 `nav2_params_fleet.yaml` 에서 `set_initial_pose: true` + `initial_pose` 매핑 형식으로 대응한다 — 그 값이 바뀌지 않았는지 확인 |
 | 빨간 `맵 불일치` 배너가 뜸 | GUI 가 연 맵과 로봇이 로드한 맵이 다르다. 배너에 어느 로봇의 무엇이 다른지 나온다 |
 | 배너에 `맵 이름` 이 다르다고 나옴 | 로봇의 `/home/pinky/map` 에 그 이름의 맵이 없어 교체에 실패했다. 로봇 로그의 `맵 교체 실패` 를 보고 파일을 복사한다 |
 | 맵을 바꾼 뒤 로봇이 안 움직임 | 맵이 바뀌면 AMCL 위치 추정이 무효다. 각 로봇의 `[초기위치 지정]` 을 다시 한다 |
