@@ -45,15 +45,27 @@ unset ROS_LOCALHOST_ONLY
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
 
 echo "도메인 ${DOMAIN} 의 노드를 찾는 중..."
-# 우리 도구와 뷰어는 뺀다. 하드코딩한 목록보다 실제 노드를 찾는 쪽이 튼튼하다.
+# 우리 도구, 뷰어, 그리고 내부 헬퍼 노드를 뺀다.
+# transform_listener_impl_* 는 tf2 의 TransformListener 가 만드는 내부 노드다.
+# rviz2 나 rqt 를 켜 두면 이것만 잔뜩 보이는데, 파라미터 서비스가 없어 덤프 대상이 아니다.
+# 하드코딩한 목록보다 실제 노드를 찾는 쪽이 튼튼하다.
 mapfile -t NODES < <(ros2 node list 2>/dev/null \
-    | grep -vE '^/(preflight_|fleet_|rviz|rqt_|_ros2cli)' \
+    | grep -vE '^/(preflight_|fleet_|rviz|rqt_|_ros2cli|transform_listener_impl_|launch_ros_)' \
     | sed '/^$/d')
 
 if [ "${#NODES[@]}" -eq 0 ]; then
-    echo "도메인 ${DOMAIN} 에 노드가 없습니다." >&2
-    echo "  로봇에서 pinky_navigation 이 떠 있는지, 도메인이 맞는지 확인하세요." >&2
-    echo "  ros2 run pinky_fleet preflight  로 한 번에 진단할 수 있습니다." >&2
+    echo "도메인 ${DOMAIN} 에 덤프할 노드가 없습니다." >&2
+    echo >&2
+    echo "덤프 대상은 amcl / bt_navigator / controller_server /" >&2
+    echo "local_costmap/local_costmap 같은 Nav2 노드입니다." >&2
+    echo "(rviz2·rqt 가 만드는 transform_listener_impl_* 는 파라미터가 없어 제외합니다)" >&2
+    echo >&2
+    echo "확인할 것" >&2
+    echo "  1. 로봇에서 pinky_navigation 이 아직 떠 있는가" >&2
+    echo "       ssh pinky@<로봇IP> 'ros2 node list'" >&2
+    echo "     ** 꺼졌다면 rqt 로 조정한 값은 이미 사라졌습니다. 다시 튜닝해야 합니다. **" >&2
+    echo "  2. 도메인과 디스커버리가 맞는가" >&2
+    echo "       ros2 run pinky_fleet preflight" >&2
     exit 1
 fi
 
@@ -77,6 +89,24 @@ for node in "${NODES[@]}"; do
 done
 
 echo
+if [ "$ok" -eq 0 ]; then
+    echo "저장된 파일이 없습니다. (${skipped}개 모두 파라미터 서비스 무응답)" >&2
+    echo >&2
+    echo "도메인 ${DOMAIN} 에서 Nav2 노드를 찾지 못했습니다." >&2
+    echo "덤프할 대상은 amcl / bt_navigator / controller_server /" >&2
+    echo "local_costmap/local_costmap 같은 노드인데 하나도 없습니다." >&2
+    echo >&2
+    echo "확인할 것" >&2
+    echo "  1. 로봇에서 pinky_navigation 이 아직 떠 있는가" >&2
+    echo "       ssh pinky@<로봇IP> 'ros2 node list'" >&2
+    echo "     ** 꺼졌다면 rqt 로 조정한 값은 이미 사라졌습니다. 다시 튜닝해야 합니다. **" >&2
+    echo "  2. 도메인과 디스커버리가 맞는가" >&2
+    echo "       ros2 run pinky_fleet preflight" >&2
+    echo >&2
+    rmdir "$OUT" 2>/dev/null || true
+    exit 1
+fi
+
 echo "완료: ${ok}개 저장, ${skipped}개 건너뜀"
 echo
 echo "다음에 할 일 — 덤프를 통째로 쓰지 말고, 바꾼 항목만 찾아서 원본에 옮깁니다."
