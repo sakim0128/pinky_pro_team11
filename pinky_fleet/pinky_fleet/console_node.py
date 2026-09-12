@@ -18,10 +18,12 @@
 
 from __future__ import annotations
 
+import argparse
 import queue
+import sys
 
 from pinky_fleet import protocol as P
-from pinky_fleet.mission_config import Pose2D
+from pinky_fleet.mission_config import Pose2D, load_mission_config
 from pinky_fleet.ros_qos import amcl_pose_qos
 from pinky_fleet.pose_utils import quaternion_from_yaw_deg, yaw_deg_from_quaternion
 
@@ -238,3 +240,52 @@ def build_console_node():
             return m
 
     return ConsoleNode
+
+
+# ---------------------------------------------------------------------------
+# 단독 실행 — fleet_master 없이 관제 화면만 채운다
+# ---------------------------------------------------------------------------
+def config_to_dict(cfg) -> dict:
+    """MissionConfig -> console_process 가 받는 dict (fleet_master 와 같은 형식)."""
+    return {
+        'control_domain_id': cfg.control_domain_id,
+        'map_frame': cfg.map_frame,
+        'robots': [r.as_dict() for r in cfg.robots],
+        'goal_input': {'mode': cfg.goal_input.mode,
+                       'goal_yaw_deg': cfg.goal_input.goal_yaw_deg},
+    }
+
+
+def main(argv=None):
+    """관제 콘솔만 단독으로 띄운다.
+
+        ros2 run pinky_fleet fleet_console
+
+    브리지가 제대로 도는지 눈으로 확인할 때, 그리고 미션 전에 관제 화면을 띄워 둘 때 쓴다.
+    맵 위에 두 로봇의 위치 화살표와 출발지 마커를 그린다. 미션은 돌지 않는다.
+
+    주의: fleet_master 와 **동시에 켜지 않는다.** fleet_master 도 자기 콘솔 노드를
+    자식 프로세스로 띄우므로, 둘 다 /fleet/markers 를 발행해 상태 텍스트가 깜빡인다.
+    fleet_master 를 돌리기 전에 이걸 Ctrl-C 로 끈다.
+    """
+    ap = argparse.ArgumentParser(
+        prog='fleet_console',
+        description='관제 도메인에 붙어 맵 위에 로봇 위치를 그린다 (미션 없이)')
+    ap.add_argument('--config', default='', help='mission.yaml 경로')
+    args = ap.parse_args(argv)
+
+    cfg = load_mission_config(args.config)
+    print(f'[CONFIG] {cfg.source_path}', flush=True)
+    print(f'[CONSOLE] 관제 도메인 {cfg.control_domain_id} 에서 /fleet/markers 발행. '
+          'Ctrl-C 로 종료.', flush=True)
+    print('[CONSOLE] fleet_master 를 실행하기 전에 이 프로세스를 끄세요 '
+          '(마커가 중복 발행됩니다).', flush=True)
+
+    # console_process 는 큐 두 개만 있으면 된다. 부모가 없으므로 빈 큐를 준다.
+    # drain_parent_queue() 가 queue.Empty 를 잡으므로 평범한 Queue 로 충분하다.
+    console_process(config_to_dict(cfg), queue.Queue(), queue.Queue())
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

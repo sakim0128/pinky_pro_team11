@@ -87,16 +87,10 @@ class FleetMaster:
                   f'(backend={self.backend}, pid={p.pid})', flush=True)
 
         if self.use_console:
-            from pinky_fleet.console_node import console_process
+            from pinky_fleet.console_node import config_to_dict, console_process
             self.to_console_q = mp.Queue()
             self.from_console_q = mp.Queue()
-            cfg_dict = {
-                'control_domain_id': self.cfg.control_domain_id,
-                'map_frame': self.cfg.map_frame,
-                'robots': [r.as_dict() for r in self.cfg.robots],
-                'goal_input': {'mode': self.cfg.goal_input.mode,
-                               'goal_yaw_deg': self.cfg.goal_input.goal_yaw_deg},
-            }
+            cfg_dict = config_to_dict(self.cfg)
             self.console_proc = mp.Process(
                 target=console_process,
                 args=(cfg_dict, self.to_console_q, self.from_console_q),

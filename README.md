@@ -159,6 +159,29 @@ ros2 run    pinky_fleet fleet_master                # 미션
 > 로봇 → 관제 단방향이라 `/initialpose` 가 로봇으로 넘어가지 않는다. 그래서 2)에서만
 > 로봇 도메인의 RViz 를 쓴다. 본 미션은 `fleet_master` 가 `setInitialPose()` 로 넣는다.
 
+### 어느 RViz 에서 무엇이 보이나
+
+도메인이 논리적 칸막이라, **띄운 도메인에 있는 것만 보인다.**
+
+| 띄운 것 | 보이는 것 |
+|---|---|
+| `ROS_DOMAIN_ID=10 ros2 launch pinky_navigation nav2_view.launch.xml` | **1호기만.** 로봇 모델 + 라이다 + 맵. `2D Pose Estimate` 가 먹는다 |
+| `ROS_DOMAIN_ID=11 ...` (같은 명령) | **2호기만.** 위와 동일 |
+| `ros2 launch pinky_fleet fleet_view.launch.py` (도메인 20) | **두 대 같이.** 단 맵 + 화살표 마커만 — 로봇 모델·라이다는 없다 (`/tf` 를 브리지하지 않기 때문) |
+
+로봇 도메인 RViz 에 한 대만 보이는 것은 **정상**이다. 그래서 출발지 좌표 실측은
+도메인을 바꿔 가며 **두 번** 한다.
+
+관제 화면(도메인 20)의 화살표 마커는 관제 콘솔 노드가 그린다. 그 노드는
+`fleet_master` 의 자식 프로세스이거나, 단독으로 띄운 `fleet_console` 이다.
+
+```bash
+ros2 run pinky_fleet fleet_console    # 미션 없이 관제 화면만 채운다
+```
+
+**`fleet_master` 를 실행하기 전에 `fleet_console` 은 끈다** — 둘 다 `/fleet/markers` 를
+발행하면 상태 텍스트가 깜빡인다.
+
 로봇 없이 로직만 확인:
 
 ```bash

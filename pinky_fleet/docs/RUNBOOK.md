@@ -190,8 +190,20 @@ ros2 launch pinky_fleet fleet_view.launch.py
 `ROS_DOMAIN_ID` 를 따로 export 할 필요가 없다 — launch 가 `mission.yaml` 의
 `control_domain_id` 를 rviz2 프로세스에 직접 넣는다.
 
-**확인**: 맵이 보이고, 잠시 뒤 로봇 2대의 화살표 마커가 뜬다.
-안 보이면 → [문제 해결](#문제-해결) 로.
+**확인**: **맵이 보인다.** 이 단계에서는 그것뿐이다.
+
+> **로봇 마커는 아직 안 뜬다.** `fleet_view.launch.py` 는 rviz2 만 띄우고,
+> `/fleet/markers` 를 발행하는 관제 콘솔 노드는 `fleet_master` 의 자식 프로세스로 돈다.
+> 미션을 돌리기 전에 로봇 위치를 화면으로 확인하고 싶으면 별도 터미널에서:
+>
+> ```bash
+> ros2 run pinky_fleet fleet_console      # 맵 + 두 로봇 화살표. 미션은 안 돈다
+> ```
+>
+> **`fleet_master` 를 실행하기 전에 이걸 Ctrl-C 로 끈다.** 둘 다 `/fleet/markers` 를
+> 발행하면 상태 텍스트가 깜빡인다.
+
+맵조차 안 보이면 → [문제 해결](#문제-해결) 로.
 
 ## 6. [PC] 미션 실행
 
@@ -223,7 +235,10 @@ ros2 run pinky_fleet fleet_master --goal 2.5 1.0 90 -y
 | 증상 | 원인 후보 | 확인 / 조치 |
 |---|---|---|
 | RViz 에 맵이 안 뜬다 | 브리지가 로봇을 못 봄 | 로봇 터미널에서 `ros2 topic list` 에 `/map` 이 있는지 → PC 에서 `ROS_DOMAIN_ID=10 ros2 topic list` 로 로봇이 보이는지 |
-| 맵은 뜨는데 마커가 없다 | `/amcl_pose` 미발행 | Nav2 가 떴는지, 2D Pose Estimate 를 한 번도 안 했는지 확인. `ROS_DOMAIN_ID=20 ros2 topic hz /pinky1/amcl_pose` |
+| 맵은 뜨는데 마커가 없다 | **`fleet_master` 도 `fleet_console` 도 안 떠 있음** | 마커는 관제 콘솔 노드가 그린다. 둘 중 하나를 띄운다 (동시에는 안 됨) |
+| 〃 | `/amcl_pose` 미발행 | Nav2 가 떴는지, 2D Pose Estimate 를 한 번도 안 했는지 확인. `ROS_DOMAIN_ID=20 ros2 topic hz /pinky1/amcl_pose` |
+| 상태 텍스트가 깜빡인다 | `fleet_console` 과 `fleet_master` 가 동시에 떠 있음 | `fleet_console` 을 끈다 |
+| 로봇 도메인 RViz 에 한 대만 보인다 | **정상** — 그 RViz 는 그 도메인만 본다 | 두 대를 한 화면에서 보려면 브리지 + `fleet_view` + `fleet_console`/`fleet_master` |
 | 아무것도 안 보인다 | `ROS_LOCALHOST_ONLY=1` | 로봇/PC 양쪽에서 `echo $ROS_LOCALHOST_ONLY` → 0 이어야 한다 |
 | `Nav2 가 활성화되지 않았습니다` | 로봇 도메인 불일치 / Nav2 미기동 | 로봇에서 `echo $ROS_DOMAIN_ID` 가 `mission.yaml` 값과 같은지 |
 | `AMCL 이 보고한 위치가 home 에서 … 떨어져` | `home` 좌표가 실제 로봇 위치와 다름 | `preflight --print-home` 으로 다시 뽑는다. 급하면 `localization.max_initial_offset` 를 키운다 |
@@ -246,7 +261,8 @@ ros2 run pinky_fleet fleet_master --goal 2.5 1.0 90 -y
 3. 로봇 bringup + pinky_navigation  ×2
 4. PC   preflight                                   ← FAIL 있으면 여기서 해결
 5. PC   preflight --print-home → mission.yaml → 재빌드
-6. PC   fleet_bridge + fleet_view                   ← RViz 에 맵 + 마커 2개
+6. PC   fleet_bridge + fleet_view                   ← RViz 에 맵
+        (선택) fleet_console 으로 로봇 마커 확인 후 끈다
 7. 실물 바퀴 띄우고 준비만 → 1 m 미션 → 취소 확인 → 본 미션
 ```
 

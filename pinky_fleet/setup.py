@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'fleet_master = pinky_fleet.fleet_master:main',
             'preflight = pinky_fleet.preflight:main',
+            'fleet_console = pinky_fleet.console_node:main',
             'make_bridge_yaml = pinky_fleet.make_bridge_yaml:main',
         ],
     },

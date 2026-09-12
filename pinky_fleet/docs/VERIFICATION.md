@@ -174,6 +174,7 @@ ros2 run pinky_fleet fleet_master
 
 **통과 기준**
 - RViz 한 화면에 맵 + 로봇 2대 마커 + 상태 텍스트
+  (마커·상태 텍스트는 `fleet_master` 가 돌기 시작하면 나타난다)
 - Publish Point 2회 클릭 → 목적지 마커(주황) 표시 → Enter → 1호기만 출발
 - 1호기 복귀 후 2호기 출발, 최종 `DONE`
 
@@ -187,7 +188,9 @@ ros2 run pinky_fleet fleet_master
 순서를 지킨다. 각 단계에서 멈출 수 있어야 다음으로 간다.
 
 1. **바퀴를 띄운 채** 1~4단계(RUNBOOK)까지만 하고 `fleet_master` 는 실행하지 않는다.
-   RViz 에 마커 2개가 뜨는지만 확인한다. → 관제 평면 확인 완료
+   대신 `ros2 run pinky_fleet fleet_console` 로 RViz 에 마커 2개가 뜨는지 확인한다.
+   (마커는 관제 콘솔 노드가 그린다 — `fleet_view` 만으로는 맵밖에 안 보인다)
+   확인했으면 `fleet_console` 을 Ctrl-C 로 끈다. → 관제 평면 확인 완료
 2. 여전히 바퀴를 띄운 채 `fleet_master` 실행 → `WAIT_NAV2` 통과, `WAIT_GOAL` 도달 확인.
    여기서 Ctrl-C. → 준비 단계 확인 완료
 3. 바닥에 내리고 **출발지에서 1 m 이내**의 안전한 지점을 목적지로 찍어 전체 미션 1회.
