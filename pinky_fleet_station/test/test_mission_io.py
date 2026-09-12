@@ -12,8 +12,8 @@ from pinky_fleet_station.mission_io import (  # noqa: E402
     Mission, MissionError, load_mission, save_mission,
 )
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXAMPLE = os.path.join(REPO_ROOT, 'config', 'mission.yaml')
+PKG_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXAMPLE = os.path.join(PKG_ROOT, 'config', 'mission.yaml')
 
 
 def minimal(**overrides):

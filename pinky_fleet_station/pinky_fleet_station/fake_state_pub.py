@@ -21,7 +21,7 @@ mission.yaml 을 읽어 각 로봇의 ``state_topic`` 으로 RobotState 를 발�
 사용 예:
 
     ros2 run pinky_fleet_station fake_state_pub --ros-args \
-        -p mission:=config/mission.yaml -p auto_start:=true
+        -p mission:=<pkg>/config/mission.yaml -p auto_start:=true
 """
 
 import math

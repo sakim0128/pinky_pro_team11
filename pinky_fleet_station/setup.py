@@ -5,11 +5,6 @@ from setuptools import find_packages, setup
 
 package_name = 'pinky_fleet_station'
 
-# config/ 는 저장소 루트에 두고 사용자가 편집한다. 빌드 시 패키지 share 로 복사해
-# launch 파일의 $(find-pkg-share ...) 기본값이 바로 동작하게 한다.
-_here = os.path.dirname(os.path.realpath(__file__))
-_repo_config = os.path.join(os.path.dirname(_here), 'config')
-
 setup(
     name=package_name,
     version='0.1.0',
@@ -18,8 +13,9 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         (os.path.join('share', package_name), ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.xml')),
-        (os.path.join('share', package_name, 'config'),
-         glob(os.path.join(_repo_config, '*.yaml'))),
+        # colcon 은 data_files 의 source 를 패키지 디렉터리 기준 상대경로로만 받는다.
+        # 절대경로를 넣으면 빌드가 AssertionError 로 죽는다.
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

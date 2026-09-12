@@ -4,7 +4,7 @@
 
     export ROS_DOMAIN_ID=0
     ros2 launch pinky_fleet_station fleet.launch.xml \
-        mission:=$HOME/pinky_pro_team11/config/mission.yaml
+        mission:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/mission.yaml
 
   domain_bridge + coordinator + GUI 를 한 번에 띄운다.
   로봇 2대를 먼저 띄운 뒤 실행할 것 (브리지의 QoS 매칭이 안정적이다).

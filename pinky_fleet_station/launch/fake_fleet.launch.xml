@@ -5,7 +5,7 @@
 
     export ROS_DOMAIN_ID=0
     ros2 launch pinky_fleet_station fake_fleet.launch.xml \
-        mission:=$HOME/pinky_pro_team11/config/mission.yaml
+        mission:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/mission.yaml
 
   mission.yaml 의 두 goal 을 서로 교차하게 잡아 두면, 두 로봇이 가운데서
   맞물려 멈추고 coordinator 가 domain_id 가 큰 쪽에 STOP 을 내는 것을

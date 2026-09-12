@@ -17,7 +17,7 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 | 3. 동시 출발 | GUI `[동시 출발]` 이 두 로봇에 같은 틱에 `CMD_GOTO` 발행 |
 | 4. 만나면 멈춘 후 순차 출발 | 평소엔 Nav2 로컬 플래너 회피. 교착이면 coordinator 가 개입 |
 | 5. 도메인 ID 작은 쪽 우선 | coordinator 가 `domain_id` 오름차순으로 leader / yielder 결정 |
-| 주의 1. YAML 로 좌표·속도 전달 | `config/mission.yaml` (GUI 로드·저장, coordinator 가 읽음) |
+| 주의 1. YAML 로 좌표·속도 전달 | `pinky_fleet_station/config/mission.yaml` (GUI 로드·저장, coordinator 가 읽음) |
 
 ## 구조
 
@@ -35,7 +35,7 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
                 │        (같은 Wi-Fi LAN / DDS)      │
 ┌───────────────▼───────────────────────────────────▼───────────────┐
 │ ROS_DOMAIN_ID=0  (관제 PC)                                         │
-│   domain_bridge  (config/bridge_fleet.yaml)                        │
+│   domain_bridge  (pinky_fleet_station/config/bridge_fleet.yaml)    │
 │   coordinator_node  — 교착 감지 / 양보 / 재출발                     │
 │   fleet_gui_node    — PyQt5. 맵 pgm·png 로컬 로드, 클릭→목표         │
 └────────────────────────────────────────────────────────────────────┘
@@ -68,8 +68,8 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 
 저장소는 반드시 colcon 워크스페이스의 `src/` 아래에 둔다. colcon 이 워크스페이스
 루트의 `src/` 를 훑어 `package.xml` 을 찾기 때문에, 홈 디렉터리에 그냥 받아두면
-빌드되지 않는다. 저장소 루트의 `config/` 를 `pinky_fleet_station/setup.py` 가
-참조하므로 **패키지 디렉터리만 따로 옮기지 말고 저장소를 통째로** 넣는다.
+빌드되지 않는다. 한 저장소에 세 패키지가 같이 들어 있으므로 **패키지 디렉터리만
+따로 옮기지 말고 저장소를 통째로** 넣는다.
 
 ### 로봇 2대 (SSH, 계정 `pinky`)
 
@@ -127,9 +127,13 @@ mkdir -p ~/maps
 scp pinky@<핑키1_IP>:~/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.* ~/maps/
 ```
 
-그다음 `~/fleet_ws/src/pinky_pro_team11/config/mission.yaml` 의 `map.yaml_path` 를
-복사한 경로(예: `/home/sungah/maps/pinklab.yaml`)로 고친다.
-`config/mission_deadlock_test.yaml` 도 마찬가지.
+그다음 아래 파일의 `map.yaml_path` 를 복사한 경로(예: `/home/sungah/maps/pinklab.yaml`)로 고친다.
+
+```
+~/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/mission.yaml
+```
+
+같은 디렉터리의 `mission_deadlock_test.yaml` 도 마찬가지.
 
 ### 네트워크 전제
 
@@ -137,7 +141,8 @@ scp pinky@<핑키1_IP>:~/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.* 
 - `ROS_AUTOMATIC_DISCOVERY_RANGE` 가 `LOCALHOST` / `OFF` 이면 안 된다 (Jazzy 기본값 `SUBNET` 유지).
 - `RMW_IMPLEMENTATION` 이 셋 다 같아야 한다.
 - 관제 PC 도메인 `0` 은 ROS 기본값이라 같은 랜의 다른 ROS 프로세스가 섞일 수 있다.
-  공용 실습망이면 `config/bridge_fleet.yaml` 의 `to_domain: 0` / `from_domain: 0` 을
+  공용 실습망이면 `pinky_fleet_station/config/bridge_fleet.yaml` 의
+  `to_domain: 0` / `from_domain: 0` 을
   다른 값(예: 20)으로 바꾸고 관제 PC 도 같은 값으로 띄운다.
 
 ## 실행
@@ -160,7 +165,7 @@ ros2 launch pinky_fleet_agent robot.launch.xml \
 # 관제 PC
 export ROS_DOMAIN_ID=0
 ros2 launch pinky_fleet_station fleet.launch.xml \
-    mission:=$HOME/fleet_ws/src/pinky_pro_team11/config/mission.yaml
+    mission:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/mission.yaml
 ```
 
 ### GUI 조작 순서
@@ -183,7 +188,7 @@ ros2 launch pinky_fleet_station fleet.launch.xml \
 ```bash
 export ROS_DOMAIN_ID=0
 ros2 launch pinky_fleet_station fake_fleet.launch.xml \
-    mission:=$HOME/fleet_ws/src/pinky_pro_team11/config/mission_deadlock_test.yaml \
+    mission:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/mission_deadlock_test.yaml \
     auto_start:=True
 
 # 다른 터미널
@@ -199,7 +204,7 @@ GUI 는 브리지를 쓰든 가짜 로봇을 쓰든 똑같이 동작한다.
 cd ~/fleet_ws/src/pinky_pro_team11 && python3 -m pytest pinky_fleet_station/test -q
 ```
 
-## `config/mission.yaml`
+## `pinky_fleet_station/config/mission.yaml`
 
 ```yaml
 map:

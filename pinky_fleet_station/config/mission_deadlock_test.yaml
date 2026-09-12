@@ -5,7 +5,8 @@
 #
 #   export ROS_DOMAIN_ID=0
 #   ros2 launch pinky_fleet_station fake_fleet.launch.xml \
-#       mission:=<repo>/config/mission_deadlock_test.yaml auto_start:=True
+#       mission:=<repo>/pinky_fleet_station/config/mission_deadlock_test.yaml \
+#       auto_start:=True
 #
 #   ros2 topic echo /fleet/coordinator_status
 #
