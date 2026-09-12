@@ -320,6 +320,27 @@ robots:
     max_linear_vel: 0.20       # 생략 시 defaults 사용
 ```
 
+### 맵 크기에 맞춘 튜닝
+
+`nav2_params_fleet.yaml` 의 값은 **1.5 x 2.5 m 실내 맵**(높이 20cm 하드보드지 벽) 기준으로
+조정되어 있다. `# [fleet-tune 1.5x2.5m]` 주석이 붙은 줄이 그 부분이고, 원래 값도 함께
+적어 두었다. 더 넓은 공간에서 쓸 때는 이 값들을 키워야 한다.
+
+| 항목 | 값 | 비고 |
+|---|---|---|
+| `general_goal_checker.xy_goal_tolerance` | 0.08 m | AMCL 오차(2~5cm)가 하한. 진동하면 키운다 |
+| `general_goal_checker.yaw_goal_tolerance` | 0.15 rad | 약 9도 |
+| `GridBased.tolerance` | 0.10 m | 목표가 막혔을 때 경로를 끊는 거리 |
+| `inflation_layer.inflation_radius` | 0.10 m | 내접 반경 0.06 보다 커야 한다 |
+| `inflation_layer.cost_scaling_factor` | 5.0 | `FollowPath.inflation_cost_scaling_factor` 와 **같아야 한다** |
+| `obstacle_max_range` / `raytrace_max_range` | 1.5 / 2.0 m | 맵 대각선 약 2.9m |
+| `local_costmap` 크기 | 2 x 2 m | 맵 전체보다 크면 낭비 |
+| `lookahead_dist` (min/max) | 0.25 (0.15/0.4) | 크면 코너를 잘라 벽에 붙는다 |
+
+라이다는 바닥에서 **12.5cm** 높이다 (`base_footprint→base_link` 0.028 +
+`→rplidar_mount` 0.067 + `→rplidar_link` 0.030). 20cm 벽은 여유 있게 스캔되지만,
+그보다 낮은 장애물은 보이지 않는다.
+
 `conflict_distance` 는 **두 로봇이 실제로 서로 막혀 멈추는 거리보다 커야 한다.**
 작게 잡으면 교착이 감지되지 않는다. footprint 12cm 정사각 + `inflation_radius` 0.15m
 기준으로 두 로봇의 인플레이션이 겹치기 시작하는 거리가 약 0.47m 이라 0.70m 을 기본값으로 두었다.
