@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!--
-  domain_bridge 를 띄워 로봇 도메인(11, 12)의 토픽을 관제 도메인(0)으로 모은다.
+  domain_bridge 를 띄워 로봇 도메인(10, 11)의 토픽을 관제 도메인(0)으로 모은다.
 
     sudo apt install ros-jazzy-domain-bridge
 

@@ -21,7 +21,7 @@ coordinator:
 
 robots:
   - name: pinky1
-    domain_id: 11              # 작을수록 먼저 출발 (미션 5번)
+    domain_id: 10              # 작을수록 먼저 출발 (미션 5번)
     # 시뮬(namespace) <-> 실기(domain_bridge) 를 이 두 줄만 바꿔 전환한다.
     state_topic:   /pinky1/state
     command_topic: /pinky1/command
@@ -31,7 +31,7 @@ robots:
     # max_linear_vel / max_angular_vel 를 생략하면 defaults 값을 쓴다.
 
   - name: pinky2
-    domain_id: 12
+    domain_id: 11
     state_topic:   /pinky2/state
     command_topic: /pinky2/command
     color: "#38bdf8"

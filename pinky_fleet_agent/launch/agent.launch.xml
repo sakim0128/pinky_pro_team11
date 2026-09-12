@@ -2,7 +2,7 @@
 <!-- 에이전트 노드만 띄운다. bringup / Nav2 가 이미 떠 있을 때 사용. -->
 <launch>
     <arg name="robot_name" default="pinky1"/>
-    <arg name="domain_id" default="11"/>
+    <arg name="domain_id" default="10"/>
     <arg name="state_topic" default="" description="비우면 /&lt;robot_name&gt;/state"/>
     <arg name="command_topic" default="" description="비우면 /&lt;robot_name&gt;/command"/>
     <arg name="use_sim_time" default="False"/>

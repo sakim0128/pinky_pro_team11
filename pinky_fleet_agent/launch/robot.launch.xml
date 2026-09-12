@@ -2,16 +2,16 @@
 <!--
   로봇 1대에서 실행하는 최상위 launch.
 
-    export ROS_DOMAIN_ID=11
+    export ROS_DOMAIN_ID=10
     ros2 launch pinky_fleet_agent robot.launch.xml \
-        robot_name:=pinky1 domain_id:=11 map:=$HOME/maps/pinklab.yaml
+        robot_name:=pinky1 domain_id:=10 map:=$HOME/maps/pinklab.yaml
 
   bringup(모터/라이다/TF) + Nav2 + 관제 에이전트를 한 번에 띄운다.
   로봇마다 도메인이 분리되어 있으므로 namespace 는 쓰지 않는다.
 -->
 <launch>
     <arg name="robot_name" default="pinky1"/>
-    <arg name="domain_id" default="11"/>
+    <arg name="domain_id" default="10"/>
     <arg name="map" description="AMCL 이 쓸 맵 yaml 경로 (두 로봇이 동일한 파일을 써야 한다)"/>
     <arg name="params_file"
          default="$(find-pkg-share pinky_fleet_agent)/params/nav2_params_fleet.yaml"/>

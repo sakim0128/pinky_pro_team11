@@ -1,4 +1,4 @@
-# domain_bridge 설정 — 핑키 2대(도메인 11, 12)와 관제 PC(도메인 0)를 잇는다.
+# domain_bridge 설정 — 핑키 2대(도메인 10, 11)와 관제 PC(도메인 0)를 잇는다.
 #
 #   ros2 run domain_bridge domain_bridge <이 파일 경로>
 #
@@ -28,10 +28,10 @@ mode: normal
 
 topics:
 
-  # ------------------------- pinky1 (domain 11) -------------------------
+  # ------------------------- pinky1 (domain 10) -------------------------
   /pinky1/state:
     type: pinky_fleet_msgs/msg/RobotState
-    from_domain: 11
+    from_domain: 10
     to_domain: 0
     qos:
       reliability: reliable
@@ -42,7 +42,7 @@ topics:
   /pinky1/command:
     type: pinky_fleet_msgs/msg/FleetCommand
     from_domain: 0
-    to_domain: 11
+    to_domain: 10
     qos:
       reliability: reliable
       # transient_local 을 쓰면 에이전트 재시작 시 오래된 STOP 이 되살아난다.
@@ -53,7 +53,7 @@ topics:
   # GUI 의 전역 경로 오버레이용. frame_id 가 map 이라 TF 없이 그릴 수 있다.
   /pinky1/plan:
     type: nav_msgs/msg/Path
-    from_domain: 11
+    from_domain: 10
     to_domain: 0
     qos:
       reliability: reliable
@@ -61,10 +61,10 @@ topics:
       history: keep_last
       depth: 1
 
-  # ------------------------- pinky2 (domain 12) -------------------------
+  # ------------------------- pinky2 (domain 11) -------------------------
   /pinky2/state:
     type: pinky_fleet_msgs/msg/RobotState
-    from_domain: 12
+    from_domain: 11
     to_domain: 0
     qos:
       reliability: reliable
@@ -75,7 +75,7 @@ topics:
   /pinky2/command:
     type: pinky_fleet_msgs/msg/FleetCommand
     from_domain: 0
-    to_domain: 12
+    to_domain: 11
     qos:
       reliability: reliable
       durability: volatile
@@ -84,7 +84,7 @@ topics:
 
   /pinky2/plan:
     type: nav_msgs/msg/Path
-    from_domain: 12
+    from_domain: 11
     to_domain: 0
     qos:
       reliability: reliable

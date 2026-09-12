@@ -118,4 +118,7 @@ def test_round_trip_preserves_values(tmp_path):
 
     reloaded = load_mission(str(target))
     assert reloaded.robot('pinky1')['goal'] == {'x': 3.25, 'y': -1.5, 'yaw': 0.75}
-    assert reloaded.robot('pinky2')['domain_id'] == 12
+    # 건드리지 않은 값은 그대로 (도메인 ID 를 바꿔도 깨지지 않도록 원본과 비교)
+    original = load_mission(EXAMPLE)
+    assert reloaded.robot('pinky2')['domain_id'] == original.robot('pinky2')['domain_id']
+    assert reloaded.robot('pinky2')['goal'] == original.robot('pinky2')['goal']

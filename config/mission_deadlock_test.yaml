@@ -34,7 +34,7 @@ coordinator:
 
 robots:
   - name: pinky1
-    domain_id: 11
+    domain_id: 10
     state_topic:   /pinky1/state
     command_topic: /pinky1/command
     color: "#ff5a7a"
@@ -42,7 +42,7 @@ robots:
     goal:         {x: 6.0, y: -5.0, yaw: 0.0}
 
   - name: pinky2
-    domain_id: 12
+    domain_id: 11
     state_topic:   /pinky2/state
     command_topic: /pinky2/command
     color: "#38bdf8"

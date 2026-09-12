@@ -49,7 +49,7 @@ class PinkyAgent(Node):
         super().__init__('pinky_fleet_agent')
 
         self.declare_parameter('robot_name', 'pinky1')
-        self.declare_parameter('domain_id', 11)
+        self.declare_parameter('domain_id', 10)
         self.declare_parameter('state_topic', '')     # 비우면 /<robot_name>/state
         self.declare_parameter('command_topic', '')   # 비우면 /<robot_name>/command
         self.declare_parameter('state_rate', 10.0)

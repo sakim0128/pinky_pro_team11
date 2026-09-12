@@ -22,7 +22,7 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 ## 구조
 
 ```
-┌── ROS_DOMAIN_ID=11 ───────────┐   ┌── ROS_DOMAIN_ID=12 ───────────┐
+┌── ROS_DOMAIN_ID=10 ───────────┐   ┌── ROS_DOMAIN_ID=11 ───────────┐
 │ pinky1                        │   │ pinky2                        │
 │  pinky_bringup / sllidar      │   │  (동일)                        │
 │  Nav2 (amcl, controller, ...) │   │                               │
@@ -64,21 +64,46 @@ namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고
 
 ## 설치
 
+세 대 모두 저장소를 받되, **빌드하는 패키지가 다르다.**
+
+### 로봇 2대 (SSH)
+
 ```bash
-# 로봇 2대 · 관제 PC 공통
 cd ~/pinky_pro/src
-git clone https://github.com/sakim0128/pinky_pro_team11.git
-
-# 로봇
-cd ~/pinky_pro && colcon build --packages-select pinky_fleet_msgs pinky_fleet_agent
-
-# 관제 PC
-sudo apt install ros-jazzy-domain-bridge python3-pyqt5 python3-numpy
-cd ~/pinky_pro && colcon build --packages-select pinky_fleet_msgs pinky_fleet_station
+git clone -b mini_project_1 https://github.com/sakim0128/pinky_pro_team11.git
+cd ~/pinky_pro
+colcon build --packages-select pinky_fleet_msgs pinky_fleet_agent
+source install/setup.bash
 ```
 
-세 대가 같은 서브넷이어야 하고, `ROS_AUTOMATIC_DISCOVERY_RANGE` 가 `LOCALHOST` / `OFF`
-이면 안 된다 (Jazzy 기본값 `SUBNET` 유지). `RMW_IMPLEMENTATION` 도 셋 다 같아야 한다.
+### 관제 PC
+
+```bash
+sudo apt install ros-jazzy-domain-bridge python3-pyqt5 python3-numpy
+
+mkdir -p ~/fleet_ws/src && cd ~/fleet_ws/src
+git clone -b mini_project_1 https://github.com/sakim0128/pinky_pro_team11.git
+cd ~/fleet_ws
+colcon build --packages-select pinky_fleet_msgs pinky_fleet_station
+source install/setup.bash
+```
+
+관제 PC 에는 `pinky_pro` 자체가 필요 없다. 대신 **GUI 가 맵을 직접 로드**하므로
+로봇에 올린 것과 같은 맵 파일을 복사해 오고 `mission.yaml` 의 `map.yaml_path` 를 그 경로로 맞춘다.
+
+```bash
+mkdir -p ~/maps
+scp pinky@<로봇IP>:~/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.* ~/maps/
+```
+
+### 네트워크 전제
+
+- 세 대가 같은 서브넷.
+- `ROS_AUTOMATIC_DISCOVERY_RANGE` 가 `LOCALHOST` / `OFF` 이면 안 된다 (Jazzy 기본값 `SUBNET` 유지).
+- `RMW_IMPLEMENTATION` 이 셋 다 같아야 한다.
+- 관제 PC 도메인 `0` 은 ROS 기본값이라 같은 랜의 다른 ROS 프로세스가 섞일 수 있다.
+  공용 실습망이면 `config/bridge_fleet.yaml` 의 `to_domain: 0` / `from_domain: 0` 을
+  다른 값(예: 20)으로 바꾸고 관제 PC 도 같은 값으로 띄운다.
 
 ## 실행
 
@@ -86,21 +111,21 @@ cd ~/pinky_pro && colcon build --packages-select pinky_fleet_msgs pinky_fleet_st
 
 ```bash
 # 로봇 pinky1 (SSH)
-export ROS_DOMAIN_ID=11
+export ROS_DOMAIN_ID=10
 ros2 launch pinky_fleet_agent robot.launch.xml \
-    robot_name:=pinky1 domain_id:=11 \
+    robot_name:=pinky1 domain_id:=10 \
     map:=$HOME/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.yaml
 
 # 로봇 pinky2 (SSH)
-export ROS_DOMAIN_ID=12
+export ROS_DOMAIN_ID=11
 ros2 launch pinky_fleet_agent robot.launch.xml \
-    robot_name:=pinky2 domain_id:=12 \
+    robot_name:=pinky2 domain_id:=11 \
     map:=$HOME/pinky_pro/src/pinky_pro/pinky_navigation/map/pinklab.yaml
 
 # 관제 PC
 export ROS_DOMAIN_ID=0
 ros2 launch pinky_fleet_station fleet.launch.xml \
-    mission:=$HOME/pinky_pro/src/pinky_pro_team11/config/mission.yaml
+    mission:=$HOME/fleet_ws/src/pinky_pro_team11/config/mission.yaml
 ```
 
 ### GUI 조작 순서
@@ -123,7 +148,7 @@ ros2 launch pinky_fleet_station fleet.launch.xml \
 ```bash
 export ROS_DOMAIN_ID=0
 ros2 launch pinky_fleet_station fake_fleet.launch.xml \
-    mission:=$HOME/pinky_pro/src/pinky_pro_team11/config/mission_deadlock_test.yaml \
+    mission:=$HOME/fleet_ws/src/pinky_pro_team11/config/mission_deadlock_test.yaml \
     auto_start:=True
 
 # 다른 터미널
@@ -136,7 +161,7 @@ GUI 는 브리지를 쓰든 가짜 로봇을 쓰든 똑같이 동작한다.
 단위 테스트:
 
 ```bash
-cd ~/pinky_pro/src/pinky_pro_team11 && python3 -m pytest pinky_fleet_station/test -q
+cd ~/fleet_ws/src/pinky_pro_team11 && python3 -m pytest pinky_fleet_station/test -q
 ```
 
 ## `config/mission.yaml`
@@ -160,7 +185,7 @@ coordinator:
 
 robots:
   - name: pinky1
-    domain_id: 11              # 작을수록 먼저 출발
+    domain_id: 10              # 작을수록 먼저 출발
     state_topic:   /pinky1/state
     command_topic: /pinky1/command
     color: "#ff5a7a"
@@ -238,9 +263,9 @@ upstream `nav2_params.yaml` 의 사본 + 아래 변경만 담는다 (`[fleet]` �
 
 | 증상 | 확인 |
 |---|---|
-| 관제 PC 에서 `/pinky1/state` 가 안 보임 | 로봇에서 `ROS_DOMAIN_ID=11 ros2 topic hz /pinky1/state`. 관제에서 `ROS_DOMAIN_ID=11 ros2 topic list` (브리지 없이도 보여야 정상) |
+| 관제 PC 에서 `/pinky1/state` 가 안 보임 | 로봇에서 `ROS_DOMAIN_ID=10 ros2 topic hz /pinky1/state`. 관제에서 `ROS_DOMAIN_ID=10 ros2 topic list` (브리지 없이도 보여야 정상) |
 | 브리지 노드가 시작하자마자 죽음 | 관제 PC 에 `pinky_fleet_msgs` 미설치. `ros2 interface show pinky_fleet_msgs/msg/RobotState` |
-| 명령이 로봇에 안 감 | 로봇에서 `ROS_DOMAIN_ID=11 ros2 topic echo /pinky1/command` |
+| 명령이 로봇에 안 감 | 로봇에서 `ROS_DOMAIN_ID=10 ros2 topic echo /pinky1/command` |
 | state 는 오는데 GUI 에 로봇이 안 보임 | `localized` 가 `false` (AMCL 미수렴). 초기 위치를 다시 지정 |
 | 로봇이 맵의 엉뚱한 자리에 표시됨 | 두 로봇과 GUI 가 같은 맵 yaml 을 쓰는지 확인 |
 | 교착인데 coordinator 가 개입하지 않음 | `conflict_distance` 가 실제 멈추는 거리보다 작음. `/fleet/coordinator_status` 의 `distance` 확인 후 키울 것 |
