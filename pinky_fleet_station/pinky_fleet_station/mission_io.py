@@ -90,6 +90,8 @@ class Mission:
                 'domain_id': domain_id,
                 'state_topic': str(raw.get('state_topic') or f'/{name}/state'),
                 'command_topic': str(raw.get('command_topic') or f'/{name}/command'),
+                # 로봇 에이전트가 Nav2 의 /plan 을 이 이름으로 중계한다 (GUI 경로 오버레이).
+                'plan_topic': str(raw.get('plan_topic') or f'/{name}/plan'),
                 'color': str(raw.get('color') or '#ff5a7a'),
                 'initial_pose': _pose(raw.get('initial_pose'), f'{name}.initial_pose'),
                 'goal': _pose(raw.get('goal'), f'{name}.goal'),
@@ -124,6 +126,7 @@ class Mission:
                     'domain_id': r['domain_id'],
                     'state_topic': r['state_topic'],
                     'command_topic': r['command_topic'],
+                    'plan_topic': r['plan_topic'],
                     'color': r['color'],
                     'initial_pose': copy.deepcopy(r['initial_pose']),
                     'goal': copy.deepcopy(r['goal']),

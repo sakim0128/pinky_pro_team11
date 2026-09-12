@@ -14,7 +14,7 @@ from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.srv import LoadMap
-from nav_msgs.msg import OccupancyGrid, Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from rclpy.action import ActionClient
@@ -56,6 +56,9 @@ class PinkyAgent(Node):
         self.declare_parameter('domain_id', 10)
         self.declare_parameter('state_topic', '')     # 비우면 /<robot_name>/state
         self.declare_parameter('command_topic', '')   # 비우면 /<robot_name>/command
+        self.declare_parameter('plan_topic', '')      # 비우면 /<robot_name>/plan
+        # Nav2 planner_server 가 실제로 발행하는 이름. namespace 를 쓰지 않으므로 /plan 이다.
+        self.declare_parameter('plan_in_topic', 'plan')
         self.declare_parameter('map_topic', 'map')
         self.declare_parameter('map_dir', '/home/pinky/map')
         self.declare_parameter('map_name', '')
@@ -78,6 +81,8 @@ class PinkyAgent(Node):
             self.get_parameter('state_topic').value or f'/{self._name}/state')
         self._command_topic = (
             self.get_parameter('command_topic').value or f'/{self._name}/command')
+        self._plan_topic = (
+            self.get_parameter('plan_topic').value or f'/{self._name}/plan')
         self._pose_timeout = float(self.get_parameter('pose_timeout').value)
         self._hold_watchdog = float(self.get_parameter('hold_watchdog').value)
         self._global_frame = self.get_parameter('global_frame').value
@@ -143,6 +148,21 @@ class PinkyAgent(Node):
         self._initialpose_pub = self.create_publisher(
             PoseWithCovarianceStamped, 'initialpose', 10)
 
+        # Nav2 의 전역 경로를 로봇 이름이 붙은 토픽으로 중계한다.
+        # planner_server 는 namespace 를 쓰지 않아 /plan 으로 발행하는데, domain_bridge 의
+        # topics 는 YAML 매핑이라 키가 겹쳐 2대를 한 파일에서 remap 할 수 없다.
+        # 그래서 도메인을 넘기 전에 여기서 이름을 붙인다. frame_id 는 이미 map 이라 손댈 게 없다.
+        plan_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.VOLATILE,
+        )
+        self._plan_pub = self.create_publisher(Path, self._plan_topic, plan_qos)
+        self.create_subscription(
+            Path, self.get_parameter('plan_in_topic').value, self._on_plan,
+            plan_qos, callback_group=cb)
+
         self._nav_client = ActionClient(
             self, NavigateToPose, 'navigate_to_pose', callback_group=cb)
 
@@ -163,9 +183,14 @@ class PinkyAgent(Node):
         self.get_logger().info(
             f'pinky_fleet_agent 시작: name={self._name} domain_id={self._domain_id} '
             f'state={self._state_topic} command={self._command_topic} '
+            f'plan={self._plan_topic} '
             f'map_dir={self._map_dir} map={self._map_name or "(미지정)"}')
 
     # ------------------------------------------------------------------ 구독
+
+    def _on_plan(self, msg: Path):
+        """Nav2 의 /plan 을 그대로 /<robot_name>/plan 으로 흘려보낸다 (GUI 경로 오버레이)."""
+        self._plan_pub.publish(msg)
 
     def _on_odom(self, msg: Odometry):
         self._linear_velocity = msg.twist.twist.linear.x

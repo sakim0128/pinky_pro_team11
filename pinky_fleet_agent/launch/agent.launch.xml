@@ -5,6 +5,10 @@
     <arg name="domain_id" default="10"/>
     <arg name="state_topic" default="" description="비우면 /&lt;robot_name&gt;/state"/>
     <arg name="command_topic" default="" description="비우면 /&lt;robot_name&gt;/command"/>
+    <arg name="plan_topic" default=""
+         description="Nav2 의 전역 경로를 중계할 토픽. 비우면 /&lt;robot_name&gt;/plan (GUI 오버레이용)."/>
+    <arg name="plan_in_topic" default="plan"
+         description="Nav2 planner_server 가 실제로 발행하는 이름."/>
     <arg name="use_sim_time" default="False"/>
     <arg name="global_frame" default="map"/>
     <arg name="robot_base_frame" default="base_footprint"/>
@@ -24,6 +28,8 @@
         <param name="domain_id" value="$(var domain_id)"/>
         <param name="state_topic" value="$(var state_topic)"/>
         <param name="command_topic" value="$(var command_topic)"/>
+        <param name="plan_topic" value="$(var plan_topic)"/>
+        <param name="plan_in_topic" value="$(var plan_in_topic)"/>
         <param name="use_sim_time" value="$(var use_sim_time)"/>
         <param name="global_frame" value="$(var global_frame)"/>
         <param name="robot_base_frame" value="$(var robot_base_frame)"/>

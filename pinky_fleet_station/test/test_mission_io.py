@@ -60,6 +60,22 @@ def test_default_topics_follow_robot_name():
     mission = Mission(minimal())
     assert mission.robot('pinky1')['state_topic'] == '/pinky1/state'
     assert mission.robot('pinky1')['command_topic'] == '/pinky1/command'
+    # GUI 경로 오버레이용. 로봇 에이전트가 Nav2 의 /plan 을 이 이름으로 중계한다.
+    assert mission.robot('pinky1')['plan_topic'] == '/pinky1/plan'
+
+
+def test_explicit_plan_topic_survives_round_trip(tmp_path):
+    data = minimal()
+    data['robots'][0]['plan_topic'] = '/custom/plan'
+    mission = Mission(data)
+    assert mission.robot('pinky1')['plan_topic'] == '/custom/plan'
+
+    target = tmp_path / 'out.yaml'
+    save_mission(mission, str(target))
+    reloaded = load_mission(str(target))
+    assert reloaded.robot('pinky1')['plan_topic'] == '/custom/plan'
+    # 지정하지 않은 로봇은 기본값이 저장되고 그대로 살아남는다.
+    assert reloaded.robot('pinky2')['plan_topic'] == '/pinky2/plan'
 
 
 def test_coordinator_defaults_filled():
