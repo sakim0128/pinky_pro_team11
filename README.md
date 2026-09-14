@@ -79,6 +79,7 @@ flowchart TB
 | `pinky_fleet_msgs` | 로봇 2대 + 관제 PC | `RobotState`, `FleetCommand` |
 | `pinky_fleet_agent` | 로봇 2대 | `agent_node`, `robot.launch.xml`, `nav2_params_fleet.yaml` |
 | `pinky_fleet_station` | 관제 PC | `coordinator_node`, `gui_node`, `fake_state_pub`, launch |
+| `pinky_fleet_sim` | 가제보 PC | 아레나 월드 · 맵 · 로봇별 Nav2 파라미터 · 시뮬 launch |
 
 `pinky_fleet_msgs` 는 **관제 PC 에도 반드시 빌드·소싱**해야 한다. `domain_bridge` 가
 런타임에 메시지 타입서포트를 로드하기 때문이다.
@@ -349,11 +350,118 @@ ros2 topic echo /fleet/coordinator_status
 `mission.yaml` 의 `state_topic` / `command_topic` 을 노출해 둔 덕분에 coordinator 와
 GUI 는 브리지를 쓰든 가짜 로봇을 쓰든 똑같이 동작한다.
 
-단위 테스트:
+단위 테스트 (ROS · 가제보 없이 돈다):
 
 ```bash
-cd ~/fleet_ws/src/pinky_pro_team11 && python3 -m pytest pinky_fleet_station/test -q
+cd ~/fleet_ws/src/pinky_pro_team11
+QT_QPA_PLATFORM=offscreen python3 -m pytest pinky_fleet_station/test pinky_fleet_agent/test -q
 ```
+
+세 가지를 본다. 순수 로직(맵 좌표 변환, 데드맨 스위치, mission.yaml 파싱), 설정 파일들이
+서로 어긋나지 않는지(타이밍 순서, launch 기본값 대 노드 기본값), 그리고 생성물이 원본과
+같은지(아레나 맵 대 월드, 시뮬 Nav2 파라미터 대 실기 파라미터).
+
+## 가제보 시뮬레이션 (핑키 2대)
+
+실기 없이 관제 시스템 전체를 돌려 본다. `fake_state_pub` 과 달리 **진짜 Nav2 와 진짜
+라이다**가 돌아서, 튜닝값(도착 반경 · 급커브 감속 · 인플레이션)과 교착 회피를 함께 볼 수 있다.
+
+### 실기와 무엇이 다른가
+
+가제보는 프로세스가 **하나**라 `ROS_DOMAIN_ID` 분리를 쓸 수 없다. 시뮬은 도메인 하나에
+**네임스페이스**로 로봇을 가른다.
+
+| | 실기 | 가제보 시뮬 |
+|---|---|---|
+| 로봇 구분 | `ROS_DOMAIN_ID` 10 / 11 | 네임스페이스 `/pinky1` `/pinky2` |
+| 도메인 넘기 | `domain_bridge` | 불필요 (`use_bridge:=False`) |
+| TF 프레임 | 양쪽 다 `base_footprint` (도메인이 격리) | `pinky1/base_footprint` (`frame_prefix`) |
+| 하드웨어 | `pinky_bringup` | `ros_gz_sim` + `ros_gz_bridge` |
+
+**관제 PC 코드(coordinator, GUI)는 한 줄도 안 바뀐다.** 에이전트가 원래부터
+`/pinkyN/state` 처럼 로봇 이름이 붙은 절대 토픽을 쓰기 때문에, 도메인으로 가르든
+네임스페이스로 가르든 관제 쪽에서는 똑같아 보인다.
+
+upstream `pinky_pro` 도 손대지 않는다. `pinky_description` 의 `upload_robot.launch.py`
+가 이미 `namespace` 를 받아 `frame_prefix` 로 넣고, `pinky_gz.urdf.xacro` 가 gz 토픽과
+프레임에 네임스페이스를 붙이며, `pinky_navigation/gz_bringup_launch.xml` 에
+`push-ros-namespace` 가 있다. 멀티로봇을 이미 염두에 두고 만들어져 있다.
+
+### 아레나 월드
+
+`pinky_fleet_sim/worlds/fleet_arena.sdf` 는 **실기 아레나와 같은 1.5 x 2.5m, 벽 높이
+20cm** 다. 그래야 지금 Nav2 튜닝값이 시뮬에서 검증한 것과 같은 조건이 된다.
+`pinky_factory.world` 같은 넓은 월드로는 이 값들을 검증할 수 없다.
+
+가운데 y=0 에 **폭 0.5m 통로**를 하나 둔다. 로봇 하나는 여유롭게 지나가지만
+(footprint 12cm + inflation 10cm = 약 0.32m 필요) 두 대가 나란히 가려면 0.64m 가
+필요해서 반드시 한 대씩 통과해야 한다. 교착 -> 양보 -> 순차 발진을 재현하려고 만든 구조다.
+
+AMCL 맵(`map/fleet_arena.pgm`)은 월드에서 **자동 생성**한다. 손으로 맞추면 반드시 어긋난다.
+
+```bash
+python3 pinky_fleet_sim/scripts/make_arena_map.py        # 월드 -> 맵
+python3 pinky_fleet_sim/scripts/make_sim_nav2_params.py  # 실기 파라미터 -> 로봇별 시뮬 파라미터
+```
+
+두 생성물이 원본과 어긋나면 `pinky_fleet_station/test/test_sim_setup.py` 가 잡는다.
+
+### 설치
+
+```bash
+sudo apt install ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge ros-jazzy-ros-gz-image
+
+cd ~/pinky_ws && colcon build --packages-select \
+    pinky_fleet_msgs pinky_fleet_agent pinky_fleet_station pinky_fleet_sim
+source install/setup.bash
+```
+
+`pinky_description`, `pinky_gz_sim`, `pinky_navigation` (upstream)도 같은 워크스페이스에
+있어야 한다.
+
+### 한 단계씩 올리기
+
+한 번에 다 띄우면 뭐가 문제인지 알 수 없다. 순서대로 올리면서 확인한다.
+
+```bash
+# 1) 가제보와 아레나만
+ros2 launch pinky_fleet_sim gz_world.launch.xml
+#    확인: 창에 1.5x2.5m 아레나와 가운데 통로가 보인다
+#         ros2 topic hz /clock   ->  값이 찍힌다
+
+# 2) 로봇 1대 스폰 (Nav2 없이)
+ros2 launch pinky_fleet_sim gz_spawn.launch.xml namespace:=pinky1 x:=-0.35 y:=1.0
+#    확인: gz topic -l | grep pinky1     ->  gz 쪽 실제 토픽 이름
+#         ros2 topic hz /pinky1/scan     ->  약 10Hz
+#         ros2 run tf2_tools view_frames ->  pinky1/odom -> pinky1/base_footprint
+
+# 3) 로봇 1대 전체 (Nav2 + 에이전트)
+ros2 launch pinky_fleet_sim gz_robot.launch.xml namespace:=pinky1 x:=-0.35 y:=1.0
+#    확인: ros2 topic echo /pinky1/state --once   ->  localized: true
+
+# 4) 2대 + 관제
+ros2 launch pinky_fleet_sim gz_fleet.launch.xml
+# 다른 터미널
+ros2 launch pinky_fleet_station fleet.launch.xml use_bridge:=False \
+    mission:=$(ros2 pkg prefix pinky_fleet_station)/share/pinky_fleet_station/config/mission_sim.yaml
+```
+
+GUI 에서 `[불러오기]` -> `[초기위치 일괄]` -> `[동시 출발]` 하면 두 로봇이 가운데 통로에서
+마주친다. `coordinator [YIELD]` 가 뜨고 `domain_id` 가 큰 pinky2 가 양보하면 성공이다.
+
+### 처음 돌릴 때 막히기 쉬운 곳
+
+이 저장소는 ROS 와 가제보가 없는 환경에서 만들어졌다. 파일 사이의 일관성은 테스트로
+확인했지만 **실제 기동은 검증하지 못했다.** 가장 의심스러운 순서대로 적는다.
+
+| 증상 | 확인 |
+|---|---|
+| 로봇이 안 보인다 | 가제보가 뜨기 전에 스폰했다. `gz_fleet.launch.xml` 의 `spawn_delay` 를 늘린다 |
+| `/pinky1/scan` 이 안 나온다 | `gz topic -l` 로 gz 쪽 실제 이름을 보고 `params/pinky1_bridge.yaml` 의 `gz_topic_name` 을 맞춘다. xacro 가 만드는 이름이 `/pinky1/scan` 이 아닐 수 있다 |
+| TF 가 `pinky1/odom` 에서 끊긴다 | DiffDrive 플러그인의 `tf_topic` 이 `/tf` 로 고정이라 두 로봇이 같은 gz 토픽을 쓴다. 브리지가 그걸 각 네임스페이스로 나른다 — `ros2 topic hz /pinky1/tf` 확인 |
+| Nav2 가 `bring up` 에서 멈춘다 | 프레임 접두사가 안 맞는 것이다. `ros2 param get /pinky1/controller_server robot_base_frame` 이 `pinky1/base_footprint` 여야 한다 |
+| 시간이 이상하게 흐른다 | `/clock` 브리지가 둘 이상이거나 네임스페이스 안에 있다. 전체에 **하나만** 있어야 한다 |
+| GUI 에 `수신 없음` | 브리지를 켰다. 시뮬은 `use_bridge:=False` 다 |
 
 ## `pinky_fleet_station/config/mission.yaml`
 

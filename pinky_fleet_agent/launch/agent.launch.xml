@@ -18,6 +18,13 @@
          description="관제 PC 가 맵 이름을 보내면 이 디렉터리에서 &lt;이름&gt;.yaml 을 찾는다."/>
     <arg name="map_name" default=""
          description="기동 시 로드한 맵 이름 (확장자 없음). 관제 PC 에 보고용."/>
+    <!--
+      Nav2 노드들의 절대 이름. 실기는 네임스페이스를 안 쓰므로 기본값 그대로지만,
+      가제보 시뮬에서는 로봇마다 /pinky1/... 로 갈리므로 여기서 바꿔 준다.
+    -->
+    <arg name="map_server" default="/map_server"/>
+    <arg name="controller_server" default="/controller_server"/>
+    <arg name="velocity_smoother" default="/velocity_smoother"/>
     <arg name="max_linear_vel" default="0.2"/>
     <arg name="max_angular_vel" default="1.5"/>
     <arg name="command_timeout" default="3.0"
@@ -40,6 +47,9 @@
         <param name="map_topic" value="$(var map_topic)"/>
         <param name="map_dir" value="$(var map_dir)"/>
         <param name="map_name" value="$(var map_name)"/>
+        <param name="map_server" value="$(var map_server)"/>
+        <param name="controller_server" value="$(var controller_server)"/>
+        <param name="velocity_smoother" value="$(var velocity_smoother)"/>
         <param name="max_linear_vel" value="$(var max_linear_vel)"/>
         <param name="max_angular_vel" value="$(var max_angular_vel)"/>
         <param name="command_timeout" value="$(var command_timeout)"/>
