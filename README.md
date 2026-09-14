@@ -506,7 +506,8 @@ robots:
 | `GridBased.tolerance` | 0.10 m | 목표가 막혔을 때 경로를 끊는 거리 |
 | `inflation_layer.inflation_radius` | 0.10 m | 내접 반경 0.06 보다 커야 한다 |
 | `inflation_layer.cost_scaling_factor` | 5.0 | `FollowPath.inflation_cost_scaling_factor` 와 **같아야 한다** |
-| `obstacle_max_range` / `raytrace_max_range` | 1.5 / 2.0 m | 맵 대각선 약 2.9m |
+| `obstacle_max_range` / `raytrace_max_range` | 1.5 / 2.5 m | 맵 대각선 약 2.9m |
+| `max_obstacle_height` | 0.2 m | 벽이 20cm 하드보드지다. 그 위(사람 다리, 책상)는 안 찍는다 |
 | `local_costmap` 크기 | 2 x 2 m | 맵 전체보다 크면 낭비 |
 | `lookahead_dist` (min/max) | 0.25 (0.15/0.4) | 크면 코너를 잘라 벽에 붙는다 |
 | `use_regulated_linear_velocity_scaling` | true | **급커브 감속.** upstream 은 꺼져 있다 |
@@ -525,7 +526,55 @@ robots:
 
 라이다는 바닥에서 **12.5cm** 높이다 (`base_footprint→base_link` 0.028 +
 `→rplidar_mount` 0.067 + `→rplidar_link` 0.030). 20cm 벽은 여유 있게 스캔되지만,
-그보다 낮은 장애물은 보이지 않는다.
+그보다 낮은 장애물은 보이지 않는다. `max_obstacle_height` 를 라이다 높이보다 낮게
+잡으면(예: 0.02) **스캔이 전부 걸러져 장애물이 하나도 안 찍힌다.** 0.2 아래로는 내리지 말 것.
+
+#### rqt 로 튜닝한 값을 파일에 남기는 법
+
+`rqt` → Dynamic Reconfigure 로 바꾼 값은 **그 프로세스가 살아 있는 동안만** 유효하다.
+다음 launch 에서 다시 파일 값으로 돌아간다. 남기려면 덤프해서 `nav2_params_fleet.yaml` 에
+직접 옮겨 적는다 (Jazzy 의 `ros2 param dump` 는 stdout 으로만 찍는다).
+
+```bash
+for n in controller_server planner_server bt_navigator global_costmap/global_costmap \
+         local_costmap/local_costmap amcl behavior_server smoother_server velocity_smoother; do
+  ros2 param dump /$n > "$(basename $n).yaml"
+done
+```
+
+파일은 **손으로 고쳐도 된다.** 고친 뒤 두 가지를 꼭 한다.
+
+1. 로봇에서 `colcon build --packages-select pinky_fleet_agent` (install 쪽이 낡으면 안 먹는다)
+2. 관제 PC 에서 `python3 pinky_fleet_sim/scripts/make_sim_nav2_params.py`
+   (시뮬 파라미터는 이 파일에서 생성된다. 안 돌리면 `test_sim_setup.py` 가 실패한다)
+
+#### 파라미터가 정말 적용됐는지 확인하기
+
+에이전트는 기동 15초 뒤에 Nav2 노드 몇 개의 파라미터를 **직접 읽어** 파일과 대조하고,
+다르면 에러 로그를 남긴다 (`pinky_fleet_agent/param_audit.py`).
+
+```
+[pinky_fleet_agent] [INFO] Nav2 파라미터 확인: nav2_params_fleet.yaml 과 일치 (6개 대조)
+```
+
+어긋나면 이렇게 나온다.
+
+```
+[pinky_fleet_agent] [ERROR] 실행 중인 Nav2 파라미터가 nav2_params_fleet.yaml 과 다르다:
+  - bt_navigator.robot_base_frame: 파일=base_footprint 실행중=base_link
+  - planner_server.GridBased.tolerance: 파일=0.1 실행중=0.5
+  원인 후보: (1) robot.launch.xml 이 아니라 pinky_navigation 의 bringup_launch.xml 을
+  직접 띄웠다 (2) params_file 로 다른 파일을 넘겼다 (3) colcon build 를 안 해 install
+  쪽 파일이 낡았다 (4) rqt 로 바꾼 뒤 파일에 반영하지 않았다.
+```
+
+**실제로 (1) 이 있었다.** 실기에서 덤프한 값이 upstream `nav2_params.yaml` 기본값과
+글자 하나까지 같았는데 — Nav2 를 따로 띄우고 에이전트만 올리면 관제 화면은 멀쩡해서
+아무도 눈치채지 못한다. 그래서 이 점검을 넣었다.
+
+끄려면 `audit_nav2_params:=False`. 감시 대상은 사람이 rqt 로 만질 일이 거의 없는 값
+6개로 골랐다 (`robot_base_frame`, `max_lookahead_dist`, `xy_goal_tolerance`,
+`GridBased.tolerance`, `footprint_padding`, `local_costmap` 폭).
 
 `conflict_distance` 는 **두 로봇이 실제로 서로 막혀 멈추는 거리보다 커야 한다.**
 작게 잡으면 교착이 감지되지 않는다. footprint 12cm 정사각(외접 반경 0.085) + 조정된
@@ -718,6 +767,8 @@ sequenceDiagram
 | `hold_watchdog` | 20.0 s | 로봇 `agent.launch.xml` / `robot.launch.xml` |
 | `resume_timeout` | 15.0 s | 관제 `mission.yaml` |
 | `heartbeat_rate` | 1.0 Hz | 관제 `coordinator_node` (GUI 는 `HEARTBEAT_PERIOD_MS`) |
+| `audit_nav2_params` | True | 로봇 `agent.launch.xml` (Nav2 파라미터 기동 점검) |
+| `audit_delay` | 15.0 s | 로봇 `agent.launch.xml` (Nav2 configure 를 기다리는 시간) |
 
 `command_timeout` 은 0.2 m/s 기준 **0.6m 의 추가 주행**을 뜻한다. 1.5 x 2.5m 맵에서는
 작지 않지만, 이 창 동안에도 Nav2 와 라이다 회피는 계속 돌고 있다. 감시자가 없을 뿐 눈이
@@ -810,3 +861,6 @@ Nav2 의 `/plan` 을 브리지 설정에서 직접 remap 하지 않고 에이전
 | 재연결 직후 로봇이 혼자 출발함 | RELIABLE QoS 재전송이다. `restore_grace` 가 0 이 아닌지 확인 |
 | 통신은 되는데 `NAV_LINK_LOST` 가 안 풀림 | 새 목표를 받아야 풀린다. 자동 재출발은 의도적으로 없다 |
 | 속도 적용이 안 됨 | 로봇에서 `ros2 param get /controller_server FollowPath.desired_linear_vel`. Nav2 가 아직 activate 되기 전이면 건너뛴다 (로그 확인) |
+| `nav2_params_fleet.yaml` 을 고쳤는데 로봇이 안 변함 | 로봇 로그의 `실행 중인 Nav2 파라미터가 ... 다르다` 를 본다. 그 줄에 원인 후보가 같이 나온다. 가장 흔한 것은 `robot.launch.xml` 이 아니라 `pinky_navigation` 의 `bringup_launch.xml` 을 직접 띄운 경우 — 에이전트만 따로 올라와 있어 관제 화면은 멀쩡해 보인다 |
+| 로그에 `Nav2 파라미터 감사 생략: 파일을 찾을 수 없다` | `colcon build --packages-select pinky_fleet_agent` 를 안 했다 (`params/` 가 install 로 안 갔다) |
+| 라이다가 벽을 전혀 안 찍음 | `max_obstacle_height` 가 라이다 높이 0.125m 보다 낮은지 확인. 0.02 같은 값이면 스캔이 전부 걸러진다 |
