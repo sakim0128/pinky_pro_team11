@@ -11,13 +11,14 @@ import os
 import signal
 
 import rclpy
+import yaml
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.srv import LoadMap
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
-from rcl_interfaces.srv import SetParameters
+from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
@@ -33,6 +34,7 @@ from pinky_fleet_msgs.msg import FleetCommand, RobotState
 
 from .link_watch import ARMED, LOST, RESTORED, LinkWatch
 from .map_paths import resolve_map_path
+from . import param_audit
 
 # RViz 의 2D Pose Estimate 와 동일한 공분산
 INITIAL_POSE_COV_XX = 0.25
@@ -83,6 +85,13 @@ class PinkyAgent(Node):
         self.declare_parameter('controller_server', '/controller_server')
         self.declare_parameter('velocity_smoother', '/velocity_smoother')
         self.declare_parameter('follow_path_plugin', 'FollowPath')
+        # 기동 직후 Nav2 가 정말 이 파일로 떠 있는지 확인한다. param_audit.py 참고.
+        self.declare_parameter('nav2_params_file', '')
+        self.declare_parameter('audit_nav2_params', True)
+        # Nav2 노드들이 네임스페이스 안에 있으면 (가제보 시뮬) 여기에 적는다.
+        self.declare_parameter('audit_ns', '')
+        # Nav2 가 configure 를 끝내야 값이 제자리에 들어간다. 그 전에 물으면 기본값이 나온다.
+        self.declare_parameter('audit_delay', 15.0)
 
         self._name = self.get_parameter('robot_name').value
         self._domain_id = int(self.get_parameter('domain_id').value)
@@ -192,11 +201,20 @@ class PinkyAgent(Node):
         rate = float(self.get_parameter('state_rate').value)
         self.create_timer(1.0 / rate, self._publish_state, callback_group=cb)
 
+        self._audit_cb = cb
+        self._audit_clients = {}
+        self._audit_timer = None
+        if self.get_parameter('audit_nav2_params').value:
+            self._audit_timer = self.create_timer(
+                float(self.get_parameter('audit_delay').value),
+                self._audit_nav2_params, callback_group=cb)
+
         self.get_logger().info(
             f'pinky_fleet_agent 시작: name={self._name} domain_id={self._domain_id} '
             f'state={self._state_topic} command={self._command_topic} '
             f'plan={self._plan_topic} command_timeout={self._link.timeout:.1f}s '
-            f'map_dir={self._map_dir} map={self._map_name or "(미지정)"}')
+            f'map_dir={self._map_dir} map={self._map_name or "(미지정)"} '
+            f'nav2_params={self.get_parameter("nav2_params_file").value or "(설치본)"}')
 
     # ------------------------------------------------------------------ 구독
 
@@ -526,6 +544,106 @@ class PinkyAgent(Node):
                     self.get_logger().warn(f'{label} 파라미터 거부: {result.reason}')
 
         future.add_done_callback(_done)
+
+    # ------------------------------------------------------- Nav2 파라미터 감사
+
+    def _audit_nav2_params(self):
+        """실행 중인 Nav2 가 nav2_params_fleet.yaml 로 떠 있는지 한 번 확인한다.
+
+        실기에서 파라미터가 통째로 안 먹은 적이 있는데, 값을 직접 읽어 보기 전까지는
+        아무 증상도 없었다 (관제 화면은 멀쩡했다). 왜 필요한지는 param_audit.py 에 적었다.
+
+        한 번만 돌고 타이머를 끈다. 계속 감시하는 게 아니라 기동 시 점검이다.
+        """
+        if self._audit_timer is not None:
+            self._audit_timer.cancel()
+            self._audit_timer = None
+
+        path = (self.get_parameter('nav2_params_file').value
+                or param_audit.default_params_path())
+        if not path or not os.path.isfile(path):
+            self.get_logger().warn(
+                f'Nav2 파라미터 감사 생략: 파일을 찾을 수 없다 ({path or "경로 미지정"})')
+            return
+        try:
+            with open(path, encoding='utf-8') as handle:
+                data = yaml.safe_load(handle)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f'Nav2 파라미터 감사 생략: {path} 읽기 실패 ({exc})')
+            return
+
+        expected = param_audit.expected_values(data)
+        if not expected:
+            self.get_logger().warn(f'Nav2 파라미터 감사 생략: {path} 에 확인할 값이 없다')
+            return
+
+        # 노드별로 한 번씩만 묻는다.
+        wanted = {}
+        for node, name in expected:
+            wanted.setdefault(node, []).append(name)
+
+        self._audit_actual = {}
+        self._audit_expected = expected
+        self._audit_pending = set(wanted)
+        for node, names in wanted.items():
+            self._audit_ask(node, names)
+
+    def _audit_ask(self, node, names):
+        client = self._audit_clients.get(node)
+        if client is None:
+            prefix = (self.get_parameter('audit_ns').value or '').strip('/')
+            service = f'/{prefix}/{node}' if prefix else f'/{node}'
+            client = self.create_client(
+                GetParameters, f'{service}/get_parameters',
+                callback_group=self._audit_cb)
+            self._audit_clients[node] = client
+        if not client.service_is_ready():
+            self._audit_done(node)
+            return
+        request = GetParameters.Request()
+        request.names = names
+        future = client.call_async(request)
+        future.add_done_callback(
+            lambda fut, node=node, names=names: self._audit_reply(fut, node, names))
+
+    def _audit_reply(self, future, node, names):
+        try:
+            values = future.result().values
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().debug(f'{node} get_parameters 실패: {exc}')
+            self._audit_done(node)
+            return
+        for name, value in zip(names, values):
+            plain = self._parameter_value(value)
+            if plain is not None:
+                self._audit_actual[(node, name)] = plain
+        self._audit_done(node)
+
+    @staticmethod
+    def _parameter_value(value):
+        """ParameterValue -> 파이썬 값. NOT_SET 이면 None (그 노드에 없는 파라미터)."""
+        return {
+            ParameterType.PARAMETER_BOOL: lambda v: v.bool_value,
+            ParameterType.PARAMETER_INTEGER: lambda v: v.integer_value,
+            ParameterType.PARAMETER_DOUBLE: lambda v: v.double_value,
+            ParameterType.PARAMETER_STRING: lambda v: v.string_value,
+        }.get(value.type, lambda v: None)(value)
+
+    def _audit_done(self, node):
+        self._audit_pending.discard(node)
+        if self._audit_pending:
+            return
+        bad = param_audit.compare(self._audit_expected, self._audit_actual)
+        unread = param_audit.missing(self._audit_expected, self._audit_actual)
+        text = param_audit.report(bad, unread)
+        if text is None:
+            self.get_logger().info(
+                f'Nav2 파라미터 확인: nav2_params_fleet.yaml 과 일치 '
+                f'({len(self._audit_expected)}개 대조)')
+        elif bad:
+            self.get_logger().error(text)
+        else:
+            self.get_logger().warn(text)
 
     # ------------------------------------------------------------------ 상태
 

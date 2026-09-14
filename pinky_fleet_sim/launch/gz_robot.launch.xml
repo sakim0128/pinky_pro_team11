@@ -83,6 +83,12 @@
             <arg name="map_server" value="/$(var namespace)/map_server"/>
             <arg name="controller_server" value="/$(var namespace)/controller_server"/>
             <arg name="velocity_smoother" value="/$(var namespace)/velocity_smoother"/>
+            <!--
+              파라미터 감사도 시뮬 파일 기준으로 한다. 시뮬 파일은 프레임에 접두사가
+              붙어 있어 (pinky1/base_footprint) 실기 파일로 대조하면 전부 어긋난다.
+            -->
+            <arg name="nav2_params_file" value="$(var params_file)"/>
+            <arg name="audit_ns" value="$(var namespace)"/>
         </include>
     </group>
 </launch>

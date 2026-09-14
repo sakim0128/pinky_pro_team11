@@ -69,5 +69,10 @@
         <arg name="restore_grace" value="$(var restore_grace)"/>
         <arg name="map_dir" value="$(var map_dir)"/>
         <arg name="map_name" value="$(var map_name)"/>
+        <!--
+          Nav2 에 넘긴 바로 그 파일을 감사 대상으로 준다. 둘이 같은 $(var params_file)
+          이어야 의미가 있다 - 여기서 갈라지면 감사가 엉뚱한 파일을 본다.
+        -->
+        <arg name="nav2_params_file" value="$(var params_file)"/>
     </include>
 </launch>

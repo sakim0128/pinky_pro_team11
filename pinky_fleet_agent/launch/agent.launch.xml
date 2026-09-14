@@ -33,6 +33,18 @@
          description="연결 복구 직후 이만큼(s) 이동 명령을 무시한다 (RELIABLE QoS 재전송 방어)."/>
     <arg name="hold_watchdog" default="20.0"
          description="관제 PC 가 죽어도 로봇이 영원히 서 있지 않도록 HOLD 를 자동 해제하는 시간(s). 0 이면 비활성."/>
+    <!--
+      Nav2 파라미터 감사. 기동 후 audit_delay 초 뒤에 Nav2 노드 몇 개의 파라미터를 직접
+      읽어, 아래 nav2_params_file 과 같은지 대조하고 다르면 에러 로그를 남긴다.
+      실기에서 "파라미터를 고쳤는데 로봇이 안 변한다" 를 겪고 넣었다 (param_audit.py 참고).
+      비우면 설치된 nav2_params_fleet.yaml 을 쓴다.
+    -->
+    <arg name="nav2_params_file" default=""/>
+    <arg name="audit_nav2_params" default="True"/>
+    <arg name="audit_delay" default="15.0"
+         description="Nav2 가 configure 를 끝낼 때까지 기다리는 시간(s)."/>
+    <arg name="audit_ns" default=""
+         description="Nav2 노드가 네임스페이스 안에 있으면 적는다 (가제보 시뮬)."/>
 
     <node pkg="pinky_fleet_agent" exec="agent_node" name="pinky_fleet_agent" output="screen">
         <param name="robot_name" value="$(var robot_name)"/>
@@ -55,5 +67,9 @@
         <param name="command_timeout" value="$(var command_timeout)"/>
         <param name="restore_grace" value="$(var restore_grace)"/>
         <param name="hold_watchdog" value="$(var hold_watchdog)"/>
+        <param name="nav2_params_file" value="$(var nav2_params_file)"/>
+        <param name="audit_nav2_params" value="$(var audit_nav2_params)"/>
+        <param name="audit_delay" value="$(var audit_delay)"/>
+        <param name="audit_ns" value="$(var audit_ns)"/>
     </node>
 </launch>
