@@ -8,6 +8,9 @@ GUI 맵 위에 목표를 찍으면 두 대가 동시에 출발하고, 좁은 길
 namespace / TF frame prefix / `/scan` 충돌 문제를 원천적으로 없앴고, 멀티로봇 로직은
 전부 이 저장소의 별도 패키지로 얹었다.
 
+> **mini_project_2 (차선 추종 자율주행)** — 과제 원문은 `MVP_subject.html`,
+> 주행 데이터 수집 절차는 [`tools/README.md`](tools/README.md) 를 본다.
+
 ## 미션 요구사항 대응
 
 | 요구사항 | 구현 |
