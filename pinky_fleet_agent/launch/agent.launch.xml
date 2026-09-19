@@ -1,0 +1,75 @@
+<?xml version="1.0"?>
+<!-- 에이전트 노드만 띄운다. bringup / Nav2 가 이미 떠 있을 때 사용. -->
+<launch>
+    <arg name="robot_name" default="pinky1"/>
+    <arg name="domain_id" default="10"/>
+    <arg name="state_topic" default="" description="비우면 /&lt;robot_name&gt;/state"/>
+    <arg name="command_topic" default="" description="비우면 /&lt;robot_name&gt;/command"/>
+    <arg name="plan_topic" default=""
+         description="Nav2 의 전역 경로를 중계할 토픽. 비우면 /&lt;robot_name&gt;/plan (GUI 오버레이용)."/>
+    <arg name="plan_in_topic" default="plan"
+         description="Nav2 planner_server 가 실제로 발행하는 이름."/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="global_frame" default="map"/>
+    <arg name="robot_base_frame" default="base_footprint"/>
+    <arg name="map_topic" default="map"
+         description="이 로봇이 로드한 맵의 규격을 읽어 관제 PC 로 올려보낸다 (맵 대조용)."/>
+    <arg name="map_dir" default="/home/pinky/map"
+         description="관제 PC 가 맵 이름을 보내면 이 디렉터리에서 &lt;이름&gt;.yaml 을 찾는다."/>
+    <arg name="map_name" default=""
+         description="기동 시 로드한 맵 이름 (확장자 없음). 관제 PC 에 보고용."/>
+    <!--
+      Nav2 노드들의 절대 이름. 실기는 네임스페이스를 안 쓰므로 기본값 그대로지만,
+      가제보 시뮬에서는 로봇마다 /pinky1/... 로 갈리므로 여기서 바꿔 준다.
+    -->
+    <arg name="map_server" default="/map_server"/>
+    <arg name="controller_server" default="/controller_server"/>
+    <arg name="velocity_smoother" default="/velocity_smoother"/>
+    <arg name="max_linear_vel" default="0.2"/>
+    <arg name="max_angular_vel" default="1.5"/>
+    <arg name="command_timeout" default="3.0"
+         description="데드맨 스위치. 관제 PC 하트비트가 이만큼(s) 끊기면 스스로 주행을 멈춘다. 0 이면 비활성."/>
+    <arg name="restore_grace" default="1.0"
+         description="연결 복구 직후 이만큼(s) 이동 명령을 무시한다 (RELIABLE QoS 재전송 방어)."/>
+    <arg name="hold_watchdog" default="20.0"
+         description="관제 PC 가 죽어도 로봇이 영원히 서 있지 않도록 HOLD 를 자동 해제하는 시간(s). 0 이면 비활성."/>
+    <!--
+      Nav2 파라미터 감사. 기동 후 audit_delay 초 뒤에 Nav2 노드 몇 개의 파라미터를 직접
+      읽어, 아래 nav2_params_file 과 같은지 대조하고 다르면 에러 로그를 남긴다.
+      실기에서 "파라미터를 고쳤는데 로봇이 안 변한다" 를 겪고 넣었다 (param_audit.py 참고).
+      비우면 설치된 nav2_params_fleet.yaml 을 쓴다.
+    -->
+    <arg name="nav2_params_file" default=""/>
+    <arg name="audit_nav2_params" default="True"/>
+    <arg name="audit_delay" default="15.0"
+         description="Nav2 가 configure 를 끝낼 때까지 기다리는 시간(s)."/>
+    <arg name="audit_ns" default=""
+         description="Nav2 노드가 네임스페이스 안에 있으면 적는다 (가제보 시뮬)."/>
+
+    <node pkg="pinky_fleet_agent" exec="agent_node" name="pinky_fleet_agent" output="screen">
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="domain_id" value="$(var domain_id)"/>
+        <param name="state_topic" value="$(var state_topic)"/>
+        <param name="command_topic" value="$(var command_topic)"/>
+        <param name="plan_topic" value="$(var plan_topic)"/>
+        <param name="plan_in_topic" value="$(var plan_in_topic)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="global_frame" value="$(var global_frame)"/>
+        <param name="robot_base_frame" value="$(var robot_base_frame)"/>
+        <param name="map_topic" value="$(var map_topic)"/>
+        <param name="map_dir" value="$(var map_dir)"/>
+        <param name="map_name" value="$(var map_name)"/>
+        <param name="map_server" value="$(var map_server)"/>
+        <param name="controller_server" value="$(var controller_server)"/>
+        <param name="velocity_smoother" value="$(var velocity_smoother)"/>
+        <param name="max_linear_vel" value="$(var max_linear_vel)"/>
+        <param name="max_angular_vel" value="$(var max_angular_vel)"/>
+        <param name="command_timeout" value="$(var command_timeout)"/>
+        <param name="restore_grace" value="$(var restore_grace)"/>
+        <param name="hold_watchdog" value="$(var hold_watchdog)"/>
+        <param name="nav2_params_file" value="$(var nav2_params_file)"/>
+        <param name="audit_nav2_params" value="$(var audit_nav2_params)"/>
+        <param name="audit_delay" value="$(var audit_delay)"/>
+        <param name="audit_ns" value="$(var audit_ns)"/>
+    </node>
+</launch>

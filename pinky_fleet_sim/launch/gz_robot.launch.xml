@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<!--
+  3단계: 로봇 1대 전체 - 스폰 + Nav2 + 관제 에이전트.
+
+    ros2 launch pinky_fleet_sim gz_robot.launch.xml \
+        namespace:=pinky1 x:=-0.35 y:=1.0
+
+  실기의 robot.launch.xml 에 대응하지만 두 가지가 다르다.
+    * bringup(모터/라이다) 대신 가제보가 그 자리를 채운다
+    * ROS_DOMAIN_ID 분리 대신 네임스페이스로 가른다 (가제보가 프로세스 하나라서)
+
+  에이전트가 쓰는 이름은 이렇게 갈린다.
+    상대 이름  odom, map, initialpose, navigate_to_pose, plan
+              -> 네임스페이스가 자동으로 붙는다
+    절대 이름  /pinkyN/state, /pinkyN/command, /pinkyN/plan
+              -> 원래부터 로봇 이름이 붙어 있어서 그대로 둔다.
+                 그래서 관제 PC(coordinator, GUI)는 실기와 똑같이 동작한다.
+    서비스     map_server / controller_server / velocity_smoother 는 파라미터로
+              절대 경로를 받으므로 아래에서 네임스페이스를 붙여 준다.
+-->
+<launch>
+    <arg name="namespace" default="pinky1"/>
+    <arg name="domain_id" default="10"
+         description="시뮬에서는 도메인을 안 나눈다. RobotState 에 실려 GUI 표시와
+                      coordinator 우선순위(작을수록 leader)에만 쓰인다."/>
+    <arg name="x" default="0.0"/>
+    <arg name="y" default="0.0"/>
+    <arg name="yaw" default="0.0"/>
+
+    <arg name="map_name" default="fleet_arena"/>
+    <arg name="map_dir" default="$(find-pkg-share pinky_fleet_sim)/map"/>
+    <arg name="map" default="$(var map_dir)/$(var map_name).yaml"/>
+    <arg name="params_file"
+         default="$(find-pkg-share pinky_fleet_sim)/params/nav2_sim_$(var namespace).yaml"/>
+
+    <arg name="max_linear_vel" default="0.2"/>
+    <arg name="max_angular_vel" default="1.5"/>
+    <arg name="launch_nav2" default="True"/>
+    <arg name="launch_agent" default="True"/>
+
+    <include file="$(find-pkg-share pinky_fleet_sim)/launch/gz_spawn.launch.xml">
+        <arg name="namespace" value="$(var namespace)"/>
+        <arg name="x" value="$(var x)"/>
+        <arg name="y" value="$(var y)"/>
+        <arg name="yaw" value="$(var yaw)"/>
+    </include>
+
+    <!--
+      upstream 의 gz_bringup_launch.xml 이 namespace 인자를 받아
+      push-ros-namespace 로 Nav2 전체를 감싼다. 손댈 필요가 없다.
+      smoother_server 는 upstream 기본값에서 빠져 있어 여기서 넣어 준다
+      (실기 robot.launch.xml 과 같은 이유).
+    -->
+    <include file="$(find-pkg-share pinky_navigation)/launch/gz_bringup_launch.xml"
+             if="$(var launch_nav2)">
+        <arg name="namespace" value="$(var namespace)"/>
+        <arg name="map" value="$(var map)"/>
+        <arg name="params_file" value="$(var params_file)"/>
+        <arg name="use_sim_time" value="True"/>
+        <arg name="lifecycle_nodes_nav" value="['controller_server',
+                           'smoother_server',
+                           'planner_server',
+                           'behavior_server',
+                           'bt_navigator',
+                           'waypoint_follower',
+                           'velocity_smoother']"/>
+    </include>
+
+    <group if="$(var launch_agent)">
+        <push-ros-namespace namespace="$(var namespace)"/>
+        <include file="$(find-pkg-share pinky_fleet_agent)/launch/agent.launch.xml">
+            <arg name="robot_name" value="$(var namespace)"/>
+            <arg name="domain_id" value="$(var domain_id)"/>
+            <arg name="use_sim_time" value="True"/>
+            <arg name="map_dir" value="$(var map_dir)"/>
+            <arg name="map_name" value="$(var map_name)"/>
+            <arg name="max_linear_vel" value="$(var max_linear_vel)"/>
+            <arg name="max_angular_vel" value="$(var max_angular_vel)"/>
+            <!-- frame_prefix 때문에 TF 프레임에 네임스페이스가 붙는다. map 은 공유. -->
+            <arg name="global_frame" value="map"/>
+            <arg name="robot_base_frame" value="$(var namespace)/base_footprint"/>
+            <!-- 서비스는 절대 경로 파라미터라 직접 네임스페이스를 붙여 준다. -->
+            <arg name="map_server" value="/$(var namespace)/map_server"/>
+            <arg name="controller_server" value="/$(var namespace)/controller_server"/>
+            <arg name="velocity_smoother" value="/$(var namespace)/velocity_smoother"/>
+            <!--
+              파라미터 감사도 시뮬 파일 기준으로 한다. 시뮬 파일은 프레임에 접두사가
+              붙어 있어 (pinky1/base_footprint) 실기 파일로 대조하면 전부 어긋난다.
+            -->
+            <arg name="nav2_params_file" value="$(var params_file)"/>
+            <arg name="audit_ns" value="$(var namespace)"/>
+        </include>
+    </group>
+</launch>

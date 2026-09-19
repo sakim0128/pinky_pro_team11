@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>pinky_fleet_sim</name>
+  <version>0.1.0</version>
+  <description>
+    핑키 2대를 가제보 한 월드에 띄워 관제 시스템을 시험하는 패키지.
+    가제보는 프로세스가 하나라 실기의 ROS_DOMAIN_ID 분리를 쓸 수 없고,
+    대신 네임스페이스로 로봇을 가른다. 관제 PC 코드(coordinator, GUI)는
+    실기와 동일하게 동작한다.
+  </description>
+  <maintainer email="sakim.working@gmail.com">team11</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>pinky_description</exec_depend>
+  <!-- urdf/ 의 xacro 를 launch 에서 직접 전개한다 (gz_spawn.launch.xml). -->
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>pinky_gz_sim</exec_depend>
+  <exec_depend>pinky_navigation</exec_depend>
+  <exec_depend>pinky_fleet_agent</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
