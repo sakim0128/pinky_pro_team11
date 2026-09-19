@@ -79,7 +79,7 @@ flowchart TB
 | `pinky_fleet_msgs` | 로봇 2대 + 관제 PC | `RobotState`, `FleetCommand` |
 | `pinky_fleet_agent` | 로봇 2대 | `agent_node`, `robot.launch.xml`, `nav2_params_fleet.yaml` |
 | `pinky_fleet_station` | 관제 PC | `coordinator_node`, `gui_node`, `fake_state_pub`, launch |
-| `pinky_fleet_sim` | 가제보 PC | 아레나 월드 · 맵 · 로봇별 Nav2 파라미터 · 시뮬 launch |
+| `pinky_fleet_sim` | 가제보 PC | 아레나 월드 · 맵 · 멀티로봇용 xacro · 로봇별 Nav2 파라미터 · 시뮬 launch |
 
 `pinky_fleet_msgs` 는 **관제 PC 에도 반드시 빌드·소싱**해야 한다. `domain_bridge` 가
 런타임에 메시지 타입서포트를 로드하기 때문이다.
@@ -382,10 +382,33 @@ QT_QPA_PLATFORM=offscreen python3 -m pytest pinky_fleet_station/test pinky_fleet
 `/pinkyN/state` 처럼 로봇 이름이 붙은 절대 토픽을 쓰기 때문에, 도메인으로 가르든
 네임스페이스로 가르든 관제 쪽에서는 똑같아 보인다.
 
-upstream `pinky_pro` 도 손대지 않는다. `pinky_description` 의 `upload_robot.launch.py`
-가 이미 `namespace` 를 받아 `frame_prefix` 로 넣고, `pinky_gz.urdf.xacro` 가 gz 토픽과
-프레임에 네임스페이스를 붙이며, `pinky_navigation/gz_bringup_launch.xml` 에
-`push-ros-namespace` 가 있다. 멀티로봇을 이미 염두에 두고 만들어져 있다.
+upstream `pinky_pro` 는 손대지 않는다. `pinky_navigation/gz_bringup_launch.xml` 에
+`push-ros-namespace` 가 있어 Nav2 는 그대로 쓸 수 있다.
+
+**다만 로봇 모델은 그대로 못 쓴다.** `pinky_description` 의 네임스페이스 처리가 링크와
+조인트에 비대칭이기 때문이다.
+
+```
+pinky.urdf.xacro:197     <link  name="rplidar_link"/>                    <- 접두사 없음
+pinky.urdf.xacro:54      <joint name="${namespace}l_wheel_joint">        <- 접두사 있음
+pinky_gz.urdf.xacro:68   <gazebo reference="${namespace}rplidar_link">   <- 접두사 있음
+```
+
+링크를 가리키는 `<gazebo reference>` 6개(`l_wheel`, `r_wheel`, `caster_wheel`,
+`rplidar_link`, `front_camera_link`, `imu_link`)가 존재하지 않는 이름을 가리킨다.
+sdformat 은 매칭 안 되는 블록을 경고 없이 버리므로 **센서와 마찰 설정이 통째로
+사라진다.** 조인트를 참조하는 DiffDrive 는 멀쩡해서, 로봇은 `/cmd_vel` 로 움직이고
+`/odom`·`/tf` 도 나오는데 **`/scan` 만 안 나온다.** Nav2 가 장애물을 전혀 못 본다.
+
+단일 로봇에서는 `namespace` 가 빈 문자열이라 양쪽 다 접두사가 없어 맞는다. upstream
+자신의 `pinky_gz_sim/launch/launch_sim.launch.xml` 은 네임스페이스를 쓰지 않으므로
+정상 동작해 왔고, 네임스페이스를 쓰는 것은 이 저장소가 처음이다.
+
+그래서 `pinky_fleet_sim/urdf/` 에 자체 xacro 두 개를 둔다. upstream 의
+링크·조인트·메시·관성은 그대로 재사용하고(`insert_robot` 을 `is_sim="false"` 로 호출),
+가제보 블록만 우리가 쓴다. 규칙은 **링크를 가리키면 접두사 없음, 그 외(조인트 이름,
+`gz_frame_id`, 토픽)는 접두사 있음** 이고, `test_sim_namespace.py` 가 이 규칙을 고정한다.
+카메라·IMU·램프는 Nav2 가 안 쓰고 브리지에도 없어 기본으로 꺼 두었다 (xacro arg 로 켠다).
 
 ### 아레나 월드
 
@@ -423,6 +446,29 @@ source install/setup.bash
 
 한 번에 다 띄우면 뭐가 문제인지 알 수 없다. 순서대로 올리면서 확인한다.
 
+**0단계는 가제보를 띄우지 않는다.** URDF -> SDF 변환에서 센서가 살아남는지만 보면
+위의 접두사 문제를 2분 안에 판정할 수 있다. 여기서 막히면 뒤는 볼 필요가 없다.
+
+```bash
+XACRO=$(ros2 pkg prefix pinky_fleet_sim)/share/pinky_fleet_sim/urdf/pinky_fleet.urdf.xacro
+
+# 0-a) xacro 가 돌고 URDF 가 유효한가
+xacro $XACRO namespace:=pinky1/ > /tmp/p1.urdf && check_urdf /tmp/p1.urdf
+grep -o 'reference="[^"]*"' /tmp/p1.urdf
+#    기대: 링크(l_wheel, rplidar_link ...)는 접두사 없음, 조인트만 pinky1/ 이 붙는다
+
+# 0-b) ** 핵심 ** SDF 로 변환했을 때 센서와 마찰이 살아 있는가
+gz sdf -p /tmp/p1.urdf > /tmp/p1.sdf 2> /tmp/p1.err
+grep -c '<sensor' /tmp/p1.sdf     # 기대: 1   (0 이면 참조가 안 맞는 것)
+grep -c '<mu1>'   /tmp/p1.sdf     # 기대: 3   (l_wheel, r_wheel, caster_wheel)
+grep -i 'not modeled in sdf' /tmp/p1.err
+#    rplidar_link 가 여기 뜨면 lumping 이 꺼진 것이다. 빈 링크라 SDF 에서 통째로
+#    빠지고 센서도 같이 사라진다 - disableFixedJointLumping 을 넣지 말 것.
+
+# 0-c) 대조군: 네임스페이스가 없을 때와 개수가 같아야 한다
+xacro $XACRO namespace:= | gz sdf -p /dev/stdin | grep -c '<sensor'
+```
+
 ```bash
 # 1) 가제보와 아레나만
 ros2 launch pinky_fleet_sim gz_world.launch.xml
@@ -431,8 +477,12 @@ ros2 launch pinky_fleet_sim gz_world.launch.xml
 
 # 2) 로봇 1대 스폰 (Nav2 없이)
 ros2 launch pinky_fleet_sim gz_spawn.launch.xml namespace:=pinky1 x:=-0.35 y:=1.0
-#    확인: gz topic -l | grep pinky1     ->  gz 쪽 실제 토픽 이름
+#    확인: gz topic -l | grep pinky1     ->  /pinky1/scan /pinky1/cmd_vel /pinky1/odom
 #         ros2 topic hz /pinky1/scan     ->  약 10Hz
+#         ros2 topic echo /pinky1/scan --field header.frame_id --once
+#                                        ->  pinky1/rplidar_link
+#         ros2 run tf2_ros tf2_echo pinky1/base_footprint pinky1/rplidar_link
+#                                        ->  [-0.017, 0, 0.125], yaw = pi
 #         ros2 run tf2_tools view_frames ->  pinky1/odom -> pinky1/base_footprint
 
 # 3) 로봇 1대 전체 (Nav2 + 에이전트)
@@ -457,7 +507,7 @@ GUI 에서 `[불러오기]` -> `[초기위치 일괄]` -> `[동시 출발]` 하�
 | 증상 | 확인 |
 |---|---|
 | 로봇이 안 보인다 | 가제보가 뜨기 전에 스폰했다. `gz_fleet.launch.xml` 의 `spawn_delay` 를 늘린다 |
-| `/pinky1/scan` 이 안 나온다 | `gz topic -l` 로 gz 쪽 실제 이름을 보고 `params/pinky1_bridge.yaml` 의 `gz_topic_name` 을 맞춘다. xacro 가 만드는 이름이 `/pinky1/scan` 이 아닐 수 있다 |
+| `/pinky1/scan` 이 안 나온다 | `gz topic -l \| grep scan` 으로 gz 쪽에 센서가 아예 없는지 본다. 없으면 upstream `robot.urdf.xacro` 로 스폰된 것이다 (위 **실기와 무엇이 다른가** 의 접두사 비대칭). `ros2 param get /pinky1/robot_state_publisher robot_description \| grep 'gazebo reference'` 로 확인 — `pinky1/rplidar_link` 가 나오면 우리 xacro 가 안 쓰인 것이다 |
 | TF 가 `pinky1/odom` 에서 끊긴다 | DiffDrive 플러그인의 `tf_topic` 이 `/tf` 로 고정이라 두 로봇이 같은 gz 토픽을 쓴다. 브리지가 그걸 각 네임스페이스로 나른다 — `ros2 topic hz /pinky1/tf` 확인 |
 | Nav2 가 `bring up` 에서 멈춘다 | 프레임 접두사가 안 맞는 것이다. `ros2 param get /pinky1/controller_server robot_base_frame` 이 `pinky1/base_footprint` 여야 한다 |
 | 시간이 이상하게 흐른다 | `/clock` 브리지가 둘 이상이거나 네임스페이스 안에 있다. 전체에 **하나만** 있어야 한다 |
