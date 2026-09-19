@@ -140,13 +140,48 @@ ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_
 
 | 위치 | 파일 | 역할 |
 |---|---|---|
-| `pinky_fleet_agent/` (로봇, 확장) | `camera_node` `lane_agent_node` · ROS-free `route_follower` `lane_control` `drive_fsm` `obstacle_guard` · `launch/lane_robot.launch.xml` | bringup + AMCL + 카메라 + 주행 |
-| `pinky_lane_station/` (PC, 신규) | `lane_pipeline_node` · ROS-free `lane_target` `road_graph` `reservation` · `detectors/` · `fake_camera_pub` `fake_lane_robot` · `config/road_graph.yaml` `bridge_lane.yaml` | 인식·경로·예약·시뮬 |
-| `pinky_fleet_station/` (PC, 최소 수정) | `coordinator_node`(예약 루프) · GUI 그래프 편집 위젯 | 기존 관제 재사용 |
+| `pinky_fleet_agent/` (로봇, 확장) | `lane_agent_node` `camera_node` · ROS-free `route_follower` `lane_control` `drive_fsm` `obstacle_guard` `lane_driver` · `launch/lane_robot.launch.xml` `lane_agent.launch.xml` · `params/lane_agent.yaml` | bringup + AMCL + 초음파 + 카메라 + 주행 (`/cmd_vel` 유일 발행자) |
+| `pinky_lane_station/` (PC, 신규) | `lane_coordinator_node`(경로·예약·출발) `lane_pipeline_node`(인식) `fake_lane_robot`(가짜 로봇 + 합성 카메라) `graph_editor` `bench_detector` · ROS-free `road_graph` `reservation` `lane_target` `lane_mission` `synthetic_camera` `detectors/{stub,classic,ultralytics_backend}` · `config/{road_graph,lane_mission,detector_lane,bridge_lane}.yaml` · `launch/{lane_station,lane_bridge,fake_lane}.launch.xml` | 인식·경로·예약·시뮬 |
+| `pinky_fleet_station/` (PC, 그대로) | `bridge_fleet.yaml`(state/command) · `map_canvas` · `config/map4.*` | 기존 관제 재사용. GUI 차선 모드는 M2 이후 |
 | `pinky_lane_msgs/` (신규) | 위 5 개 | |
-| `training/` | 데이터셋·학습 스크립트, `COLCON_IGNORE` | 가중치는 git 에 넣지 않는다 |
+| `tools/` | `record_drive.py` `extract_frames.py` | 데이터 수집 |
 
-**재사용**: `link_watch.py`(그대로) · `map_canvas` 좌표 변환 · `bridge_fleet.yaml` QoS 논리 · GUI QTimer 패턴 · 업스트림 `localization_launch.xml`.
+**재사용**: `link_watch.py`(그대로, 관제·LanePath 두 채널) · `map_canvas` 좌표 변환 · `bridge_fleet.yaml` QoS 논리 · 업스트림 `localization_launch.xml`.
+
+### 로봇·관제 코드가 같은 코어를 쓴다
+
+`LaneDriver`(ROS-free) 가 경로 추종·FSM·장애물·링크 감시를 전부 들고 있고, 실차 `lane_agent_node` 와 가짜 `fake_lane_robot` 은 그 위에 입출력만 얹는다. 실차와 시뮬의 차이는 위치(TF ↔ 유니사이클 적분)·라이다(실측 ↔ 원 교차)·카메라(picamera2 ↔ 합성 이미지) 세 가지뿐이다. 합성 카메라 이미지도 실제 토픽으로 나가 `lane_pipeline_node` 를 거쳐 돌아오므로 메시지·QoS·시각 규칙까지 같은 길을 탄다.
+
+---
+
+## 실행
+
+```bash
+# 관제 PC — 하드웨어 없는 폐루프 (가짜 로봇 2대 + 인식 + 예약). 실제 핑키는 움직이지 않는다.
+export ROS_DOMAIN_ID=0
+ros2 launch pinky_lane_station fake_lane.launch.xml auto_start:=True
+ros2 topic echo /fleet/lane/status                       # 진행·예약·상태 JSON
+ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed
+ros2 launch pinky_lane_station fake_lane.launch.xml obstacle:="[0.3, -0.45, 0.05]"   # 장애물 정지 확인
+
+# 로봇 (각 핑키에서)
+export ROS_DOMAIN_ID=10   # pinky2 는 11
+ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 \
+    map:=$HOME/map/map4.yaml camera_orient:=rot180
+
+# 관제 PC — 실차
+ros2 launch pinky_lane_station lane_station.launch.xml
+ros2 topic pub -1 /fleet/lane/control std_msgs/msg/String "{data: '{\"cmd\": \"start\"}'}"
+#   assign: {"cmd":"assign","robot":"pinky2","start":"RE","goal":"TC"}  stop/resume/estop/reset
+
+# 추론 벤치 (CPU/GPU·imgsz 결정)
+ros2 run pinky_lane_station bench_detector -- --config config/detector_lane.yaml --images ~/drive_data/frames --device cpu --device cuda:0
+
+# 테스트 (ROS 불필요)
+python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test -q
+```
+
+미션·경로는 `pinky_lane_station/config/lane_mission.yaml`(start/goal 노드, 출발 지연), 인식은 `detector_lane.yaml`(`classic` ↔ `ultralytics` + `best.pt`), 로봇 튜닝값은 `pinky_fleet_agent/params/lane_agent.yaml` 한 곳에서만 바꾼다 (launch 는 덮어쓰지 않는다 — 테스트가 지킨다).
 
 ---
 
@@ -161,8 +196,8 @@ ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_
 
 | | 내용 | 완료 기준 |
 |---|---|---|
-| M0 | 그래프 편집기 + `road_graph.yaml` | 라이다 맵에 사진 정합, 노드·엣지 완성, 경로가 GUI 에 그려짐 |
-| M1 | 메시지 + ROS-free 코어 + 하드웨어 없는 폐루프 | 가짜 로봇 2대가 경로 추종·예약 대기·횡단보도 정지·도착. pytest 그린. 추론 벤치 |
+| M0 ✓ | 그래프 편집기 + `road_graph.yaml` | 라이다 맵에 사진 정합, 노드·엣지 완성, 경로가 GUI 에 그려짐 |
+| M1 (코드 완료, 관제 PC 실행 검증 전) | 메시지 + ROS-free 코어 + 노드 + 하드웨어 없는 폐루프 | 가짜 로봇 2대가 경로 추종·예약 대기·횡단보도 정지·도착. pytest 그린. 추론 벤치 |
 | M2 | 카메라 노드 + 전송 | p95 < 250 ms, 좌/우 일치 육안 확인 |
 | M3 | `best.pt` 연결, 쌍 선택·SINGLE·crosswalk 튜닝 (녹화 영상) | `target_x` 궤적이 중앙, 분기에서 JUNCTION 전환 |
 | M4 | 실차 1대: AMCL + 경로 + 카메라 보정 + 장애물 | 시작→목적지 3/3, 분기 정확, 벽 접촉 0, 장애물 자동 재개, PC 종료 시 1 s 정지 |
@@ -174,9 +209,8 @@ ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_
 
 ## 확인이 필요한 것
 
-- 도로 폭 실측 (20 cm 면 코너에서 차선이 시야를 벗어나는 구간이 길어진다)
-- 라이다 맵이 현재 벽 배치와 맞는지 (테이프만 바뀌고 벽은 그대로인지)
-- 횡단보도 2곳 모두 정지 대상인지, 3 s 유지인지
-- 데모 시작·목적지 조합 — 반대 방향 공유 엣지가 있는지 그래프로 미리 확인
-- `--snap` 으로 고른 보정값, 초음파 노드 동작 여부
-- AMCL 초기 자세를 GUI 클릭으로 줄지, 시작 노드에 놓고 자동 세팅할지
+- **그래프 좌표**: `road_graph.yaml` 의 노드 좌표는 사진에서 손으로 놓은 초안 — 벽 위에 있을 수 있다. 편집기로 4 점 정합 후 수정 필요. 토폴로지(TR→TC→TL, TR→MC, JW→JS)도 확인
+- **시나리오 2 목적지**: 중앙 상부(MC)·우상단(RE) 출발은 정해졌고, 어디로 가는지 미정 (`lane_mission.yaml` 주석의 예시는 가정)
+- `--snap` 으로 고른 카메라 보정값 (`camera_orient`), 초음파 노드(`ros2 run pinky_sensor_adc main_node`) 동작 여부
+- `cam_sign`: 실차에서 로봇을 차선 왼쪽에 두고 우회전(ω<0) 이 나오는지 한 번 확인
+- 이 저장소의 ROS 노드는 ROS 가 없는 환경에서 작성했다 — ROS-free 코어와 텍스트 불변식만 pytest 로 검증했고, 노드 실행(`fake_lane.launch.xml`)은 관제 PC 에서 처음 돌린다

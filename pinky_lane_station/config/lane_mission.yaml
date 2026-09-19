@@ -1,0 +1,42 @@
+# 차선 주행 미션 (mini_project_2). lane_coordinator_node · fake_lane_robot · GUI 가 공유한다.
+# start / goal 은 road_graph.yaml 의 노드 id. GUI 에서 클릭으로 바꾸면 여기 저장된다.
+
+graph: road_graph.yaml            # 이 파일 기준 상대경로 (비우면 패키지 기본)
+
+map:
+  yaml_path: "$HOME/fleet_ws/src/pinky_pro_team11/pinky_fleet_station/config/map4.yaml"
+
+reservation:
+  reserve_ahead: 0.40             # 다음 엣지 시작 이 거리 안에서 예약 요청
+  release_behind: 0.25            # 노드/엣지 끝을 이만큼 지나면 해제
+  node_stop_margin: 0.20          # 못 잡은 분기 앞 정지 여유 (분기 안에서 서지 않게)
+
+coordinator:
+  tick_rate: 10.0                 # 예약 루프 = LaneCommand CLEARANCE 발행 주기 (하트비트 겸용)
+  state_timeout: 2.0              # RobotState 가 이만큼 끊기면 그 로봇 pose 를 믿지 않는다
+  set_initial_pose: true          # [출발] 때 start 노드로 AMCL 초기 위치를 보낸다
+  auto_start: false               # true 면 기동 직후 자동 출발 (가짜 로봇 검증용)
+  arrive_hold_seconds: 1.0
+
+defaults:
+  max_linear_vel: 0.15
+  max_angular_vel: 1.2
+
+# 시나리오 1: 왼쪽 아래(BL) 에서 순차 출발 → 위쪽 중앙(TC), 우상단(RE)
+robots:
+  - name: pinky1
+    domain_id: 10
+    start: BL
+    goal: TC
+    depart_delay: 0.0
+    color: "#ff5a7a"
+  - name: pinky2
+    domain_id: 11
+    start: BL
+    goal: RE
+    depart_delay: 6.0             # 초. 예약이 순서를 만들지만 출발 간격은 GUI/여기서 지정
+    color: "#38bdf8"
+
+# 시나리오 2 (교차로에서 만남): start/goal 만 바꾼다
+#   - {name: pinky1, domain_id: 10, start: MC, goal: BL}
+#   - {name: pinky2, domain_id: 11, start: RE, goal: TC}

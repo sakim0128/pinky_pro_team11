@@ -23,7 +23,6 @@ import os
 import sys
 
 import numpy as np
-import yaml
 from PyQt5.QtCore import QPointF, Qt
 from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QPolygonF
 from PyQt5.QtWidgets import (

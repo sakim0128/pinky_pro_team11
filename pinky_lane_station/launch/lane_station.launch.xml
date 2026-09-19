@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!--
+  관제 PC 차선 주행 최상위 launch (mini_project_2).
+
+    export ROS_DOMAIN_ID=0
+    ros2 launch pinky_lane_station lane_station.launch.xml \
+        mission:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_lane_station/config/lane_mission.yaml \
+        detector_config:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_lane_station/config/detector_lane.yaml
+
+  브릿지 2개 + lane_coordinator(경로·예약) + lane_pipeline(인식). 로봇을 먼저 띄운 뒤 실행.
+  출발:  ros2 topic pub -1 /fleet/lane/control std_msgs/msg/String "{data: '{\"cmd\": \"start\"}'}"
+  상태:  ros2 topic echo /fleet/lane/status
+-->
+<launch>
+    <arg name="mission" default="$(find-pkg-share pinky_lane_station)/config/lane_mission.yaml"/>
+    <arg name="detector_config"
+         default="$(find-pkg-share pinky_lane_station)/config/detector_lane.yaml"/>
+    <arg name="use_bridge" default="True" description="가짜 로봇으로 검증할 때는 False"/>
+    <arg name="publish_debug_image" default="True"
+         description="/<robot>/lane_debug/compressed 에 검출 결과를 그려 발행 (rqt_image_view)"/>
+
+    <include file="$(find-pkg-share pinky_lane_station)/launch/lane_bridge.launch.xml"
+             if="$(var use_bridge)"/>
+
+    <node pkg="pinky_lane_station" exec="lane_coordinator_node" name="lane_coordinator"
+          output="screen">
+        <param name="mission" value="$(var mission)"/>
+    </node>
+
+    <node pkg="pinky_lane_station" exec="lane_pipeline_node" name="lane_pipeline" output="screen">
+        <param name="mission" value="$(var mission)"/>
+        <param name="detector_config" value="$(var detector_config)"/>
+        <param name="publish_debug_image" value="$(var publish_debug_image)"/>
+    </node>
+</launch>

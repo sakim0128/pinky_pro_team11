@@ -1,0 +1,45 @@
+# lane_agent_node 파라미터. launch 의 <param from=...> 로 통째로 넘긴다.
+# 키 이름 = lane_driver.DriverParams / ControlParams / FsmParams / GuardParams 필드.
+pinky_lane_agent:
+  ros__parameters:
+    control_rate: 20.0
+    status_rate: 10.0
+    pose_timeout: 1.0
+    use_ultrasonic: true
+    us_topic: us_sensor/range
+    # DriverParams
+    lookahead: 0.25
+    arrive_tolerance: 0.10
+    clearance_tolerance: 0.05
+    link_timeout: 3.0            # LaneCommand(CLEARANCE 10 Hz) 침묵 허용
+    path_timeout: 0.9            # LanePath 침묵 허용 (0.3 s × 3)
+    path_max_age: 0.9
+    crosswalk_zone: 0.45
+    junction_zone: 0.25
+    control:
+      v_max: 0.15
+      omega_max: 1.2
+      kp: 1.2
+      kd: 0.15
+      k_err: 0.5
+      k_curv: 0.5
+      a_decel: 0.6
+      stop_tolerance: 0.03
+      accel_slew: 0.4
+      cam_sign: 1.0              # 실차에서 확정: 로봇을 차선 왼쪽에 두면 우회전(ω<0) 이어야 한다. 아니면 -1.0
+      v_min_moving: 0.04
+      stale_max_age: 0.9
+    fsm:
+      crosswalk_stop_seconds: 3.0
+      crosswalk_relatch_distance: 0.60   # > crosswalk_zone
+      lane_lost_speed_factor: 0.5
+      blind_warn_distance: 0.60
+    guard:
+      sector_deg: 35.0
+      box_x: 0.18
+      box_y: 0.10
+      us_stop: 0.20
+      us_min_valid: 0.03
+      confirm_count: 2
+      clear_seconds: 1.0
+      lidar_offset_x: 0.0

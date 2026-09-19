@@ -1,0 +1,26 @@
+# lane_pipeline_node 인식 설정.
+#   classic     : OpenCV 흰색 테이프 (모델 없이 배선 검증, 가짜 카메라)
+#   ultralytics : YOLO-seg best.pt (실전). 관제 PC 에 pip install ultralytics
+detector:
+  kind: classic
+  # kind: ultralytics
+  # model: "$HOME/models/lane_v1.pt"
+  # device: cpu                   # 벤치(tools/bench_detector.py) 로 cpu / cuda:0 결정
+  # imgsz: 416
+  # conf: 0.35
+  # class_map: {lane: [lane], crosswalk: [crosswalk]}
+
+target:                           # lane_target.TargetParams
+  sample_row_frac: 0.72
+  half_lane_px_init: 180.0        # 640 px 기준. 첫 BOTH 관측 후 이력 중앙값으로 대체
+  half_lane_px_min: 40.0
+  half_lane_px_max: 300.0
+  crosswalk_stop_row_frac: 0.80
+  crosswalk_confirm: 3
+  crosswalk_release: 5
+
+pipeline:
+  max_rate: 10.0                  # 이보다 빠른 프레임은 버린다 (BEST_EFFORT depth 1 이라 최신만)
+  stale_period: 0.3               # 새 프레임 없을 때 STALE 재발행 주기
+  stale_max_seconds: 2.0          # 이 이상 프레임이 없으면 침묵 → 로봇 LINK_LOST 정지
+  warmup: true

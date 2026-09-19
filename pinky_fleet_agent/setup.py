@@ -24,6 +24,8 @@ setup(
     entry_points={
         'console_scripts': [
             'agent_node = pinky_fleet_agent.agent_node:main',
+            'lane_agent_node = pinky_fleet_agent.lane_agent_node:main',
+            'camera_node = pinky_fleet_agent.camera_node:main',
         ],
     },
 )

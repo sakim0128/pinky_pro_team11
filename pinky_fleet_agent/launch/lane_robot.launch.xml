@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!--
+  차선 주행 모드 로봇 최상위 launch (mini_project_2).
+
+    export ROS_DOMAIN_ID=10
+    ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 \
+        map:=$HOME/map/map4.yaml camera_orient:=rot180
+
+  bringup(모터/라이다/TF) + map_server + AMCL (localization_launch, planner/controller 없음)
+  + 초음파 노드 + 카메라 + lane_agent. /cmd_vel 발행자는 lane_agent 하나뿐이다.
+  robot.launch.xml(Nav2 전체) 과 동시에 띄우지 말 것.
+-->
+<launch>
+    <arg name="robot_name" default="pinky1"/>
+    <arg name="domain_id" default="10"/>
+    <arg name="map" default="/home/pinky/map/map4.yaml"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="launch_bringup" default="True"/>
+    <arg name="launch_localization" default="True"/>
+    <arg name="launch_ultrasonic" default="True"
+         description="pinky_sensor_adc main_node (us_sensor/range). bringup 이 띄우지 않는다."/>
+    <arg name="use_camera" default="True"/>
+    <arg name="camera_orient" default="rot180"/>
+    <arg name="camera_fps" default="10.0"/>
+    <arg name="jpeg_quality" default="70"/>
+    <arg name="params_file" default="$(find-pkg-share pinky_fleet_agent)/params/lane_agent.yaml"/>
+
+    <include file="$(find-pkg-share pinky_bringup)/launch/bringup_robot.launch.xml"
+             if="$(var launch_bringup)">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <include file="$(find-pkg-share pinky_navigation)/launch/localization_launch.xml"
+             if="$(var launch_localization)">
+        <arg name="map" value="$(var map)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <node pkg="pinky_sensor_adc" exec="main_node" name="pinky_sensor_adc" output="screen"
+          if="$(var launch_ultrasonic)"/>
+
+    <include file="$(find-pkg-share pinky_fleet_agent)/launch/lane_agent.launch.xml">
+        <arg name="robot_name" value="$(var robot_name)"/>
+        <arg name="domain_id" value="$(var domain_id)"/>
+        <arg name="params_file" value="$(var params_file)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+        <arg name="use_camera" value="$(var use_camera)"/>
+        <arg name="camera_orient" value="$(var camera_orient)"/>
+        <arg name="camera_fps" value="$(var camera_fps)"/>
+        <arg name="jpeg_quality" value="$(var jpeg_quality)"/>
+        <arg name="use_ultrasonic" value="$(var launch_ultrasonic)"/>
+    </include>
+</launch>

@@ -1,0 +1,71 @@
+# domain_bridge — 차선 주행용 추가 토픽. bridge_fleet.yaml(state/command) 과 **별도 프로세스** 로 띄운다.
+#   ros2 run domain_bridge domain_bridge <이 파일>
+# 영상 스트림이 명령 토픽과 같은 프로세스에서 큐를 밀어내지 않도록 분리했다.
+# QoS 는 노드와 동일하게 고정 (기동 순서 무관). 로봇 카메라 stamp 는 그대로 통과한다.
+
+name: pinky_lane_bridge
+mode: normal
+
+topics:
+
+  # ------------------------- pinky1 (domain 10) -------------------------
+  /pinky1/camera/image/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    from_domain: 10
+    to_domain: 0
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  /pinky1/lane_path:
+    type: pinky_lane_msgs/msg/LanePath
+    from_domain: 0
+    to_domain: 10
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  /pinky1/route:
+    type: pinky_lane_msgs/msg/Route
+    from_domain: 0
+    to_domain: 10
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+
+  /pinky1/lane_command:
+    type: pinky_lane_msgs/msg/LaneCommand
+    from_domain: 0
+    to_domain: 10
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky1/lane_status:
+    type: pinky_lane_msgs/msg/LaneStatus
+    from_domain: 10
+    to_domain: 0
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  # ------------------------- pinky2 (domain 11) -------------------------
+  /pinky2/camera/image/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    from_domain: 11
+    to_domain: 0
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  /pinky2/lane_path:
+    type: pinky_lane_msgs/msg/LanePath
+    from_domain: 0
+    to_domain: 11
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  /pinky2/route:
+    type: pinky_lane_msgs/msg/Route
+    from_domain: 0
+    to_domain: 11
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+
+  /pinky2/lane_command:
+    type: pinky_lane_msgs/msg/LaneCommand
+    from_domain: 0
+    to_domain: 11
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky2/lane_status:
+    type: pinky_lane_msgs/msg/LaneStatus
+    from_domain: 11
+    to_domain: 0
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}

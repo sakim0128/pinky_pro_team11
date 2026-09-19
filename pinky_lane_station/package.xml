@@ -10,6 +10,10 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>pinky_fleet_msgs</exec_depend>
   <exec_depend>pinky_fleet_station</exec_depend>
+  <exec_depend>pinky_fleet_agent</exec_depend>
+  <exec_depend>pinky_lane_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>domain_bridge</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>python3-pyqt5</exec_depend>

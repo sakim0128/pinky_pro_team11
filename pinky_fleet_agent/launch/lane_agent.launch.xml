@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!-- 차선 주행 에이전트 + 카메라만 띄운다. bringup / localization 이 이미 떠 있을 때. -->
+<launch>
+    <arg name="robot_name" default="pinky1"/>
+    <arg name="domain_id" default="10"/>
+    <arg name="params_file" default="$(find-pkg-share pinky_fleet_agent)/params/lane_agent.yaml"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="use_camera" default="True"/>
+    <arg name="camera_orient" default="rot180"
+         description="거꾸로 장착된 카메라 보정. tools/record_drive.py --snap 으로 확정 (none|rot180|rot180_mirror|vflip|hflip)"/>
+    <arg name="camera_fps" default="10.0"/>
+    <arg name="jpeg_quality" default="70"/>
+    <arg name="use_ultrasonic" default="True"
+         description="pinky_sensor_adc main_node 의 us_sensor/range 를 장애물 감지에 쓴다"/>
+
+    <node pkg="pinky_fleet_agent" exec="lane_agent_node" name="pinky_lane_agent" output="screen">
+        <param from="$(var params_file)"/>
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="domain_id" value="$(var domain_id)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="use_ultrasonic" value="$(var use_ultrasonic)"/>
+    </node>
+
+    <node pkg="pinky_fleet_agent" exec="camera_node" name="pinky_camera" output="screen"
+          if="$(var use_camera)">
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="orient" value="$(var camera_orient)"/>
+        <param name="fps" value="$(var camera_fps)"/>
+        <param name="jpeg_quality" value="$(var jpeg_quality)"/>
+    </node>
+</launch>
