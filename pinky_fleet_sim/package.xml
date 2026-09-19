@@ -17,6 +17,10 @@
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>pinky_description</exec_depend>
+  <!-- urdf/ 의 xacro 를 launch 에서 직접 전개한다 (gz_spawn.launch.xml). -->
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>pinky_gz_sim</exec_depend>
   <exec_depend>pinky_navigation</exec_depend>
   <exec_depend>pinky_fleet_agent</exec_depend>

@@ -23,13 +23,42 @@
       robot_state_publisher + joint_state_publisher 를 네임스페이스 안에 띄우고,
       frame_prefix 로 TF 프레임에 접두사를 붙인다 (pinky1/base_footprint).
       이게 있어서 두 로봇의 TF 가 안 겹친다.
+
+      upstream 의 pinky_description/launch/upload_robot.launch.py 를 쓰지 않는 이유:
+      그 파일은 robot.urdf.xacro 를 하드코딩하는데, 그 xacro 의 가제보 블록이
+      네임스페이스 모드에서 깨진다 (urdf/pinky_gz_fleet.urdf.xacro 주석 참고).
+      그래서 우리 xacro 를 쓰고 RSP 도 직접 띄운다. 되돌리면 버그도 되돌아온다.
+
+      namespace 에 붙는 **끝 슬래시가 중요하다.** upload_robot.launch.py:19-20 이 하던
+      가공을 여기서 한다. xacro 인자와 frame_prefix 가 같은 문자열이어야 조인트 이름과
+      gz_frame_id 가 실제 TF 프레임과 맞는다.
+
+      type="str" 도 빼면 안 된다. 없으면 launch 가 여러 줄 XML 문자열의 타입을
+      YAML 로 추론하려 들다가 엉뚱하게 해석한다 (launch_ros/actions/node.py 가
+      type 이 없으면 value_type=None 으로 두고 런타임에 추론한다).
+
+      $(command ...) 의 두 번째 인자 warn 도 필수다. 기본값이 fail 이라
+      **xacro 가 deprecation 경고 한 줄만 뱉어도 launch 전체가 죽는다.**
     -->
-    <include file="$(find-pkg-share pinky_description)/launch/upload_robot.launch.py">
-        <arg name="namespace" value="$(var namespace)"/>
-        <arg name="use_sim_time" value="True"/>
-        <arg name="is_sim" value="True"/>
-        <arg name="cam_tilt_deg" value="$(var cam_tilt_deg)"/>
-    </include>
+    <group>
+        <push-ros-namespace namespace="$(var namespace)"/>
+
+        <node pkg="robot_state_publisher" exec="robot_state_publisher"
+              name="robot_state_publisher" output="screen">
+            <param name="robot_description" type="str"
+                   value="$(command 'xacro $(find-pkg-share pinky_fleet_sim)/urdf/pinky_fleet.urdf.xacro namespace:=$(var namespace)/ cam_tilt_deg:=$(var cam_tilt_deg)' warn)"/>
+            <param name="frame_prefix" value="$(var namespace)/"/>
+            <param name="ignore_timestamp" value="False"/>
+            <param name="use_sim_time" value="True"/>
+        </node>
+
+        <node pkg="joint_state_publisher" exec="joint_state_publisher"
+              name="joint_state_publisher" output="screen">
+            <param name="source_list" value="['joint_states']"/>
+            <param name="rate" value="20.0"/>
+            <param name="use_sim_time" value="True"/>
+        </node>
+    </group>
 
     <node pkg="ros_gz_sim" exec="create" name="spawn_$(var namespace)" output="screen"
           args="-name $(var namespace)
