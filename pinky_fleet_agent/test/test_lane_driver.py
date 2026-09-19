@@ -407,7 +407,7 @@ def test_lane_only_crosswalk_stops_3s_once_without_graph():
     s.crosswalk = True
     s.run(1.5)                                          # 확정 → 정지
     s.crosswalk = False
-    s.run(6.0)
+    s.run(9.0)                                          # 0.10 m/s × 9 s > 재래치 거리 0.60 m
     states = [o.state for _, o in s.log]
     stop_t = [t for t, o in s.log if o.state == CROSSWALK_STOP]
     assert stop_t and 2.9 <= stop_t[-1] - stop_t[0] + DT <= 3.3
