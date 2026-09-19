@@ -122,6 +122,41 @@ ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_
 
 ---
 
+## 차선만 추종 테스트 (경로·위치추정 없이)
+
+YOLO 모델이 나온 뒤 첫 실차 테스트. 시작·목적지 없이 기동 즉시 카메라가 본 좌/우 차선의 중앙을 따라간다.
+횡단보도 3 s 정지·장애물 정지·카메라 끊김 정지는 그대로 동작한다.
+
+**모델**: 가중치는 git 밖, 관제 PC `~/models/lane_26n.pt`. `pinky_lane_station/config/detector_yolo.yaml` 이 가리킨다.
+모델 클래스 0(왼쪽 라인)·2(오른쪽 라인)는 둘 다 `lane` 으로 묶고 좌/우는 화면 위치로 정한다. 1 은 `crosswalk`.
+yolo26 은 `pip install -U ultralytics`(8.4+). 관제 PC 는 CPU 라 `imgsz 416` 부터, p95 > 100 ms 면 320.
+
+```bash
+# 관제 PC — 모델 로드·속도 확인 (ROS 불필요)
+python3 -m pinky_lane_station.bench_detector --config pinky_lane_station/config/detector_yolo.yaml --synthetic
+
+# 로봇 — 먼저 auto_start 없이 띄워 세그·부호를 본다
+export ROS_DOMAIN_ID=10
+ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 camera_orient:=rot180
+
+# 관제 PC — 브릿지 + 인식 파이프라인만 (coordinator 없음)
+export ROS_DOMAIN_ID=0
+ros2 launch pinky_lane_station lane_station.launch.xml use_coordinator:=False
+ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed     # 카메라 + 세그 + 목표점 실시간
+ros2 topic echo /pinky1/lane_path                                        # quality · error_x_norm · crosswalk_detected
+
+# 부호 확인: 로봇을 차선 왼쪽에 놓으면 error_x_norm > 0 이어야 한다. 반대면 launch 에 cam_sign:=-1.0
+# 주행
+ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True v_max:=0.10
+ros2 topic pub -1 /pinky1/lane_command pinky_lane_msgs/msg/LaneCommand "{command: 2}"   # STOP (3 ESTOP, 4 RESUME, 1 START)
+```
+
+값의 흐름: 로봇 `camera_node` → `/pinky1/camera/image/compressed` → 관제 `lane_pipeline_node`(YOLO → 폴리곤 → 0.72·H 행에서 좌/우 x →
+중앙 → `error_x_norm`, 횡단보도 하단 y ≥ 0.8·H) → `/pinky1/lane_path` → 로봇 `lane_agent_node`(lane_only: ω = −Kp·e − Kd·ė,
+v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. 차선을 잃으면 0.6 s 직전 명령 유지 후 정지, LanePath 가 0.9 s 끊겨도 정지.
+
+---
+
 ## 메시지 (`pinky_lane_msgs`, 신규)
 
 | 메시지 | 방향 | 핵심 필드 |
@@ -140,8 +175,8 @@ ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_
 
 | 위치 | 파일 | 역할 |
 |---|---|---|
-| `pinky_fleet_agent/` (로봇, 확장) | `lane_agent_node` `camera_node` · ROS-free `route_follower` `lane_control` `drive_fsm` `obstacle_guard` `lane_driver` · `launch/lane_robot.launch.xml` `lane_agent.launch.xml` · `params/lane_agent.yaml` | bringup + AMCL + 초음파 + 카메라 + 주행 (`/cmd_vel` 유일 발행자) |
-| `pinky_lane_station/` (PC, 신규) | `lane_coordinator_node`(경로·예약·출발) `lane_pipeline_node`(인식) `fake_lane_robot`(가짜 로봇 + 합성 카메라) `graph_editor` `bench_detector` · ROS-free `road_graph` `reservation` `lane_target` `lane_mission` `synthetic_camera` `detectors/{stub,classic,ultralytics_backend}` · `config/{road_graph,lane_mission,detector_lane,bridge_lane}.yaml` · `launch/{lane_station,lane_bridge,fake_lane}.launch.xml` | 인식·경로·예약·시뮬 |
+| `pinky_fleet_agent/` (로봇, 확장) | `lane_agent_node` `camera_node` · ROS-free `route_follower` `lane_control` `drive_fsm` `obstacle_guard` `lane_driver` · `launch/lane_robot.launch.xml` `lane_agent.launch.xml` `lane_only.launch.xml` · `params/lane_agent.yaml` | bringup + AMCL + 초음파 + 카메라 + 주행 (`/cmd_vel` 유일 발행자) |
+| `pinky_lane_station/` (PC, 신규) | `lane_coordinator_node`(경로·예약·출발) `lane_pipeline_node`(인식) `fake_lane_robot`(가짜 로봇 + 합성 카메라) `graph_editor` `bench_detector` · ROS-free `road_graph` `reservation` `lane_target` `lane_mission` `synthetic_camera` `detectors/{stub,classic,ultralytics_backend}` · `config/{road_graph,lane_mission,detector_lane,detector_yolo,bridge_lane}.yaml` · `launch/{lane_station,lane_bridge,fake_lane}.launch.xml` | 인식·경로·예약·시뮬 |
 | `pinky_fleet_station/` (PC, 그대로) | `bridge_fleet.yaml`(state/command) · `map_canvas` · `config/map4.*` | 기존 관제 재사용. GUI 차선 모드는 M2 이후 |
 | `pinky_lane_msgs/` (신규) | 위 5 개 | |
 | `tools/` | `record_drive.py` `extract_frames.py` | 데이터 수집 |

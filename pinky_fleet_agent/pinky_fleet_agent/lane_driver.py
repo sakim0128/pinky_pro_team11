@@ -14,8 +14,7 @@ ROS 에 의존하지 않는다. 노드는 메시지를 풀어 ``set_*`` 로 넣�
 import math
 from dataclasses import dataclass, field
 
-from .drive_fsm import (ARRIVED, CROSSWALK_STOP, CRUISE, ESTOP, IDLE, LANE_LOST, LINK_LOST,
-                        OBSTACLE_WAIT, STATE_NAMES, WAIT_CLEARANCE, DriveFsm, FsmParams, Inputs)
+from .drive_fsm import IDLE, STATE_NAMES, DriveFsm, FsmParams, Inputs
 from .lane_control import (QUALITY_BOTH, QUALITY_JUNCTION, QUALITY_LOST, QUALITY_SINGLE,
                            QUALITY_STALE, ControlParams, LaneController)
 from .link_watch import LinkWatch
@@ -38,6 +37,8 @@ class DriverParams:
     path_max_age: float = 0.9             # 이보다 오래된 error_x 는 STALE 취급
     crosswalk_zone: float = 0.45          # 그래프 횡단보도 노드 ± 이 거리 밖의 트리거는 무시
     junction_zone: float = 0.25           # 분기 노드 ± 이 거리는 JUNCTION 취급 (관제가 안 보내도)
+    lane_only: bool = False               # 경로·위치 없이 카메라 차선 중앙만 따라간다 (테스트 모드)
+    lane_lost_coast: float = 0.6          # lane_only: 차선을 잃고 이만큼(s) 직전 명령 유지 후 정지
 
 
 @dataclass
@@ -83,6 +84,8 @@ class LaneDriver:
         self._travelled = 0.0
         self._last_xy = None
         self._last_tick = None
+        self._last_cmd = (0.0, 0.0)
+        self._lost_since = None
 
     # ------------------------------------------------ 입력
 
@@ -185,6 +188,9 @@ class LaneDriver:
         out.quality = quality
         out.error_x = error_x if error_x is not None else 0.0
 
+        if self.follower is None and p.lane_only:
+            return self._tick_lane_only(now, dt, out, blocked, obstacle_reason, quality, error_x,
+                                        lane_visible)
         if self.follower is None:
             inp = Inputs(started=False, estop=self.estop, link_ok=self.station_link.alive(now),
                          path_ok=True, obstacle=blocked, obstacle_reason=obstacle_reason,
@@ -231,4 +237,47 @@ class LaneDriver:
                                              omega_max=p.control.omega_max)
         out.v, out.omega = self.controller.command(
             omega_route, error_x, quality, dt, dist_to_limit, speed_factor, turn_in_place)
+        return out
+
+    # ------------------------------------------------ 차선만 (테스트 모드)
+
+    def _tick_lane_only(self, now, dt, out, blocked, obstacle_reason, quality, error_x, lane_visible):
+        """경로·위치 없이 카메라 error_x 만으로 중앙 주행. 횡단보도·장애물·링크 감시는 그대로."""
+        p = self.p
+        inp = Inputs(
+            started=self.started, estop=self.estop,
+            link_ok=self.station_link.alive(now), path_ok=self.path_link.alive(now),
+            obstacle=blocked, obstacle_reason=obstacle_reason,
+            at_clearance=False, crosswalk_trigger=self._lane['crosswalk'],   # 존 검사 없음 (그래프가 없다)
+            lane_visible=lane_visible, arrived=False, travelled=self._travelled,
+        )
+        state, speed_factor, reason = self.fsm.step(now, inp)
+        out.state, out.state_name, out.reason = state, STATE_NAMES[state], reason
+        out.odom_since_state = self.fsm.travelled_since_entry(self._travelled)
+        out.edge_id = 'lane_only'
+        if speed_factor <= 0.0:
+            self.controller.reset()
+            self._last_cmd = (0.0, 0.0)
+            self._lost_since = None
+            out.v, out.omega = 0.0, 0.0
+            return out
+        if not lane_visible:
+            # 맵이 없으니 서행 계속은 불가 — 잠깐 직전 명령을 유지하고 선다
+            if self._lost_since is None:
+                self._lost_since = now
+            if now - self._lost_since <= p.lane_lost_coast:
+                out.v, out.omega = self._last_cmd
+                out.reason = f'차선 없음 — {now - self._lost_since:.1f}/{p.lane_lost_coast:.1f}s 유지'
+                self._travelled += abs(out.v) * dt
+            else:
+                self.controller.reset()
+                self._last_cmd = (0.0, 0.0)
+                out.v, out.omega = 0.0, 0.0
+                out.reason = '차선 없음 — 정지'
+            return out
+        self._lost_since = None
+        out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False)
+        self._last_cmd = (out.v, out.omega)
+        # 위치가 없으니 주행거리는 명령 속도로 추측한다 (횡단보도 재래치 거리 판정용)
+        self._travelled += abs(out.v) * dt
         return out

@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<!--
+  차선만 추종 테스트 (D9). 경로·위치추정 없이 카메라가 본 좌/우 차선 중앙을 따라 달린다.
+  횡단보도 3 s 정지·장애물 정지·카메라 끊김 정지는 그대로.
+
+    export ROS_DOMAIN_ID=10
+    ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 \
+        camera_orient:=rot180 auto_start:=False        # 먼저 rqt 로 세그·부호 확인
+    ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True
+
+  관제:  ros2 launch pinky_lane_station lane_station.launch.xml use_coordinator:=False
+         ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed
+  정지:  ros2 topic pub -1 /pinky1/lane_command pinky_lane_msgs/msg/LaneCommand "{command: 2}"   (3: ESTOP, 4: RESUME, 1: START)
+-->
+<launch>
+    <arg name="robot_name" default="pinky1"/>
+    <arg name="domain_id" default="10"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="launch_bringup" default="True"/>
+    <arg name="launch_ultrasonic" default="True"/>
+    <arg name="camera_orient" default="rot180"/>
+    <arg name="camera_fps" default="10.0"/>
+    <arg name="jpeg_quality" default="70"/>
+    <arg name="auto_start" default="False" description="True 면 LanePath 가 오는 즉시 출발"/>
+    <arg name="v_max" default="0.10"/>
+    <arg name="cam_sign" default="1.0" description="로봇을 차선 왼쪽에 두면 우회전(ω<0) 이어야 한다. 반대면 -1.0"/>
+    <arg name="params_file" default="$(find-pkg-share pinky_fleet_agent)/params/lane_agent.yaml"/>
+
+    <include file="$(find-pkg-share pinky_bringup)/launch/bringup_robot.launch.xml"
+             if="$(var launch_bringup)">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <node pkg="pinky_sensor_adc" exec="main_node" name="pinky_sensor_adc" output="screen"
+          if="$(var launch_ultrasonic)"/>
+
+    <node pkg="pinky_fleet_agent" exec="lane_agent_node" name="pinky_lane_agent" output="screen">
+        <param from="$(var params_file)"/>
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="domain_id" value="$(var domain_id)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="use_ultrasonic" value="$(var launch_ultrasonic)"/>
+        <param name="lane_only" value="True"/>
+        <param name="auto_start" value="$(var auto_start)"/>
+        <param name="control.v_max" value="$(var v_max)"/>
+        <param name="control.cam_sign" value="$(var cam_sign)"/>
+    </node>
+
+    <node pkg="pinky_fleet_agent" exec="camera_node" name="pinky_camera" output="screen">
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="orient" value="$(var camera_orient)"/>
+        <param name="fps" value="$(var camera_fps)"/>
+        <param name="jpeg_quality" value="$(var jpeg_quality)"/>
+    </node>
+</launch>

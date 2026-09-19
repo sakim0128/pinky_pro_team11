@@ -74,6 +74,7 @@ class LanePipeline(Node):
         self._stale_period = float(pipe['stale_period'])
         self._stale_max = float(pipe['stale_max_seconds'])
 
+        self._stop_row_frac = float(target_params.crosswalk_stop_row_frac)
         self.detector = create_detector(det_cfg)
         if pipe.get('warmup', True):
             self.detector.warmup()
@@ -159,21 +160,34 @@ class LanePipeline(Node):
         self._scene_pubs[name].publish(sc)
 
         if name in self._debug_pubs:
-            self._publish_debug(name, img, instances, r, msg.header.stamp)
+            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms)
 
-    def _publish_debug(self, name, img, instances, r, stamp):
+    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0):
         dbg = img.copy()
+        overlay = dbg.copy()
         for inst in instances:
             pts = np.array(inst.polygon, dtype=np.int32).reshape(-1, 1, 2)
             color = (0, 200, 255) if inst.cls == 'crosswalk' else (0, 255, 0)
+            cv2.fillPoly(overlay, [pts], color)
             cv2.polylines(dbg, [pts], True, color, 2)
+            x0, y0 = int(inst.bbox[0]), int(inst.bbox[1])
+            cv2.putText(dbg, f'{inst.cls} {inst.conf:.2f}', (x0, max(14, y0 - 4)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        cv2.addWeighted(overlay, 0.3, dbg, 0.7, 0, dbg)          # 세그 영역 반투명 채움
         H, W = dbg.shape[:2]
         y = int(r.target_y)
-        cv2.line(dbg, (0, y), (W, y), (255, 255, 0), 1)
+        stop_row = int(self._stop_row_frac * H)
+        cv2.line(dbg, (0, y), (W, y), (255, 255, 0), 1)                 # 샘플 행
+        cv2.line(dbg, (0, stop_row), (W, stop_row), (0, 200, 255), 1)   # 횡단보도 정지 행
+        if r.left_seen:
+            cv2.circle(dbg, (int(r.left_x), y), 5, (0, 255, 0), -1)
+        if r.right_seen:
+            cv2.circle(dbg, (int(r.right_x), y), 5, (0, 255, 0), -1)
         cv2.circle(dbg, (int(r.target_x), y), 6, (0, 0, 255), -1)
         cv2.line(dbg, (W // 2, 0), (W // 2, H), (255, 0, 0), 1)
-        cv2.putText(dbg, f'{r.quality_name} e={r.error_x:+.2f} cw={int(r.crosswalk_detected)}',
-                    (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        cv2.putText(dbg, f'{r.quality_name} e={r.error_x:+.2f} cw={int(r.crosswalk_detected)} '
+                         f'half={r.half_lane_px:.0f}px {infer_ms:.0f}ms',
+                    (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
         ok, buf = cv2.imencode('.jpg', dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
         if not ok:
             return

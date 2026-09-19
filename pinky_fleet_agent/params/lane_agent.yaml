@@ -16,6 +16,9 @@ pinky_lane_agent:
     path_max_age: 0.9
     crosswalk_zone: 0.45
     junction_zone: 0.25
+    lane_only: false             # true: 경로·위치 없이 카메라 차선 중앙만 (lane_only.launch.xml 이 덮는다)
+    lane_lost_coast: 0.6
+    auto_start: false
     control:
       v_max: 0.15
       omega_max: 1.2

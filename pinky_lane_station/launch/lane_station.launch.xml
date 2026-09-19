@@ -8,14 +8,19 @@
         detector_config:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_lane_station/config/detector_lane.yaml
 
   브릿지 2개 + lane_coordinator(경로·예약) + lane_pipeline(인식). 로봇을 먼저 띄운 뒤 실행.
+  차선만 추종 테스트: use_coordinator:=False  (로봇은 lane_only.launch.xml)
+  실시간 세그 확인:   ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed
   출발:  ros2 topic pub -1 /fleet/lane/control std_msgs/msg/String "{data: '{\"cmd\": \"start\"}'}"
   상태:  ros2 topic echo /fleet/lane/status
 -->
 <launch>
     <arg name="mission" default="$(find-pkg-share pinky_lane_station)/config/lane_mission.yaml"/>
     <arg name="detector_config"
-         default="$(find-pkg-share pinky_lane_station)/config/detector_lane.yaml"/>
+         default="$(find-pkg-share pinky_lane_station)/config/detector_yolo.yaml"
+         description="실전 YOLO 는 detector_yolo.yaml, 모델 없이 배선만 볼 때는 detector_lane.yaml(classic)"/>
     <arg name="use_bridge" default="True" description="가짜 로봇으로 검증할 때는 False"/>
+    <arg name="use_coordinator" default="True"
+         description="False: 경로·예약 없이 브릿지 + 인식 파이프라인만 (차선만 추종 테스트, lane_only.launch.xml)"/>
     <arg name="publish_debug_image" default="True"
          description="/<robot>/lane_debug/compressed 에 검출 결과를 그려 발행 (rqt_image_view)"/>
 
@@ -23,7 +28,7 @@
              if="$(var use_bridge)"/>
 
     <node pkg="pinky_lane_station" exec="lane_coordinator_node" name="lane_coordinator"
-          output="screen">
+          output="screen" if="$(var use_coordinator)">
         <param name="mission" value="$(var mission)"/>
     </node>
 

@@ -79,6 +79,29 @@ def test_pipeline_copies_source_stamp_and_never_restamps():
         assert 'header.stamp' in rhs or 'source_stamp' in rhs, rhs
 
 
+def test_detector_yolo_class_map_matches_model_labels():
+    """yolo26n-seg: 0 왼쪽 라인, 1 횡단보도, 2 오른쪽 라인 → lane=[0,2], crosswalk=[1]."""
+    cfg = yaml.safe_load(read(os.path.join(STATION, 'config', 'detector_yolo.yaml')))
+    det = cfg['detector']
+    assert det['kind'] == 'ultralytics' and det['device'] == 'cpu'
+    assert sorted(det['class_map']['lane']) == [0, 2] and det['class_map']['crosswalk'] == [1]
+    from pinky_lane_station.lane_target import TargetParams
+    for key in cfg['target']:
+        assert key in TargetParams.__dataclass_fields__, key
+    launch = read(os.path.join(STATION, 'launch', 'lane_station.launch.xml'))
+    assert 'detector_yolo.yaml' in launch and 'use_coordinator' in launch
+
+
+def test_lane_only_launch_overrides_only_allowed_params(agent_params):
+    launch = read(os.path.join(AGENT, 'launch', 'lane_only.launch.xml'))
+    block = launch.split('exec="lane_agent_node"', 1)[1].split('</node>', 1)[0]
+    keys = set(re.findall(r'<param name="([a-z_.]+)"', block))
+    assert keys <= {'robot_name', 'domain_id', 'use_sim_time', 'use_ultrasonic', 'lane_only',
+                    'auto_start', 'control.v_max', 'control.cam_sign'}, keys
+    assert 'lane_only' in agent_params and agent_params['lane_only'] is False
+    assert agent_params['lane_lost_coast'] < agent_params['path_timeout']
+
+
 def test_camera_node_stamps_right_after_capture():
     src = read(os.path.join(AGENT, 'pinky_fleet_agent', 'camera_node.py'))
     cap = src.index('capture_array()')
@@ -109,7 +132,7 @@ def test_agent_yaml_keys_exist_in_driver_params(agent_params):
     p = DriverParams()
     groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard}
     node_keys = {'control_rate', 'status_rate', 'pose_timeout', 'use_ultrasonic', 'us_topic',
-                 'scan_topic', 'cmd_vel_topic', 'restore_grace'}
+                 'scan_topic', 'cmd_vel_topic', 'restore_grace', 'auto_start'}
     for key, value in agent_params.items():
         if key in groups:
             for sub in value:

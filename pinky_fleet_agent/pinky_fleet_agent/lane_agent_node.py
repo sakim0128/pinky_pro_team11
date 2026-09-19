@@ -70,10 +70,10 @@ def declare_driver_params(node):
     groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard, '': p}
     for prefix, obj in groups.items():
         for key, value in vars(obj).items():
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
+            if not isinstance(value, (int, float, bool)):
                 continue
             name = f'{prefix}.{key}' if prefix else key
-            node.declare_parameter(name, value)          # 타입 유지 (int 는 int)
+            node.declare_parameter(name, value)          # 타입 유지 (int 는 int, bool 은 bool)
             setattr(obj, key, type(value)(node.get_parameter(name).value))
     return p
 
@@ -94,6 +94,7 @@ class LaneAgent(Node):
         self.declare_parameter('us_topic', 'us_sensor/range')
         self.declare_parameter('use_ultrasonic', True)
         self.declare_parameter('restore_grace', 1.0)
+        self.declare_parameter('auto_start', False)     # 켜지면 CMD_START 없이 바로 주행 (테스트)
 
         self._name = self.get_parameter('robot_name').value
         self._domain_id = int(self.get_parameter('domain_id').value)
@@ -104,6 +105,9 @@ class LaneAgent(Node):
         self._params = declare_driver_params(self)
         self.driver = LaneDriver(self._params)
         self.driver.station_link.restore_grace = float(self.get_parameter('restore_grace').value)
+        self._lane_only = bool(self._params.lane_only)
+        if bool(self.get_parameter('auto_start').value):
+            self.driver.started = True
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self, spin_thread=False)
@@ -137,7 +141,10 @@ class LaneAgent(Node):
         self.get_logger().info(
             f'pinky_lane_agent 시작: name={n} domain={self._domain_id} '
             f'v_max={self._params.control.v_max:.2f} cam_sign={self._params.control.cam_sign:+.0f} '
-            f'link_timeout={self._params.link_timeout:.1f}s path_timeout={self._params.path_timeout:.1f}s')
+            f'link_timeout={self._params.link_timeout:.1f}s path_timeout={self._params.path_timeout:.1f}s '
+            f'lane_only={self._lane_only} auto_start={self.driver.started}')
+        if self._lane_only:
+            self.get_logger().warn('lane_only: 경로·위치추정 없이 카메라 차선 중앙만 따라갑니다 (테스트 모드)')
 
     # ------------------------------------------------------------------ 입력
 
@@ -238,7 +245,11 @@ class LaneAgent(Node):
         self._update_pose()
         now = self._now()
         twist = Twist()
-        if self._localized():
+        if self._lane_only:
+            out = self.driver.tick(now, *(self._pose or (0.0, 0.0, 0.0)))
+            twist.linear.x = float(out.v)
+            twist.angular.z = float(out.omega)
+        elif self._localized():
             out = self.driver.tick(now, *self._pose)
             twist.linear.x = float(out.v)
             twist.angular.z = float(out.omega)

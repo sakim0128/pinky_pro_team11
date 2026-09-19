@@ -348,3 +348,97 @@ def test_driver_estop_and_resume():
     sim.d.set_command(CMD_RESUME, sim.t)
     sim.d.set_command(CMD_START, sim.t)
     assert sim.run(1).state == CRUISE
+
+
+# ------------------------------------------------------------ lane_only (경로·위치 없이 차선만)
+
+class LaneOnlySim:
+    """직선 차선(중심 y = 0) 위 유니사이클. 카메라 error_x 는 횡오차 + 헤딩 성분으로 흉내낸다."""
+
+    def __init__(self, y0=0.04, yaw0=0.0, v_max=0.10, half_lane=0.10, auto_start=True):
+        p = DriverParams()
+        p.lane_only = True
+        p.control.v_max = v_max
+        self.d = LaneDriver(p)
+        self.d.started = auto_start
+        self.x, self.y, self.yaw = 0.0, y0, yaw0
+        self.t = 0.0
+        self.half_lane = half_lane
+        self.quality = QUALITY_BOTH
+        self.crosswalk = False
+        self.cam = True
+        self.log = []
+
+    def run(self, seconds):
+        for _ in range(int(seconds / DT)):
+            self.t += DT
+            if self.cam and int(self.t / DT) % 6 == 0:
+                lat = self.y + 0.15 * math.sin(self.yaw)          # 앞쪽 샘플 행에서 본 횡오차
+                e = max(-1.0, min(1.0, lat / self.half_lane))
+                self.d.set_lane_path(self.t, self.t, self.quality, e, self.crosswalk)
+            out = self.d.tick(self.t, 0.0, 0.0, 0.0)              # 위치는 안 준다
+            self.x += out.v * math.cos(self.yaw) * DT
+            self.y += out.v * math.sin(self.yaw) * DT
+            self.yaw += out.omega * DT
+            self.log.append((self.t, out))
+        return self.log[-1][1]
+
+
+def test_lane_only_converges_to_center_without_route():
+    s = LaneOnlySim(y0=0.04, yaw0=0.1)
+    out = s.run(8.0)
+    assert out.state == CRUISE and out.edge_id == 'lane_only'
+    assert abs(s.y) < 0.015 and abs(s.yaw) < 0.1
+    assert s.x > 0.5                                   # 실제로 전진했다
+    assert max(o.v for _, o in s.log) <= 0.10 + 1e-9  # v_max 0.10
+
+
+def test_lane_only_does_not_move_without_start():
+    s = LaneOnlySim(auto_start=False)
+    out = s.run(2.0)
+    assert out.state == IDLE and s.x == 0.0
+    s.d.set_command(CMD_START, s.t)
+    assert s.run(2.0).v > 0.0
+
+
+def test_lane_only_crosswalk_stops_3s_once_without_graph():
+    s = LaneOnlySim()
+    s.run(2.0)
+    s.crosswalk = True
+    s.run(1.5)                                          # 확정 → 정지
+    s.crosswalk = False
+    s.run(6.0)
+    states = [o.state for _, o in s.log]
+    stop_t = [t for t, o in s.log if o.state == CROSSWALK_STOP]
+    assert stop_t and 2.9 <= stop_t[-1] - stop_t[0] + DT <= 3.3
+    assert states[-1] == CRUISE
+    # 정지 구간은 한 번뿐
+    runs = sum(1 for i in range(1, len(states)) if states[i] == CROSSWALK_STOP != states[i - 1])
+    assert runs == 1
+
+
+def test_lane_only_lost_coasts_then_stops():
+    s = LaneOnlySim()
+    s.run(3.0)
+    s.quality = QUALITY_LOST
+    out = s.run(0.4)
+    assert out.v > 0.0 and '유지' in out.reason           # 0.6 s 동안 직전 명령 유지
+    out = s.run(1.0)
+    assert out.v == 0.0 and out.omega == 0.0 and '정지' in out.reason
+    s.quality = QUALITY_BOTH
+    assert s.run(2.0).v > 0.0                             # 차선이 돌아오면 재출발
+
+
+def test_lane_only_obstacle_and_camera_silence_stop():
+    s = LaneOnlySim()
+    s.run(2.0)
+    for _ in range(3):
+        s.d.update_scan(*scan_with_point(0.10, 0.0))
+    out = s.run(0.5)
+    assert out.state == OBSTACLE_WAIT and out.v == 0.0
+    for _ in range(3):
+        s.d.update_scan(*scan_with_point(2.0, 0.0))
+    assert s.run(2.0).state == CRUISE
+    s.cam = False                                          # LanePath 침묵 → 0.9 s 뒤 정지
+    out = s.run(1.5)
+    assert out.state == LINK_LOST and out.v == 0.0

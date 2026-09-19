@@ -1,0 +1,29 @@
+# 실전 인식 설정 — YOLO-seg (yolo26n-seg, 클래스 0: 왼쪽 라인, 1: 횡단보도, 2: 오른쪽 라인).
+# 가중치는 git 에 넣지 않는다. 관제 PC 에 ~/models/lane_26n.pt 로 둔다.
+# yolo26 은 ultralytics 8.4 이상:  pip install -U ultralytics
+# 로드·속도 확인:  ros2 run pinky_lane_station bench_detector -- --config <이 파일> --synthetic
+#   (관제 PC 는 CPU. p95 > 100 ms 면 imgsz 를 320 으로)
+detector:
+  kind: ultralytics
+  model: "$HOME/models/lane_26n.pt"
+  device: cpu
+  imgsz: 416
+  conf: 0.35
+  iou: 0.5
+  # 우리 클래스 ← 모델 클래스 id. 좌/우는 lane_target 이 화면 위치로 정하므로 0 과 2 를 모두 lane 으로 묶는다
+  class_map: {lane: [0, 2], crosswalk: [1]}
+
+target:                           # lane_target.TargetParams
+  sample_row_frac: 0.72
+  half_lane_px_init: 180.0        # 640 px 기준. 첫 BOTH 관측 후 이력 중앙값으로 대체
+  half_lane_px_min: 40.0
+  half_lane_px_max: 300.0
+  crosswalk_stop_row_frac: 0.80
+  crosswalk_confirm: 3
+  crosswalk_release: 5
+
+pipeline:
+  max_rate: 10.0
+  stale_period: 0.3
+  stale_max_seconds: 2.0
+  warmup: true
