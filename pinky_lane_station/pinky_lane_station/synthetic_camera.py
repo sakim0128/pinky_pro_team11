@@ -138,3 +138,56 @@ def render_markers(img, robot_pose, marker_map, camera=None, px=200):
             cv2.fillPoly(mask, [dst.astype(np.int32)], 255)
             img[mask > 0] = np.repeat(warped[mask > 0][:, None], 3, axis=1)
     return img
+
+
+# ------------------------------------------------------------------ 항공뷰 합성 (D8)
+
+def render_overhead(cfg, robot_poses, ppm=400, margin=0.3, view_H=None, out_size=(1280, 720),
+                    floor=110):
+    """천장 카메라 합성 이미지. cfg: overhead_localizer.OverheadConfig, robot_poses: {name: (x, y, yaw)}.
+
+    map 평면을 ppm px/m 로 그린 뒤 view_H(3×3, 평면→이미지) 로 원근 워프한다. view_H 가 None 이면
+    기본 기울기 하나를 쓴다. (canvas_H, image) 를 돌려준다 — canvas_H 는 map(m)→이미지(px) 진값.
+    """
+    from .marker_localizer import marker_object_points, rot_z
+    xs = [p[0] for p in cfg.reference.values()] + [p[0] for p in robot_poses.values()]
+    ys = [p[1] for p in cfg.reference.values()] + [p[1] for p in robot_poses.values()]
+    x0, y0 = min(xs) - margin, min(ys) - margin
+    x1, y1 = max(xs) + margin, max(ys) + margin
+    W, H = int((x1 - x0) * ppm), int((y1 - y0) * ppm)
+    canvas = np.full((H, W, 3), floor, dtype=np.uint8)
+    # map(m) → canvas(px): 위가 +y (항공 사진처럼)
+    to_px = np.array([[ppm, 0, -x0 * ppm], [0, -ppm, y1 * ppm], [0, 0, 1]], np.float64)
+
+    def draw(mid, x, y, yaw, size, white=0.02):
+        for s_, col in ((size + 2 * white, 255), (size, None)):
+            obj = marker_object_points(s_)[:, :2].astype(float)
+            pts = (rot_z(yaw)[:2, :2] @ obj.T).T + np.array([x, y])
+            px = cv2.perspectiveTransform(pts.reshape(-1, 1, 2), to_px).reshape(-1, 2).astype(np.float32)
+            if col is not None:
+                cv2.fillPoly(canvas, [px.astype(np.int32)], (col, col, col))
+                continue
+            mk = _marker_image(cfg.dictionary, mid, 160)
+            src = np.array([[0, 0], [160, 0], [160, 160], [0, 160]], np.float32)
+            Hm, _ = cv2.findHomography(src, px)
+            warped = cv2.warpPerspective(mk, Hm, (W, H), flags=cv2.INTER_NEAREST, borderValue=255)
+            mask = np.zeros((H, W), np.uint8)
+            cv2.fillPoly(mask, [px.astype(np.int32)], 255)
+            canvas[mask > 0] = np.repeat(warped[mask > 0][:, None], 3, axis=1)
+
+    for mid, (x, y, yaw) in cfg.reference.items():
+        draw(mid, x, y, yaw, cfg.reference_size)
+    for name, (x, y, yaw) in robot_poses.items():
+        m = cfg.robots[name]
+        cx, cy = x + m.offset_x * math.cos(yaw), y + m.offset_x * math.sin(yaw)
+        draw(m.id, cx, cy, yaw + m.yaw_offset, m.size)
+
+    if view_H is None:
+        # 살짝 기울어진 카메라: 캔버스 네 귀퉁이를 사다리꼴로
+        ow, oh = out_size
+        src = np.array([[0, 0], [W, 0], [W, H], [0, H]], np.float32)
+        dst = np.array([[ow * 0.08, oh * 0.06], [ow * 0.94, oh * 0.03],
+                        [ow * 0.98, oh * 0.97], [ow * 0.04, oh * 0.92]], np.float32)
+        view_H, _ = cv2.findHomography(src, dst)
+    img = cv2.warpPerspective(canvas, view_H, out_size, borderValue=(floor, floor, floor))
+    return view_H @ to_px, img

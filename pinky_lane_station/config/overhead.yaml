@@ -1,0 +1,30 @@
+# 항공뷰(천장 USB 웹캠) 절대 위치 (D8). overhead_localizer_node 가 읽는다.
+# 좌표는 map frame (m). 기준 마커 4장은 코스 네 귀퉁이 안쪽, **핑키 위 마커와 같은 높이** 받침 위에 두고
+# 줄자로 벽 안쪽 모서리 기준으로 잰다 (map 원점 = map4.yaml origin [-1.175, -0.625]).
+# 아래 기준 좌표는 자리표시자 — 반드시 실측 후 수정.
+
+camera:
+  device: 0                  # /dev/video0. 문자열이면 URL (스마트폰 스트림)
+  width: 1280
+  height: 720
+  fps: 15
+  autoexposure: false        # 자동 노출은 마커 검출을 흔든다 (지원 안 하는 웹캠은 무시)
+
+dictionary: DICT_4X4_50
+station_latency: 0.15        # 캡처 → 로봇 도착 (s). 로봇 pose_fuser 의 station_latency 와 같아야 한다
+homography_alpha: 0.3        # 기준 마커로 구한 H 의 EMA (0~1, 1 = 매 프레임 교체)
+min_reference: 4             # 이 수 이상 기준 마커가 보여야 H 갱신
+max_reproj: 4.0              # 기준 마커 재투영 오차(px) 상한. 넘으면 fix 를 내지 않는다
+
+reference:                   # 바닥 고정 마커. yaw = 시트의 +x 화살표가 가리키는 map 방향
+  size: 0.10
+  height: 0.10               # 받침 높이 = 핑키 마커 높이 (문서용. v1 은 보정하지 않는다)
+  markers:
+    - {id: 40, x: -1.00, y: -0.50, yaw: 0.0}
+    - {id: 41, x:  1.00, y: -0.50, yaw: 0.0}
+    - {id: 42, x:  1.00, y:  0.50, yaw: 0.0}
+    - {id: 43, x: -1.00, y:  0.50, yaw: 0.0}
+
+robots:                      # 핑키 위 마커. yaw_offset = 마커 +x 가 로봇 전방과 이루는 각 (rad, 좌회전 양수)
+  - {name: pinky1, id: 30, size: 0.06, yaw_offset: 0.0, offset_x: 0.0}   # offset_x: 마커 중심이 바퀴축 중심보다 앞 (m)
+  - {name: pinky2, id: 31, size: 0.06, yaw_offset: 0.0, offset_x: 0.0}

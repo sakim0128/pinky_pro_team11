@@ -106,6 +106,34 @@ def test_marker_configs_installed_and_consistent():
     assert 'msg/PoseFix.msg' in cmake
 
 
+def test_pose_fix_clock_flag_set_by_both_sources():
+    pipe = read(os.path.join(STATION, 'pinky_lane_station', 'lane_pipeline_node.py'))
+    over = read(os.path.join(STATION, 'pinky_lane_station', 'overhead_localizer_node.py'))
+    assert 'pf.stamp_is_robot_clock = True' in pipe
+    assert 'pf.stamp_is_robot_clock = False' in over
+    msg = read(os.path.join(MSG_DIR, 'PoseFix.msg'))
+    assert re.search(r'^bool\s+stamp_is_robot_clock', msg, re.M)
+    fuser = read(os.path.join(AGENT, 'pinky_fleet_agent', 'pose_fuser_node.py'))
+    assert 'stamp_is_robot_clock' in fuser and 'station_latency' in fuser
+
+
+def test_overhead_ids_disjoint_from_floor_markers_and_latency_consistent():
+    import yaml as _yaml
+    over = _yaml.safe_load(read(os.path.join(STATION, 'config', 'overhead.yaml')))
+    floor = _yaml.safe_load(read(os.path.join(STATION, 'config', 'markers.yaml')))
+    over_ids = {int(m['id']) for m in over['reference']['markers']} | {int(r['id']) for r in over['robots']}
+    floor_ids = {int(m['id']) for m in floor['markers']}
+    assert not over_ids & floor_ids, '항공뷰 마커 id 가 바닥 마커 id 와 겹친다'
+    assert over['dictionary'] == floor['dictionary']
+    assert {r['name'] for r in over['robots']} == {'pinky1', 'pinky2'}
+    # 관제 station_latency 와 로봇 퓨저 기본값이 같아야 한다 (launch 가 안 넘기면 노드 기본값이 쓰인다)
+    fuser = read(os.path.join(AGENT, 'pinky_fleet_agent', 'pose_fuser_node.py'))
+    m = re.search(r"declare_parameter\('station_latency',\s*([\d.]+)\)", fuser)
+    assert m and abs(float(m.group(1)) - float(over['station_latency'])) < 1e-9
+    setup = read(os.path.join(STATION, 'setup.py'))
+    assert "'overhead_localizer_node = pinky_lane_station.overhead_localizer_node:main'" in setup
+
+
 def test_camera_node_stamps_right_after_capture():
     src = read(os.path.join(AGENT, 'pinky_fleet_agent', 'camera_node.py'))
     cap = src.index('capture_array()')

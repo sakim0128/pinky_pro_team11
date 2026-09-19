@@ -3,6 +3,8 @@
 
     python3 tools/print_markers.py --config pinky_lane_station/config/markers.yaml --out ~/markers
     → markers/marker_00_BL.png ... 한 장에 한 마커. 프린터에서 "실제 크기(100 %)" 로 인쇄한다.
+    항공뷰(D8): 기준 4장  --ids 40-43 --size 0.10 --label ref
+               핑키 위   --ids 30,31  --size 0.06 --label robot
 
 각 장에는 id · 노드 이름 · **+x 화살표** 가 찍힌다. 마커를 바닥에 붙일 때 이 화살표가
 markers.yaml 의 yaw 방향(map 기준)을 가리키게 놓는다. 인쇄 후 검은 테두리 한 변을 자로 재서
@@ -26,13 +28,29 @@ def mm2px(mm):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--config', required=True)
+    ap.add_argument('--config', help='markers.yaml (바닥 마커). --ids 를 주면 생략 가능')
+    ap.add_argument('--ids', help='임의 id 목록: "40-43" 또는 "30,31"')
+    ap.add_argument('--size', type=float, help='--ids 용 한 변 (m)')
+    ap.add_argument('--label', default='', help='--ids 용 라벨')
+    ap.add_argument('--dictionary', default='DICT_4X4_50')
     ap.add_argument('--out', default='markers_print')
-    ap.add_argument('--per-page', type=int, default=1, help='1 또는 2 (세로로 2장)')
     args = ap.parse_args()
 
-    with open(os.path.expanduser(args.config), encoding='utf-8') as fh:
-        cfg = yaml.safe_load(fh)
+    if args.ids:
+        ids = []
+        for part in args.ids.split(','):
+            if '-' in part:
+                a, b = part.split('-')
+                ids.extend(range(int(a), int(b) + 1))
+            else:
+                ids.append(int(part))
+        cfg = {'dictionary': args.dictionary, 'size': args.size or 0.08, 'white_border': 0.015,
+               'markers': [{'id': i, 'node': args.label or None, 'yaw': 0.0} for i in ids]}
+    else:
+        if not args.config:
+            raise SystemExit('--config 또는 --ids 가 필요합니다')
+        with open(os.path.expanduser(args.config), encoding='utf-8') as fh:
+            cfg = yaml.safe_load(fh)
     d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, cfg.get('dictionary', 'DICT_4X4_50')))
     size_px = mm2px(float(cfg['size']) * 1000.0)
     border_px = mm2px(float(cfg.get('white_border', 0.015)) * 1000.0)

@@ -137,6 +137,10 @@ class FakeLaneFleet(Node):
         self.declare_parameter('markers_config', '')
         self.declare_parameter('odom_drift_v', 0.02)          # 속도 배율 오차
         self.declare_parameter('odom_drift_w', 0.02)          # rad/s (주행 중)
+        self.declare_parameter('fake_overhead_rate', 10.0)    # 항공뷰 흉내: 참값+잡음 PoseFix (관제 시계). 0 이면 끔
+        self.declare_parameter('fake_overhead_noise_xy', 0.01)
+        self.declare_parameter('fake_overhead_noise_yaw_deg', 1.0)
+        self.declare_parameter('station_latency', 0.15)       # 실차 pose_fuser_node 와 같은 규칙
 
         mission = load_lane_mission(self.get_parameter('mission').value)
         self.graph = RoadGraph.load(mission.graph_path)
@@ -151,6 +155,10 @@ class FakeLaneFleet(Node):
         self._drift_v = float(self.get_parameter('odom_drift_v').value)
         self._drift_w = float(self.get_parameter('odom_drift_w').value)
         self._marker_map = None
+        self._station_latency = float(self.get_parameter('station_latency').value)
+        self._ov_noise_xy = float(self.get_parameter('fake_overhead_noise_xy').value)
+        self._ov_noise_yaw = math.radians(float(self.get_parameter('fake_overhead_noise_yaw_deg').value))
+        self._fix_pubs = {}
         if self._marker_mode:
             mpath = self.get_parameter('markers_config').value
             if not mpath:
@@ -184,6 +192,7 @@ class FakeLaneFleet(Node):
             if self._marker_mode:
                 self.create_subscription(PoseFix, f"/{r.name}/pose_fix",
                                          lambda m, n=r.name: self._on_pose_fix(n, m), FIX_QOS)
+                self._fix_pubs[r.name] = self.create_publisher(PoseFix, f"/{r.name}/pose_fix", FIX_QOS)
             if self._loopback:
                 self._ests[r.name] = LaneTargetEstimator()
 
@@ -191,6 +200,11 @@ class FakeLaneFleet(Node):
         self.create_timer(0.1, self._publish_status)
         if self._camera:
             self.create_timer(1.0 / float(self.get_parameter('camera_fps').value), self._camera_tick)
+        ov_rate = float(self.get_parameter('fake_overhead_rate').value)
+        if self._marker_mode and ov_rate > 0:
+            import random
+            self._rng = random.Random(7)
+            self.create_timer(1.0 / ov_rate, self._fake_overhead_tick)
         self.get_logger().info(
             f'fake_lane_robot 시작: {[(r.name, round(r.x, 2), round(r.y, 2)) for r in self._robots.values()]} '
             f'camera={self._camera} loopback={self._loopback} obstacles={self._obstacles} '
@@ -235,10 +249,30 @@ class FakeLaneFleet(Node):
             self._now(), msg.source_stamp.sec + msg.source_stamp.nanosec * 1e-9,
             int(msg.quality), float(msg.error_x_norm), bool(msg.crosswalk_detected))
 
+    def _fake_overhead_tick(self):
+        """천장 카메라 흉내: 참값 + 잡음을 관제 시계 stamp 로 낸다 (stamp_is_robot_clock=False)."""
+        stamp = self.get_clock().now().to_msg()
+        for r in self._robots.values():
+            pf = PoseFix()
+            pf.header.stamp = stamp
+            pf.header.frame_id = 'map'
+            pf.stamp_is_robot_clock = False
+            pf.robot_name = r.name
+            pf.x = r.x + self._rng.gauss(0.0, self._ov_noise_xy)
+            pf.y = r.y + self._rng.gauss(0.0, self._ov_noise_xy)
+            pf.yaw = wrap(r.yaw + self._rng.gauss(0.0, self._ov_noise_yaw))
+            pf.marker_id = 30 + int(r.spec['domain_id']) - 10
+            pf.n_markers = 4
+            self._fix_pubs[r.name].publish(pf)
+
     def _on_pose_fix(self, name, msg: PoseFix):
         r = self._robots[name]
-        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        ok, why = r.fuser.on_fix(t, msg.x, msg.y, msg.yaw, self._now())
+        now = self._now()
+        if msg.stamp_is_robot_clock:
+            t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        else:
+            t = now - self._station_latency
+        ok, why = r.fuser.on_fix(t, msg.x, msg.y, msg.yaw, now)
         if not ok or why != 'ok':
             self.get_logger().info(f'{name}: fix id={msg.marker_id} {why}')
 

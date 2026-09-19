@@ -29,6 +29,7 @@ setup(
             'lane_pipeline_node = pinky_lane_station.lane_pipeline_node:main',
             'fake_lane_robot = pinky_lane_station.fake_lane_robot:main',
             'bench_detector = pinky_lane_station.bench_detector:main',
+            'overhead_localizer_node = pinky_lane_station.overhead_localizer_node:main',
         ],
     },
 )

@@ -10,7 +10,9 @@
          ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed
   시나리오 2(교차로 만남)는 lane_mission.yaml 의 start/goal 을 바꾸거나 control 토픽으로 assign.
   장애물:  obstacle:="[0.3, -0.45, 0.05]"  (map x, y, 반지름) — 그 앞에서 OBSTACLE_WAIT 확인
-  위치:    기본은 가짜 로봇이 odom 드리프트 + 합성 바닥 마커로 돈다 (파이프라인 → PoseFix → 가짜 로봇 안의 PoseFuser).
+  위치:    기본은 가짜 로봇이 odom 드리프트를 넣고, 항공뷰 흉내(참값+잡음, 관제 시계) 10 Hz + 합성 바닥 마커
+           (파이프라인 → PoseFix, 로봇 시계) 두 소스를 가짜 로봇 안의 PoseFuser 로 합친다.
+           fake_overhead_rate:=0 이면 바닥 마커만.
            use_amcl:=True 면 참값 pose 를 그대로 쓴다 (마커 없음).
 -->
 <launch>
@@ -23,6 +25,8 @@
     <arg name="camera_extrinsics" default="$(find-pkg-share pinky_lane_station)/config/camera_extrinsics.yaml"/>
     <arg name="auto_start" default="False"/>
     <arg name="obstacle" default="[0.0, 0.0, 0.0]"/>
+    <arg name="fake_overhead_rate" default="10.0"
+         description="항공뷰 흉내(참값+잡음 PoseFix, 관제 시계) 주기. 0 이면 바닥 마커만"/>
     <arg name="odom_drift_v" default="0.02" description="가짜 odom 속도 배율 오차 (0.02 = 2 %)"/>
     <arg name="odom_drift_w" default="0.02" description="가짜 odom 요 드리프트 (rad/s, 주행 중)"/>
     <arg name="loopback" default="False"
@@ -36,6 +40,7 @@
         <param name="markers_config" value="$(var markers_config)"/>
         <param name="odom_drift_v" value="$(var odom_drift_v)"/>
         <param name="odom_drift_w" value="$(var odom_drift_w)"/>
+        <param name="fake_overhead_rate" value="$(var fake_overhead_rate)"/>
     </node>
 
     <node pkg="pinky_lane_station" exec="lane_coordinator_node" name="lane_coordinator"

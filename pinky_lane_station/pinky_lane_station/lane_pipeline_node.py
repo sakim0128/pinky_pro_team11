@@ -140,6 +140,7 @@ class LanePipeline(Node):
         pf = PoseFix()
         pf.header.stamp = msg.header.stamp          # 복사만 (로봇 시계)
         pf.header.frame_id = 'map'
+        pf.stamp_is_robot_clock = True
         pf.robot_name = name
         pf.seq = rl.fix_seq
         pf.x, pf.y, pf.yaw = float(fix.x), float(fix.y), float(fix.yaw)

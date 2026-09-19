@@ -2,7 +2,8 @@
 """map→odom TF 발행자 — AMCL 자리 (D7). 관제의 PoseFix(바닥 마커) 와 로봇 odom 을 합친다.
 
     입력  /odom (nav_msgs/Odometry)            odom→base_footprint. 버퍼에 쌓는다 (10 s)
-          /<name>/pose_fix (PoseFix)           stamp = 이미지 시각(로봇 시계) 의 map→base
+          /<name>/pose_fix (PoseFix)           map→base. stamp_is_robot_clock 이면 그 시각의 odom 에,
+                                               아니면(항공뷰, 관제 시계) 수신 시각 − station_latency 의 odom 에 붙인다
           initialpose (PoseWithCovarianceStamped)  관제 [출발] 이 보내는 초기 위치 — 게이트 없이 채택
     출력  TF map→odom  (20 Hz, fix_timeout 안이면)
           /<name>/fix_status (String)          "accepted 12 rejected 1 age 2.3s"
@@ -52,12 +53,14 @@ class PoseFuserNode(Node):
         self.declare_parameter('confirm', 2)
         self.declare_parameter('fix_timeout', 15.0)
         self.declare_parameter('max_reproj', 3.0)
+        self.declare_parameter('station_latency', 0.15)   # 항공뷰 fix: 캡처→여기 도착 지연 (s)
 
         name = self.get_parameter('robot_name').value
         self._map = self.get_parameter('global_frame').value
         self._odom = self.get_parameter('odom_frame').value
         self._base = self.get_parameter('base_frame').value
         self._max_reproj = float(self.get_parameter('max_reproj').value)
+        self._station_latency = float(self.get_parameter('station_latency').value)
         self.fuser = PoseFuser(gate_dist=float(self.get_parameter('gate_dist').value),
                                gate_yaw=math.radians(float(self.get_parameter('gate_yaw_deg').value)),
                                confirm=int(self.get_parameter('confirm').value),
@@ -85,7 +88,9 @@ class PoseFuserNode(Node):
     def _on_fix(self, msg: PoseFix):
         if msg.reproj_error > self._max_reproj:
             return
-        ok, why = self.fuser.on_fix(stamp_seconds(msg.header.stamp), msg.x, msg.y, msg.yaw, self._now())
+        now = self._now()
+        t_fix = stamp_seconds(msg.header.stamp) if msg.stamp_is_robot_clock else now - self._station_latency
+        ok, why = self.fuser.on_fix(t_fix, msg.x, msg.y, msg.yaw, now)
         if not ok or why != 'ok':
             self.get_logger().info(f'fix id={msg.marker_id} r={msg.marker_range:.2f}: {why}')
 
