@@ -120,3 +120,30 @@ python3 tools/extract_frames.py ~/pinky_data/course_a --every 10 --max 60
 **F. 조명** — 천장등 위치, 창문 유무, 바닥 광택, 시간대별 밝기 차이
 
 **G. 장애물·신호등** — 쓸 물체의 크기·높이·색, 신호등 패널 크기·설치 높이
+
+## 6. 도로망 그래프 편집기 (M0)
+
+라이다 맵 위에 도로망(노드·엣지)을 찍어 `pinky_lane_station/config/road_graph.yaml` 을 만든다.
+관제 PC 에서 실행하며 ROS 는 필요 없다 (PyQt5 · numpy · opencv · yaml).
+
+```bash
+cd ~/fleet_ws/src/pinky_pro_team11          # 또는 저장소 루트
+PYTHONPATH=pinky_lane_station:pinky_fleet_station python3 -m pinky_lane_station.graph_editor \
+    --map   pinky_fleet_station/config/map4.yaml \
+    --graph pinky_lane_station/config/road_graph.yaml \
+    --photo docs/course_aerial.jpg
+```
+
+| 키 | 동작 |
+|---|---|
+| `1` / `2` / `3` | 선택 / 노드 추가 / 엣지 추가 모드 |
+| 노드 모드 좌클릭 | 노드 추가 (타입은 툴바 콤보박스, 라벨은 툴바 입력칸) |
+| 엣지 모드 | 시작 노드 클릭 → 중간점 클릭… → 끝 노드 클릭. `Esc` 취소 |
+| 선택 모드 | 노드·중간점 드래그 이동, `Del` 삭제, `O` 로 oneway 토글 |
+| `Shift`+클릭 두 노드 | 경로 미리보기 (초록). `Ctrl+Shift` 로 두 번째 경로 (보라). **반대 방향 공유 엣지는 빨강** |
+| `R 사진 정합` | 사진에서 외벽 안쪽 모서리 4점을 좌하→우하→우상→좌상 순으로 클릭 → 사진이 맵 위에 반투명으로 겹친다 |
+| 휠 / 우클릭 드래그 / `F` | 줌 / 팬 / 화면 맞추기 |
+| `Ctrl+S` | 저장 (검증 실패 시 저장하지 않는다) |
+
+현재 커밋된 `road_graph.yaml` 은 **사진에서 읽은 토폴로지만 맞고 좌표는 초안**이다.
+사진 정합 후 노드를 끌어 테이프 중심선에 맞춘다. 결과 확인용 렌더링: `docs/road_graph_overlay.png`.

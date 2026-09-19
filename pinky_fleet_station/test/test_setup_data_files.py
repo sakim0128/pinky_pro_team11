@@ -18,7 +18,7 @@ from unittest import mock
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-PACKAGES = ('pinky_fleet_station', 'pinky_fleet_agent')
+PACKAGES = ('pinky_fleet_station', 'pinky_fleet_agent', 'pinky_lane_station')
 
 
 def load_setup_kwargs(package):

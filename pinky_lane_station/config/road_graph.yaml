@@ -1,0 +1,135 @@
+frame: map
+lane_width: 0.2
+nodes:
+- {id: RE, x: -0.85, y: 0.42, type: endpoint, label: 우상단 도착}
+- {id: TR, x: -1.05, y: 0.4, type: junction, label: 우상 분기}
+- {id: RM, x: -0.1, y: 0.42, type: junction, label: 우측 합류}
+- {id: BR, x: 0.95, y: 0.4, type: waypoint, label: 우하 코너}
+- {id: CW2, x: 0.8, y: 0.05, type: crosswalk, label: 횡단보도 2 (4줄)}
+- {id: JS, x: 0.7, y: -0.15, type: junction, label: 남쪽 분기}
+- {id: BL, x: 0.95, y: -0.45, type: endpoint, label: 왼쪽 아래 출발}
+- {id: JW, x: -0.1, y: -0.45, type: junction, label: 서쪽 분기}
+- {id: LM, x: -0.45, y: -0.45, type: waypoint, label: 좌측 중간}
+- {id: CW1, x: -0.75, y: -0.45, type: crosswalk, label: 횡단보도 1 (7줄)}
+- {id: TL, x: -1.0, y: -0.45, type: waypoint, label: 좌상 코너}
+- {id: TC, x: -1.08, y: -0.05, type: endpoint, label: 위쪽 중앙 도착}
+- {id: MC, x: -0.6, y: 0.05, type: endpoint, label: 중앙 상부 출발}
+- {id: JI, x: -0.35, y: -0.15, type: waypoint, label: 내부 코너}
+edges:
+- id: BL_JS
+  from: BL
+  to: JS
+  oneway: false
+  waypoints:
+  - [0.95, -0.45]
+  - [0.85, -0.3]
+  - [0.7, -0.15]
+- id: JS_CW2
+  from: JS
+  to: CW2
+  oneway: false
+  waypoints:
+  - [0.7, -0.15]
+  - [0.8, 0.05]
+- id: CW2_BR
+  from: CW2
+  to: BR
+  oneway: false
+  waypoints:
+  - [0.8, 0.05]
+  - [0.95, 0.25]
+  - [0.95, 0.4]
+- id: BR_RM
+  from: BR
+  to: RM
+  oneway: false
+  waypoints:
+  - [0.95, 0.4]
+  - [0.4, 0.42]
+  - [-0.1, 0.42]
+- id: RM_RE
+  from: RM
+  to: RE
+  oneway: false
+  waypoints:
+  - [-0.1, 0.42]
+  - [-0.5, 0.42]
+  - [-0.85, 0.42]
+- id: RE_TR
+  from: RE
+  to: TR
+  oneway: false
+  waypoints:
+  - [-0.85, 0.42]
+  - [-1.05, 0.4]
+- id: TR_TC
+  from: TR
+  to: TC
+  oneway: false
+  waypoints:
+  - [-1.05, 0.4]
+  - [-1.1, 0.2]
+  - [-1.08, -0.05]
+- id: TC_TL
+  from: TC
+  to: TL
+  oneway: false
+  waypoints:
+  - [-1.08, -0.05]
+  - [-1.08, -0.35]
+  - [-1.0, -0.45]
+- id: TL_CW1
+  from: TL
+  to: CW1
+  oneway: false
+  waypoints:
+  - [-1.0, -0.45]
+  - [-0.75, -0.45]
+- id: CW1_LM
+  from: CW1
+  to: LM
+  oneway: false
+  waypoints:
+  - [-0.75, -0.45]
+  - [-0.45, -0.45]
+- id: LM_JW
+  from: LM
+  to: JW
+  oneway: false
+  waypoints:
+  - [-0.45, -0.45]
+  - [-0.1, -0.45]
+- id: JW_JS
+  from: JW
+  to: JS
+  oneway: false
+  waypoints:
+  - [-0.1, -0.45]
+  - [-0.05, -0.2]
+  - [0.15, 0.1]
+  - [0.45, 0.0]
+  - [0.7, -0.15]
+- id: TR_MC
+  from: TR
+  to: MC
+  oneway: false
+  waypoints:
+  - [-1.05, 0.4]
+  - [-0.98, 0.12]
+  - [-0.6, 0.05]
+- id: MC_JI
+  from: MC
+  to: JI
+  oneway: false
+  waypoints:
+  - [-0.6, 0.05]
+  - [-0.35, 0.05]
+  - [-0.35, -0.15]
+- id: JI_RM
+  from: JI
+  to: RM
+  oneway: false
+  waypoints:
+  - [-0.35, -0.15]
+  - [-0.25, 0.15]
+  - [-0.1, 0.42]
