@@ -17,11 +17,13 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
 
-from pinky_lane_msgs.msg import LanePath, SceneState
+from pinky_lane_msgs.msg import LanePath, PoseFix, SceneState
 
 from .detectors import create_detector
 from .lane_mission import LaneMissionError, load_lane_mission
 from .lane_target import QUALITY_STALE, LaneTargetEstimator, TargetParams
+from .marker_localizer import CameraExtrinsics, CameraIntrinsics, MarkerLocalizer, MarkerMap
+from .road_graph import RoadGraph
 
 try:
     import cv2
@@ -31,6 +33,9 @@ except ImportError:              # pragma: no cover
 BEST_EFFORT_1 = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
                            reliability=QoSReliabilityPolicy.BEST_EFFORT,
                            durability=QoSDurabilityPolicy.VOLATILE)
+FIX_QOS = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=5,
+                     reliability=QoSReliabilityPolicy.RELIABLE,
+                     durability=QoSDurabilityPolicy.VOLATILE)
 
 
 def load_detector_config(path):
@@ -53,6 +58,7 @@ class RobotLane:
         self.name = spec['name']
         self.est = LaneTargetEstimator(target_params)
         self.seq = 0
+        self.fix_seq = 0
         self.last_msg = None            # 마지막으로 보낸 LanePath (STALE 재발행용)
         self.last_frame_time = None     # 관제 시계
         self.last_pub_time = None
@@ -66,6 +72,10 @@ class LanePipeline(Node):
         self.declare_parameter('mission', '')
         self.declare_parameter('detector_config', '')
         self.declare_parameter('publish_debug_image', False)
+        # D7 바닥 마커 절대 위치. 셋 다 주면 켜진다 (비우면 AMCL 모드).
+        self.declare_parameter('markers_config', '')
+        self.declare_parameter('camera_intrinsics', '')
+        self.declare_parameter('camera_extrinsics', '')
 
         mission = load_lane_mission(self.get_parameter('mission').value)
         det_cfg, target_params, pipe = load_detector_config(
@@ -79,10 +89,13 @@ class LanePipeline(Node):
             self.detector.warmup()
         self._det_name = f'lane={self.detector.name}'
 
+        self.localizer = self._make_localizer(mission)
+
         self._robots = {}
         self._path_pubs = {}
         self._scene_pubs = {}
         self._debug_pubs = {}
+        self._fix_pubs = {}
         debug = bool(self.get_parameter('publish_debug_image').value)
         for spec in mission.robots:
             rl = RobotLane(spec, target_params)
@@ -94,6 +107,8 @@ class LanePipeline(Node):
             if debug:
                 self._debug_pubs[rl.name] = self.create_publisher(
                     CompressedImage, f"/{rl.name}/lane_debug/compressed", BEST_EFFORT_1)
+            if self.localizer is not None:
+                self._fix_pubs[rl.name] = self.create_publisher(PoseFix, f"/{rl.name}/pose_fix", FIX_QOS)
             self.create_subscription(CompressedImage, spec['image_topic'],
                                      lambda msg, n=rl.name: self._on_image(n, msg), BEST_EFFORT_1)
         self.create_timer(self._stale_period, self._stale_tick)
@@ -103,6 +118,37 @@ class LanePipeline(Node):
 
     def _now(self):
         return self.get_clock().now().nanoseconds * 1e-9
+
+    def _make_localizer(self, mission):
+        paths = [self.get_parameter(k).value for k in ('markers_config', 'camera_intrinsics',
+                                                        'camera_extrinsics')]
+        if not all(paths):
+            self.get_logger().info('마커 위치 추정 꺼짐 (markers_config/camera_* 미지정)')
+            return None
+        graph = RoadGraph.load(mission.graph_path)
+        mm = MarkerMap.load(paths[0], graph)
+        intr = CameraIntrinsics.load(paths[1])
+        extr = CameraExtrinsics.load(paths[2])
+        if not intr.calibrated or not extr.calibrated:
+            self.get_logger().warn('camera_intrinsics/extrinsics 가 미실측 근사값 — 마커 위치가 수 cm 틀린다 '
+                                   '(tools/calib_intrinsics.py, calib_extrinsics.py)')
+        self.get_logger().info(f'마커 위치 추정 켜짐: {len(mm.poses)} 마커, {mm.dictionary} {mm.size*100:.0f} cm')
+        return MarkerLocalizer(intr, extr, mm)
+
+    def _publish_fix(self, name, rl, msg, fix, t_in):
+        rl.fix_seq += 1
+        pf = PoseFix()
+        pf.header.stamp = msg.header.stamp          # 복사만 (로봇 시계)
+        pf.header.frame_id = 'map'
+        pf.robot_name = name
+        pf.seq = rl.fix_seq
+        pf.x, pf.y, pf.yaw = float(fix.x), float(fix.y), float(fix.yaw)
+        pf.marker_id = int(fix.marker_id)
+        pf.marker_range = float(fix.range)
+        pf.reproj_error = float(fix.reproj)
+        pf.n_markers = int(fix.n_markers)
+        pf.pipeline_latency = float(self._now() - t_in)
+        self._fix_pubs[name].publish(pf)
 
     # ------------------------------------------------------------------ 프레임
 
@@ -158,11 +204,20 @@ class LanePipeline(Node):
         sc.fps = len(rl.fps_t) / 2.0
         self._scene_pubs[name].publish(sc)
 
-        if name in self._debug_pubs:
-            self._publish_debug(name, img, instances, r, msg.header.stamp)
+        fix = None
+        if self.localizer is not None:
+            fix = self.localizer.localize(img)
+            if fix is not None:
+                self._publish_fix(name, rl, msg, fix, t_in)
 
-    def _publish_debug(self, name, img, instances, r, stamp):
+        if name in self._debug_pubs:
+            self._publish_debug(name, img, instances, r, msg.header.stamp, fix)
+
+    def _publish_debug(self, name, img, instances, r, stamp, fix=None):
         dbg = img.copy()
+        if fix is not None:
+            cv2.putText(dbg, f'fix id{fix.marker_id} ({fix.x:.2f},{fix.y:.2f},{fix.yaw:.2f}) r={fix.range:.2f}',
+                        (8, img.shape[0] - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 200, 0), 2)
         for inst in instances:
             pts = np.array(inst.polygon, dtype=np.int32).reshape(-1, 1, 2)
             color = (0, 200, 255) if inst.cls == 'crosswalk' else (0, 255, 0)

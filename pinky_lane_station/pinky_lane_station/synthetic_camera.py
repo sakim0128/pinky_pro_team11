@@ -90,3 +90,51 @@ def render_lane_frame(lateral=0.0, heading=0.0, lane_width=0.20, tape_width=0.01
         n = np.random.randint(-noise, noise + 1, img.shape, dtype=np.int16)
         img = np.clip(img.astype(np.int16) + n, 0, 255).astype(np.uint8)
     return img
+
+
+# ------------------------------------------------------------------ 마커 렌더 (D7)
+
+def _marker_image(dictionary_name, mid, px=200):
+    d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dictionary_name))
+    if hasattr(cv2.aruco, 'generateImageMarker'):
+        return cv2.aruco.generateImageMarker(d, mid, px)
+    return cv2.aruco.drawMarker(d, mid, px)
+
+
+def render_markers(img, robot_pose, marker_map, camera=None, px=200):
+    """로봇 (x, y, yaw) 에서 보이는 바닥 마커들을 img 위에 원근 워프로 그린다 (제자리 수정).
+
+    marker_map: marker_localizer.MarkerMap. 흰 여백(white_border) 포함.
+    """
+    from .marker_localizer import marker_object_points, rot_z, make_T
+    cam = camera or CameraModel()
+    rx, ry, ryaw = robot_pose
+    c, s = math.cos(-ryaw), math.sin(-ryaw)
+
+    def to_robot(mx, my):
+        dx, dy = mx - rx, my - ry
+        return dx * c - dy * s, dx * s + dy * c
+
+    for mid, (x, y, yaw) in marker_map.poses.items():
+        T = make_T(rot_z(yaw), (x, y, 0.0))
+        for size, color in ((marker_map.size + 2 * marker_map.white_border, 255), (marker_map.size, None)):
+            obj = marker_object_points(size).astype(float)
+            world = (T[:3, :3] @ obj.T).T + T[:3, 3]
+            uv = [cam.project(*to_robot(wx, wy)) for wx, wy, _ in world]
+            if any(p is None for p in uv):
+                break
+            dst = np.array(uv, dtype=np.float32)
+            if color is not None:
+                cv2.fillPoly(img, [dst.astype(np.int32)], (color, color, color))
+                continue
+            src_img = _marker_image(marker_map.dictionary, mid, px)
+            src = np.array([[0, 0], [px, 0], [px, px], [0, px]], dtype=np.float32)   # TL TR BR BL
+            H, _ = cv2.findHomography(src, dst)
+            if H is None:
+                continue
+            warped = cv2.warpPerspective(src_img, H, (img.shape[1], img.shape[0]),
+                                         flags=cv2.INTER_NEAREST, borderValue=255)
+            mask = np.zeros(img.shape[:2], dtype=np.uint8)
+            cv2.fillPoly(mask, [dst.astype(np.int32)], 255)
+            img[mask > 0] = np.repeat(warped[mask > 0][:, None], 3, axis=1)
+    return img

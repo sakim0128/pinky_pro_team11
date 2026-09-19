@@ -26,6 +26,7 @@ setup(
             'agent_node = pinky_fleet_agent.agent_node:main',
             'lane_agent_node = pinky_fleet_agent.lane_agent_node:main',
             'camera_node = pinky_fleet_agent.camera_node:main',
+            'pose_fuser_node = pinky_fleet_agent.pose_fuser_node:main',
         ],
     },
 )

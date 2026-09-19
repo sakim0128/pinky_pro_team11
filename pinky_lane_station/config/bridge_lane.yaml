@@ -39,6 +39,12 @@ topics:
     to_domain: 0
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
+  /pinky1/pose_fix:                      # D7 바닥 마커 절대 위치 (stamp = 로봇 이미지 시각)
+    type: pinky_lane_msgs/msg/PoseFix
+    from_domain: 0
+    to_domain: 10
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
+
   # ------------------------- pinky2 (domain 11) -------------------------
   /pinky2/camera/image/compressed:
     type: sensor_msgs/msg/CompressedImage
@@ -69,3 +75,9 @@ topics:
     from_domain: 11
     to_domain: 0
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky2/pose_fix:                      # D7 바닥 마커 절대 위치 (stamp = 로봇 이미지 시각)
+    type: pinky_lane_msgs/msg/PoseFix
+    from_domain: 0
+    to_domain: 11
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}

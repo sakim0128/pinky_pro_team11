@@ -15,6 +15,10 @@
     <arg name="mission" default="$(find-pkg-share pinky_lane_station)/config/lane_mission.yaml"/>
     <arg name="detector_config"
          default="$(find-pkg-share pinky_lane_station)/config/detector_lane.yaml"/>
+    <arg name="use_amcl" default="False" description="True 면 마커 PoseFix 를 내지 않는다 (로봇이 AMCL)"/>
+    <arg name="markers_config" default="$(find-pkg-share pinky_lane_station)/config/markers.yaml"/>
+    <arg name="camera_intrinsics" default="$(find-pkg-share pinky_lane_station)/config/camera_intrinsics.yaml"/>
+    <arg name="camera_extrinsics" default="$(find-pkg-share pinky_lane_station)/config/camera_extrinsics.yaml"/>
     <arg name="use_bridge" default="True" description="가짜 로봇으로 검증할 때는 False"/>
     <arg name="publish_debug_image" default="True"
          description="/<robot>/lane_debug/compressed 에 검출 결과를 그려 발행 (rqt_image_view)"/>
@@ -30,6 +34,9 @@
     <node pkg="pinky_lane_station" exec="lane_pipeline_node" name="lane_pipeline" output="screen">
         <param name="mission" value="$(var mission)"/>
         <param name="detector_config" value="$(var detector_config)"/>
+        <param name="markers_config" value="$(var markers_config)" unless="$(var use_amcl)"/>
+        <param name="camera_intrinsics" value="$(var camera_intrinsics)" unless="$(var use_amcl)"/>
+        <param name="camera_extrinsics" value="$(var camera_extrinsics)" unless="$(var use_amcl)"/>
         <param name="publish_debug_image" value="$(var publish_debug_image)"/>
     </node>
 </launch>

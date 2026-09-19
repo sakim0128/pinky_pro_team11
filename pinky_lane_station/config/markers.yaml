@@ -1,0 +1,27 @@
+# 바닥 ArUco 마커 지도 (D7). 좌표는 map frame.
+#   node 가 있으면 road_graph.yaml 의 그 노드 좌표를 쓴다 (마커를 노드 중심에 붙인다).
+#   yaw = 인쇄된 마커의 **오른쪽(+x) 화살표** 가 가리키는 map 방향 (rad). tools/print_markers.py 가 화살표를 찍어 준다.
+#   자유 마커는 {id, x, y, yaw}.
+# 인쇄: python3 tools/print_markers.py --config pinky_lane_station/config/markers.yaml  (A4, 실제 크기)
+
+dictionary: DICT_4X4_50
+size: 0.08                     # 검은 테두리 바깥 한 변 (m). 인쇄 후 자로 확인
+white_border: 0.015            # 마커 둘레 흰 여백 (m) — 회색 카펫에서 검출 안정
+
+markers:
+  - {id: 0,  node: BL,  yaw: 0.0}
+  - {id: 1,  node: JS,  yaw: 0.0}
+  - {id: 2,  node: CW2, yaw: 0.0}
+  - {id: 3,  node: BR,  yaw: 0.0}
+  - {id: 4,  node: RM,  yaw: 0.0}
+  - {id: 5,  node: RE,  yaw: 0.0}
+  - {id: 6,  node: TR,  yaw: 0.0}
+  - {id: 7,  node: TC,  yaw: 0.0}
+  - {id: 8,  node: TL,  yaw: 0.0}
+  - {id: 9,  node: CW1, yaw: 0.0}
+  - {id: 10, node: LM,  yaw: 0.0}
+  - {id: 11, node: JW,  yaw: 0.0}
+  - {id: 12, node: MC,  yaw: 0.0}
+  - {id: 13, node: JI,  yaw: 0.0}
+  # 긴 엣지 중간 (0.5 m 이상 벌어지는 곳). 좌표는 줄자로 측정 후 기입
+  # - {id: 20, x: 0.40, y: -0.45, yaw: 0.0}

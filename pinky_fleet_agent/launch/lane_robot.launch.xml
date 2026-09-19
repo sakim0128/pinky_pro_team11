@@ -3,20 +3,25 @@
   차선 주행 모드 로봇 최상위 launch (mini_project_2).
 
     export ROS_DOMAIN_ID=10
-    ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 \
-        map:=$HOME/map/map4.yaml camera_orient:=rot180
+    ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 camera_orient:=rot180
+    (AMCL 로 돌리려면 use_amcl:=True map:=$HOME/map/map4.yaml)
 
-  bringup(모터/라이다/TF) + map_server + AMCL (localization_launch, planner/controller 없음)
-  + 초음파 노드 + 카메라 + lane_agent. /cmd_vel 발행자는 lane_agent 하나뿐이다.
+  bringup(모터/라이다/TF) + 위치추정 + 초음파 노드 + 카메라 + lane_agent. /cmd_vel 발행자는 lane_agent 하나뿐이다.
+  위치추정:
+    기본        pose_fuser_node — 관제가 바닥 ArUco 마커로 보내는 PoseFix + odom → map→odom TF (D7)
+    use_amcl    map_server + AMCL (localization_launch). 흰 폼보드 상자에서는 튀어서 권하지 않는다
   robot.launch.xml(Nav2 전체) 과 동시에 띄우지 말 것.
 -->
 <launch>
     <arg name="robot_name" default="pinky1"/>
     <arg name="domain_id" default="10"/>
-    <arg name="map" default="/home/pinky/map/map4.yaml"/>
+    <arg name="map" default="/home/pinky/map/map4.yaml" description="amcl 모드에서만 쓴다"/>
     <arg name="use_sim_time" default="False"/>
     <arg name="launch_bringup" default="True"/>
-    <arg name="launch_localization" default="True"/>
+    <arg name="use_amcl" default="False"
+         description="True: map_server+AMCL. False(기본): pose_fuser (바닥 마커 PoseFix + odom, D7)"/>
+    <arg name="fix_timeout" default="15.0"
+         description="pose_fuser: 이만큼(s) PoseFix 가 없으면 map→odom TF 를 끊어 로봇을 세운다"/>
     <arg name="launch_ultrasonic" default="True"
          description="pinky_sensor_adc main_node (us_sensor/range). bringup 이 띄우지 않는다."/>
     <arg name="use_camera" default="True"/>
@@ -31,10 +36,17 @@
     </include>
 
     <include file="$(find-pkg-share pinky_navigation)/launch/localization_launch.xml"
-             if="$(var launch_localization)">
+             if="$(var use_amcl)">
         <arg name="map" value="$(var map)"/>
         <arg name="use_sim_time" value="$(var use_sim_time)"/>
     </include>
+
+    <node pkg="pinky_fleet_agent" exec="pose_fuser_node" name="pose_fuser" output="screen"
+          unless="$(var use_amcl)">
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="fix_timeout" value="$(var fix_timeout)"/>
+    </node>
 
     <node pkg="pinky_sensor_adc" exec="main_node" name="pinky_sensor_adc" output="screen"
           if="$(var launch_ultrasonic)"/>

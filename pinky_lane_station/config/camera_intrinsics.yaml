@@ -1,0 +1,10 @@
+# 핑키 카메라 내부 파라미터 (640x480). tools/calib_intrinsics.py 가 채운다.
+# calibrated: false 이면 합성 카메라 근사값 — 마커 위치가 수 cm 틀린다. 실측 전엔 pipeline 이 경고한다.
+calibrated: false
+width: 640
+height: 480
+fx: 268.5
+fy: 268.5
+cx: 320.0
+cy: 240.0
+dist: [0.0, 0.0, 0.0, 0.0, 0.0]     # k1 k2 p1 p2 k3

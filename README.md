@@ -122,6 +122,36 @@ ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_
 
 ---
 
+## 절대 위치 — 바닥 ArUco 마커 (AMCL 대체)
+
+AMCL 이 주행 중 크게 튄다. 2.35×1.25 m 흰 폼보드 상자는 라이다에 직사각형 하나라 붙잡을 특징이 없다.
+그래서 **핑키 카메라로 바닥 마커를 보고 절대 위치를 얻는다.** "3 초에 한 번" 이 아니라 **마커가 보일 때마다** 이고,
+그 사이는 odom 추측항법이다 (0.15 m/s × 3 s = 0.45 m, 핑키 odom 은 그 거리에서 수 cm). 카메라가 좌우를 맡으니
+맵 위치는 "어느 길·어느 분기" 만 맞으면 된다.
+
+```
+바닥 ArUco (DICT_4X4_50, 8 cm)  각 그래프 노드 위 + 긴 엣지 중간.  markers.yaml: id → 노드(또는 x, y) + yaw
+관제 lane_pipeline_node          같은 프레임에서 cv2.aruco + solvePnP → T_map_base → PoseFix
+                                 header.stamp = 이미지 stamp **복사** (로봇 시계)
+로봇 pose_fuser_node             AMCL 자리. fix 시각의 odom 을 버퍼에서 찾아 map→odom = fix ⊕ inv(odom_at_stamp)
+                                 → map→odom TF 20 Hz. 큰 점프는 2 연속 일치해야 채택. 15 s 동안 fix 없으면 TF 중단 → 정지
+lane_agent_node                  변경 없음 (TF map→base 만 읽는다)
+```
+
+처리 지연이 오차가 되지 않는다 — fix 는 "그때 그 위치" 로 붙는다. `initialpose`(관제 [출발] 이 보내는 시작 노드) 도
+같은 경로로 들어가 첫 fix 가 된다.
+
+**준비 (한 번)**
+1. `python3 tools/print_markers.py --config pinky_lane_station/config/markers.yaml` → A4 실제 크기 인쇄, 검은 변 8 cm 확인
+2. 노드 중심에 붙인다. 시트의 **+x 화살표** 가 `markers.yaml` 의 yaw 방향(map 기준) 을 향하게. 줄자로 벽 모서리 기준 좌표를 재서 그래프 노드 좌표도 같이 확정
+3. `tools/calib_intrinsics.py` (체스보드) → `camera_intrinsics.yaml`, `tools/calib_extrinsics.py` (0.30 m 앞 마커 한 장) → `camera_extrinsics.yaml`. 미실측이면 파이프라인이 경고한다
+4. odom 품질: 1 m 직진 + 360° 회전 후 오차가 수 cm·수 도면 마커 간격 0.5 m 로 충분
+
+`fake_lane.launch.xml` 은 기본으로 이 경로를 그대로 돈다 — 가짜 로봇이 odom 드리프트(2 %/s) 를 넣고 합성 마커를 그리면
+파이프라인 → PoseFix → 가짜 로봇 안의 `PoseFuser` 가 바로잡는다. AMCL 로 돌리려면 `use_amcl:=True`.
+
+---
+
 ## 메시지 (`pinky_lane_msgs`, 신규)
 
 | 메시지 | 방향 | 핵심 필드 |
@@ -140,11 +170,11 @@ ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_
 
 | 위치 | 파일 | 역할 |
 |---|---|---|
-| `pinky_fleet_agent/` (로봇, 확장) | `lane_agent_node` `camera_node` · ROS-free `route_follower` `lane_control` `drive_fsm` `obstacle_guard` `lane_driver` · `launch/lane_robot.launch.xml` `lane_agent.launch.xml` · `params/lane_agent.yaml` | bringup + AMCL + 초음파 + 카메라 + 주행 (`/cmd_vel` 유일 발행자) |
-| `pinky_lane_station/` (PC, 신규) | `lane_coordinator_node`(경로·예약·출발) `lane_pipeline_node`(인식) `fake_lane_robot`(가짜 로봇 + 합성 카메라) `graph_editor` `bench_detector` · ROS-free `road_graph` `reservation` `lane_target` `lane_mission` `synthetic_camera` `detectors/{stub,classic,ultralytics_backend}` · `config/{road_graph,lane_mission,detector_lane,bridge_lane}.yaml` · `launch/{lane_station,lane_bridge,fake_lane}.launch.xml` | 인식·경로·예약·시뮬 |
+| `pinky_fleet_agent/` (로봇, 확장) | `lane_agent_node` `camera_node` `pose_fuser_node` · ROS-free `route_follower` `lane_control` `drive_fsm` `obstacle_guard` `lane_driver` `pose_fuser` · `launch/lane_robot.launch.xml` `lane_agent.launch.xml` · `params/lane_agent.yaml` | bringup + 위치추정(마커 기본, AMCL 선택) + 초음파 + 카메라 + 주행 (`/cmd_vel` 유일 발행자) |
+| `pinky_lane_station/` (PC, 신규) | `lane_coordinator_node`(경로·예약·출발) `lane_pipeline_node`(인식) `fake_lane_robot`(가짜 로봇 + 합성 카메라) `graph_editor` `bench_detector` · ROS-free `road_graph` `reservation` `lane_target` `lane_mission` `marker_localizer` `synthetic_camera` `detectors/{stub,classic,ultralytics_backend}` · `config/{road_graph,lane_mission,detector_lane,bridge_lane,markers,camera_intrinsics,camera_extrinsics}.yaml` · `launch/{lane_station,lane_bridge,fake_lane}.launch.xml` | 인식·경로·예약·시뮬 |
 | `pinky_fleet_station/` (PC, 그대로) | `bridge_fleet.yaml`(state/command) · `map_canvas` · `config/map4.*` | 기존 관제 재사용. GUI 차선 모드는 M2 이후 |
 | `pinky_lane_msgs/` (신규) | 위 5 개 | |
-| `tools/` | `record_drive.py` `extract_frames.py` | 데이터 수집 |
+| `tools/` | `record_drive.py` `extract_frames.py` · `print_markers.py` `calib_intrinsics.py` `calib_extrinsics.py` | 데이터 수집 · 마커·카메라 캘리브레이션 |
 
 **재사용**: `link_watch.py`(그대로, 관제·LanePath 두 채널) · `map_canvas` 좌표 변환 · `bridge_fleet.yaml` QoS 논리 · 업스트림 `localization_launch.xml`.
 
@@ -199,8 +229,9 @@ python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_sta
 | M0 ✓ | 그래프 편집기 + `road_graph.yaml` | 라이다 맵에 사진 정합, 노드·엣지 완성, 경로가 GUI 에 그려짐 |
 | M1 (코드 완료, 관제 PC 실행 검증 전) | 메시지 + ROS-free 코어 + 노드 + 하드웨어 없는 폐루프 | 가짜 로봇 2대가 경로 추종·예약 대기·횡단보도 정지·도착. pytest 그린. 추론 벤치 |
 | M2 | 카메라 노드 + 전송 | p95 < 250 ms, 좌/우 일치 육안 확인 |
+| M2b (코드 완료, 실차 검증 전) | 바닥 마커 절대 위치: 캘리브레이션 + marker_localizer + pose_fuser, AMCL 대체 | 손으로 밀며 5 cm/5°, 마커 사이 0.5 m odom 구간 튐 없음 |
 | M3 | `best.pt` 연결, 쌍 선택·SINGLE·crosswalk 튜닝 (녹화 영상) | `target_x` 궤적이 중앙, 분기에서 JUNCTION 전환 |
-| M4 | 실차 1대: AMCL + 경로 + 카메라 보정 + 장애물 | 시작→목적지 3/3, 분기 정확, 벽 접촉 0, 장애물 자동 재개, PC 종료 시 1 s 정지 |
+| M4 | 실차 1대: 마커 위치 + 경로 + 카메라 보정 + 장애물 | 시작→목적지 3/3, 분기 정확, 벽 접촉 0, 장애물 자동 재개, PC 종료 시 1 s 정지 |
 | M5 | 횡단보도 | 3.0 ± 0.3 s, 통과당 1 회, 두 곳 모두 |
 | M6 | 실차 2대: 예약 + 동시 출발 | 겹치는 경로에서 마주침 0, 대기 후 재출발, 둘 다 도착 |
 | M7 | 문서 + 평가 리포트 | 인식률 · 중앙 정렬 RMS · 정지 성공률 · 완주율 |
@@ -213,4 +244,5 @@ python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_sta
 - **시나리오 2 목적지**: 중앙 상부(MC)·우상단(RE) 출발은 정해졌고, 어디로 가는지 미정 (`lane_mission.yaml` 주석의 예시는 가정)
 - `--snap` 으로 고른 카메라 보정값 (`camera_orient`), 초음파 노드(`ros2 run pinky_sensor_adc main_node`) 동작 여부
 - `cam_sign`: 실차에서 로봇을 차선 왼쪽에 두고 우회전(ω<0) 이 나오는지 한 번 확인
+- 마커: odom 품질 실측, 인쇄 크기(8 cm) 가능 여부, 마커가 차선 세그 학습 데이터에 배경으로 들어가야 함
 - 이 저장소의 ROS 노드는 ROS 가 없는 환경에서 작성했다 — ROS-free 코어와 텍스트 불변식만 pytest 로 검증했고, 노드 실행(`fake_lane.launch.xml`)은 관제 PC 에서 처음 돌린다

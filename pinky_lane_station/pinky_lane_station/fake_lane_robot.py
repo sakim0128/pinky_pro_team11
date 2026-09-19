@@ -10,6 +10,11 @@
 
 가짜 라이다: 다른 가짜 로봇(반지름 0.08) 과 obstacle 파라미터의 원을 본다.
     -p obstacle:="[0.3, -0.45, 0.05]"   # x, y, r (map). 비우면 없음
+
+위치:
+    기본        참값과 별도로 드리프트하는 odom 을 적분하고, 합성 카메라에 바닥 마커를 그린다.
+                파이프라인이 낸 PoseFix + odom 을 실차와 같은 PoseFuser 로 합쳐 그 추정값을 driver 에 준다.
+    use_amcl    참값 pose 를 그대로 driver 에 준다 (실차의 AMCL 에 해당)
 """
 
 import math
@@ -20,15 +25,18 @@ from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReli
 from sensor_msgs.msg import CompressedImage
 
 from pinky_fleet_msgs.msg import FleetCommand, RobotState
-from pinky_lane_msgs.msg import LaneCommand, LanePath, LaneStatus, Route
+from pinky_lane_msgs.msg import LaneCommand, LanePath, LaneStatus, PoseFix, Route
 
 from pinky_fleet_agent.lane_driver import (CMD_CLEARANCE, CMD_ESTOP, CMD_HEARTBEAT, CMD_RESUME,
                                            CMD_SET_SPEED, CMD_START, CMD_STOP, DriverParams,
                                            LaneDriver)
 
+from pinky_fleet_agent.pose_fuser import PoseFuser, compose, invert
+
 from .lane_mission import LaneMissionError, load_lane_mission
-from .road_graph import RoadGraph
-from .synthetic_camera import CameraModel, render_lane_frame
+from .marker_localizer import MarkerMap
+from .road_graph import RoadGraph, project_to_polyline
+from .synthetic_camera import CameraModel, render_lane_frame, render_markers
 
 try:
     import cv2
@@ -44,6 +52,9 @@ ROUTE_QOS = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
 BEST_EFFORT_1 = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
                            reliability=QoSReliabilityPolicy.BEST_EFFORT,
                            durability=QoSDurabilityPolicy.VOLATILE)
+FIX_QOS = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=5,
+                     reliability=QoSReliabilityPolicy.RELIABLE,
+                     durability=QoSDurabilityPolicy.VOLATILE)
 
 _CMD_MAP = {LaneCommand.CMD_HEARTBEAT: CMD_HEARTBEAT, LaneCommand.CMD_START: CMD_START,
             LaneCommand.CMD_STOP: CMD_STOP, LaneCommand.CMD_ESTOP: CMD_ESTOP,
@@ -85,20 +96,30 @@ class FakeLaneRobot:
         self.route_seq = 0
         self.cam_seq = 0
         self.moved = False
+        # marker 모드: odom(드리프트) 과 퓨저. 참값(x, y, yaw) 은 카메라·라이다에만 쓴다
+        self.ox = self.oy = self.oyaw = 0.0
+        self.fuser = PoseFuser()
+        self.est = None
 
-    def crosswalk_ahead(self):
+    def true_pose(self):
+        return self.x, self.y, self.yaw
+
+    def lane_offsets_true(self, waypoints):
+        """참값 기준 (lateral, heading 오차) — 카메라가 실제로 보는 것."""
         f = self.driver.follower
-        if f is None:
+        if f is None or not waypoints:
+            return 0.0, 0.0
+        s, lateral, _, _, _ = project_to_polyline(self.x, self.y, waypoints)
+        return lateral, wrap(self.yaw - f.heading_at(s))
+
+    def crosswalk_ahead_true(self, waypoints):
+        f = self.driver.follower
+        if f is None or not waypoints:
             return None
-        ds = [f.distance_to_idx(i) for i in self.driver.crosswalk_idx]
+        s, _, _, _, _ = project_to_polyline(self.x, self.y, waypoints)
+        ds = [f.cum[i] - s for i in self.driver.crosswalk_idx if 0 <= i < len(f.cum)]
         ds = [d for d in ds if 0.0 < d < 0.8]
         return min(ds) if ds else None
-
-    def lane_offsets(self):
-        f = self.driver.follower
-        if f is None:
-            return 0.0, 0.0
-        return f.lateral, wrap(self.yaw - f.heading_at(f.progress_s))
 
 
 class FakeLaneFleet(Node):
@@ -112,6 +133,10 @@ class FakeLaneFleet(Node):
         self.declare_parameter('loopback', False)       # True: 파이프라인 없이 내부에서 LanePath 생성
         self.declare_parameter('obstacle', [0.0, 0.0, 0.0])
         self.declare_parameter('lidar', True)
+        self.declare_parameter('use_amcl', False)            # True: 참값 pose (마커 없음)
+        self.declare_parameter('markers_config', '')
+        self.declare_parameter('odom_drift_v', 0.02)          # 속도 배율 오차
+        self.declare_parameter('odom_drift_w', 0.02)          # rad/s (주행 중)
 
         mission = load_lane_mission(self.get_parameter('mission').value)
         self.graph = RoadGraph.load(mission.graph_path)
@@ -122,6 +147,16 @@ class FakeLaneFleet(Node):
         obs = [float(v) for v in self.get_parameter('obstacle').value]
         self._obstacles = [tuple(obs)] if len(obs) == 3 and obs[2] > 0 else []
         self._cam = CameraModel()
+        self._marker_mode = not bool(self.get_parameter('use_amcl').value)
+        self._drift_v = float(self.get_parameter('odom_drift_v').value)
+        self._drift_w = float(self.get_parameter('odom_drift_w').value)
+        self._marker_map = None
+        if self._marker_mode:
+            mpath = self.get_parameter('markers_config').value
+            if not mpath:
+                raise LaneMissionError('markers_config 가 필요합니다 (use_amcl:=True 면 불필요)')
+            self._marker_map = MarkerMap.load(mpath, self.graph)
+        self._waypoints = {}
         if self._loopback:
             from .detectors import create_detector
             from .lane_target import LaneTargetEstimator
@@ -146,6 +181,9 @@ class FakeLaneFleet(Node):
                                      lambda m, n=r.name: self._on_lane_path(n, m), BEST_EFFORT_1)
             self.create_subscription(FleetCommand, spec['command_topic'],
                                      lambda m, n=r.name: self._on_fleet_command(n, m), RELIABLE_10)
+            if self._marker_mode:
+                self.create_subscription(PoseFix, f"/{r.name}/pose_fix",
+                                         lambda m, n=r.name: self._on_pose_fix(n, m), FIX_QOS)
             if self._loopback:
                 self._ests[r.name] = LaneTargetEstimator()
 
@@ -155,7 +193,9 @@ class FakeLaneFleet(Node):
             self.create_timer(1.0 / float(self.get_parameter('camera_fps').value), self._camera_tick)
         self.get_logger().info(
             f'fake_lane_robot 시작: {[(r.name, round(r.x, 2), round(r.y, 2)) for r in self._robots.values()]} '
-            f'camera={self._camera} loopback={self._loopback} obstacles={self._obstacles}')
+            f'camera={self._camera} loopback={self._loopback} obstacles={self._obstacles} '
+            f'localization={"marker" if self._marker_mode else "true"} '
+            f'drift=({self._drift_v}, {self._drift_w})')
 
     def _now(self):
         return self.get_clock().now().nanoseconds * 1e-9
@@ -170,6 +210,7 @@ class FakeLaneFleet(Node):
                            list(msg.edge_ids), list(msg.crosswalk_idx), list(msg.junction_idx),
                            int(msg.goal_idx), int(msg.route_seq))
         r.route_seq = int(msg.route_seq)
+        self._waypoints[name] = [(p.x, p.y) for p in msg.waypoints]
         if not r.moved:
             # 사람이 로봇을 출발 노드에 경로 방향으로 놓는 것을 흉내낸다
             x0, y0 = msg.waypoints[0].x, msg.waypoints[0].y
@@ -194,11 +235,23 @@ class FakeLaneFleet(Node):
             self._now(), msg.source_stamp.sec + msg.source_stamp.nanosec * 1e-9,
             int(msg.quality), float(msg.error_x_norm), bool(msg.crosswalk_detected))
 
+    def _on_pose_fix(self, name, msg: PoseFix):
+        r = self._robots[name]
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        ok, why = r.fuser.on_fix(t, msg.x, msg.y, msg.yaw, self._now())
+        if not ok or why != 'ok':
+            self.get_logger().info(f'{name}: fix id={msg.marker_id} {why}')
+
     def _on_fleet_command(self, name, msg: FleetCommand):
         r = self._robots[name]
         if msg.command == FleetCommand.CMD_SET_INITIAL_POSE:
             if not r.moved:
                 r.x, r.y, r.yaw = msg.x, msg.y, msg.yaw
+            if self._marker_mode:
+                # 실차 pose_fuser_node 의 initialpose 처리와 같다: 지금 odom 기준으로 map→odom 을 잡는다
+                r.fuser.add_odom(self._now(), r.ox, r.oy, r.oyaw)
+                r.fuser.map_odom = compose((msg.x, msg.y, msg.yaw), invert((r.ox, r.oy, r.oyaw)))
+                r.fuser._accept((msg.x, msg.y, msg.yaw), self._now())
         elif msg.command in (FleetCommand.CMD_STOP, FleetCommand.CMD_CANCEL):
             r.driver.set_command(CMD_STOP, self._now())
         elif msg.command == FleetCommand.CMD_RESUME:
@@ -233,7 +286,19 @@ class FakeLaneFleet(Node):
             if self._lidar:
                 ranges, amin, inc = self._synth_scan(r)
                 r.driver.update_scan(ranges, amin, inc, 0.05, 12.0)
-            out = r.driver.tick(now, r.x, r.y, r.yaw)
+            if self._marker_mode:
+                r.fuser.add_odom(now, r.ox, r.oy, r.oyaw)
+                r.est = r.fuser.map_pose(r.ox, r.oy, r.oyaw) if r.fuser.alive(now) else None
+                if r.est is None:
+                    # 실차 lane_agent 의 "TF 없음 → 정지" 와 같다
+                    if r.out is not None:
+                        r.out.v = r.out.omega = 0.0
+                        r.out.reason = '위치(fix) 없음 — 정지'
+                    r.v = r.w = 0.0
+                    continue
+                out = r.driver.tick(now, *r.est)
+            else:
+                out = r.driver.tick(now, r.x, r.y, r.yaw)
             r.out = out
             r.v, r.w = out.v, out.omega
             if abs(r.v) > 1e-6 or abs(r.w) > 1e-6:
@@ -241,13 +306,22 @@ class FakeLaneFleet(Node):
             r.yaw = wrap(r.yaw + r.w * dt)
             r.x += r.v * math.cos(r.yaw) * dt
             r.y += r.v * math.sin(r.yaw) * dt
+            # odom: 주행 중에만 드리프트
+            moving = abs(r.v) > 1e-6 or abs(r.w) > 1e-6
+            r.oyaw = wrap(r.oyaw + (r.w + (self._drift_w if moving else 0.0)) * dt)
+            ov = r.v * (1.0 + self._drift_v)
+            r.ox += ov * math.cos(r.oyaw) * dt
+            r.oy += ov * math.sin(r.oyaw) * dt
 
     def _camera_tick(self):
         stamp = self.get_clock().now().to_msg()
         for r in self._robots.values():
-            lateral, heading = r.lane_offsets()
+            wps = self._waypoints.get(r.name, [])
+            lateral, heading = r.lane_offsets_true(wps)
             img = render_lane_frame(lateral=lateral, heading=heading,
-                                    crosswalk_ahead=r.crosswalk_ahead(), camera=self._cam)
+                                    crosswalk_ahead=r.crosswalk_ahead_true(wps), camera=self._cam)
+            if self._marker_map is not None:
+                render_markers(img, r.true_pose(), self._marker_map, self._cam)
             if self._loopback:
                 res = self._ests[r.name].update(self._det.infer(img), img.shape[1], img.shape[0])
                 r.driver.set_lane_path(self._now(), self._now(), res.quality, res.error_x,
@@ -296,8 +370,12 @@ class FakeLaneFleet(Node):
             rs.header.frame_id = 'map'
             rs.name = r.name
             rs.domain_id = int(r.spec['domain_id'])
-            rs.localized = True
-            rs.x, rs.y, rs.yaw = r.x, r.y, r.yaw
+            if self._marker_mode:
+                rs.localized = r.est is not None
+                rs.x, rs.y, rs.yaw = r.est if r.est is not None else (r.x, r.y, r.yaw)
+            else:
+                rs.localized = True
+                rs.x, rs.y, rs.yaw = r.x, r.y, r.yaw
             rs.linear_velocity, rs.angular_velocity = r.v, r.w
             if out is None or out.state == LaneStatus.DRIVE_IDLE:
                 rs.nav_status = RobotState.NAV_IDLE

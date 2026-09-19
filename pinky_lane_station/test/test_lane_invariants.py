@@ -79,6 +79,33 @@ def test_pipeline_copies_source_stamp_and_never_restamps():
         assert 'header.stamp' in rhs or 'source_stamp' in rhs, rhs
 
 
+def test_pose_fix_stamp_is_copied_from_image():
+    src = read(os.path.join(STATION, 'pinky_lane_station', 'lane_pipeline_node.py'))
+    m = re.search(r'pf\.header\.stamp\s*=\s*([^\n]+)', src)
+    assert m and 'msg.header.stamp' in m.group(1), 'PoseFix.header.stamp 은 이미지 stamp 복사만'
+
+
+def test_pose_fuser_node_subscribes_bridged_fix_topic():
+    src = read(os.path.join(AGENT, 'pinky_fleet_agent', 'pose_fuser_node.py'))
+    assert "f'/{name}/pose_fix'" in src
+    setup = read(os.path.join(AGENT, 'setup.py'))
+    assert "'pose_fuser_node = pinky_fleet_agent.pose_fuser_node:main'" in setup
+
+
+def test_marker_configs_installed_and_consistent():
+    import yaml as _yaml
+    cfg = os.path.join(STATION, 'config')
+    for f in ('markers.yaml', 'camera_intrinsics.yaml', 'camera_extrinsics.yaml'):
+        assert os.path.isfile(os.path.join(cfg, f)), f
+    m = _yaml.safe_load(read(os.path.join(cfg, 'markers.yaml')))
+    ids = [int(x['id']) for x in m['markers']]
+    assert len(ids) == len(set(ids)), '마커 id 중복'
+    assert max(ids) < 50 and m['dictionary'] == 'DICT_4X4_50'
+    assert 0.04 <= float(m['size']) <= 0.20
+    cmake = read(os.path.join(REPO, 'pinky_lane_msgs', 'CMakeLists.txt'))
+    assert 'msg/PoseFix.msg' in cmake
+
+
 def test_camera_node_stamps_right_after_capture():
     src = read(os.path.join(AGENT, 'pinky_fleet_agent', 'camera_node.py'))
     cap = src.index('capture_array()')
@@ -167,6 +194,7 @@ def test_bridge_lane_topics_match_nodes_and_mission(lane_mission):
         'route': ('reliable', 'transient_local', 1, 'down'),
         'lane_command': ('reliable', 'volatile', 10, 'down'),
         'lane_status': ('reliable', 'volatile', 10, 'up'),
+        'pose_fix': ('reliable', 'volatile', 5, 'down'),
     }
     for robot in lane_mission['robots']:
         name, dom = robot['name'], int(robot['domain_id'])

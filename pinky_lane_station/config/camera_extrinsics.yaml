@@ -1,0 +1,9 @@
+# base_footprint -> 카메라 광학 프레임. tools/calib_extrinsics.py 가 채운다.
+# 로봇 프레임: x 전방, y 좌측, z 상방. pitch_deg 양수 = 아래를 본다. 값은 미실측 근사.
+calibrated: false
+x: 0.06          # 카메라가 base 중심보다 앞 (m)
+y: 0.0
+z: 0.10          # 바닥에서 렌즈 높이 (m)
+roll_deg: 0.0
+pitch_deg: 25.0
+yaw_deg: 0.0
