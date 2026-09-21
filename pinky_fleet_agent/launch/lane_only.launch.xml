@@ -48,7 +48,9 @@
         <param name="control.cam_sign" value="$(var cam_sign)"/>
     </node>
 
-    <node pkg="pinky_fleet_agent" exec="camera_node" name="pinky_camera" output="screen">
+    <!-- 카메라가 다른 프로세스에 잡혀 있으면 init 이 실패한다. 3 초 뒤 자동 재시도 -->
+    <node pkg="pinky_fleet_agent" exec="camera_node" name="pinky_camera" output="screen"
+          respawn="true" respawn_delay="3.0">
         <param name="robot_name" value="$(var robot_name)"/>
         <param name="orient" value="$(var camera_orient)"/>
         <param name="fps" value="$(var camera_fps)"/>

@@ -308,7 +308,8 @@ class LaneAgent(Node):
         if s == LaneStatus.DRIVE_ARRIVED:
             return RobotState.NAV_SUCCEEDED
         if s == LaneStatus.DRIVE_LINK_LOST:
-            return RobotState.NAV_LINK_LOST
+            # 옛 pinky_fleet_msgs 빌드에는 NAV_LINK_LOST 가 없다 — 상태 보고 때문에 주행 노드가 죽으면 안 된다
+            return getattr(RobotState, 'NAV_LINK_LOST', RobotState.NAV_ABORTED)
         if s in (LaneStatus.DRIVE_IDLE,):
             return RobotState.NAV_IDLE
         if s in (LaneStatus.DRIVE_ESTOP, LaneStatus.DRIVE_WAIT_CLEARANCE):
