@@ -179,7 +179,7 @@ v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. 차선을 잃으면 0.6 s 직전 �
 | `pinky_lane_station/` (PC, 신규) | `lane_coordinator_node`(경로·예약·출발) `lane_pipeline_node`(인식) `fake_lane_robot`(가짜 로봇 + 합성 카메라) `graph_editor` `bench_detector` · ROS-free `road_graph` `reservation` `lane_target` `lane_mission` `synthetic_camera` `detectors/{stub,classic,ultralytics_backend}` · `config/{road_graph,lane_mission,detector_lane,detector_yolo,bridge_lane}.yaml` · `launch/{lane_station,lane_bridge,fake_lane}.launch.xml` | 인식·경로·예약·시뮬 |
 | `pinky_fleet_station/` (PC, 그대로) | `bridge_fleet.yaml`(state/command) · `map_canvas` · `config/map4.*` | 기존 관제 재사용. GUI 차선 모드는 M2 이후 |
 | `pinky_lane_msgs/` (신규) | 위 5 개 | |
-| `tools/` | `record_drive.py` `extract_frames.py` | 데이터 수집 |
+| `tools/` | `record_drive.py` `extract_frames.py` · `collect_logs.sh` `purge_logs.sh` `bag_report.py` `bag_to_video.py` | 데이터 수집 · 블랙박스 수거·삭제·분석 |
 
 **재사용**: `link_watch.py`(그대로, 관제·LanePath 두 채널) · `map_canvas` 좌표 변환 · `bridge_fleet.yaml` QoS 논리 · 업스트림 `localization_launch.xml`.
 
@@ -211,6 +211,10 @@ ros2 topic pub -1 /fleet/lane/control std_msgs/msg/String "{data: '{\"cmd\": \"s
 
 # 추론 벤치 (CPU/GPU·imgsz 결정)
 ros2 run pinky_lane_station bench_detector -- --config config/detector_lane.yaml --images ~/drive_data/frames --device cpu --device cuda:0
+
+# 블랙박스 기록: 어느 launch 든 record:=True (로봇·관제). 수거·삭제·분석은 tools/README.md §8
+ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True record:=True
+python3 tools/bag_report.py ~/pinky_logs/<날짜>/<bag>        # 라이다·초음파 튐, 속도 불일치, 상태 전이 → report.md/events.csv
 
 # 테스트 (ROS 불필요)
 python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test -q

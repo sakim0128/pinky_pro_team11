@@ -23,6 +23,8 @@
     <arg name="camera_orient" default="rot180"/>
     <arg name="camera_fps" default="10.0"/>
     <arg name="jpeg_quality" default="70"/>
+    <arg name="record" default="False" description="True: ros2 bag 블랙박스 기록 (scripts/record_bag.sh)"/>
+    <arg name="log_root" default="$(env HOME)/pinky_logs"/>
     <arg name="params_file" default="$(find-pkg-share pinky_fleet_agent)/params/lane_agent.yaml"/>
 
     <include file="$(find-pkg-share pinky_bringup)/launch/bringup_robot.launch.xml"
@@ -50,4 +52,8 @@
         <arg name="jpeg_quality" value="$(var jpeg_quality)"/>
         <arg name="use_ultrasonic" value="$(var launch_ultrasonic)"/>
     </include>
+
+    <!-- 블랙박스: record:=True 면 ros2 bag 을 같이 띄운다 (~/pinky_logs/<날짜>/...). scripts/record_bag.sh -->
+    <executable cmd="bash $(find-pkg-share pinky_fleet_agent)/scripts/record_bag.sh robot $(var robot_name) $(var log_root)"
+                output="screen" if="$(var record)"/>
 </launch>

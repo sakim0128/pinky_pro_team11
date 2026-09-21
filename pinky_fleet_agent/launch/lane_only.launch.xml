@@ -24,6 +24,8 @@
     <arg name="auto_start" default="False" description="True 면 LanePath 가 오는 즉시 출발"/>
     <arg name="v_max" default="0.10"/>
     <arg name="cam_sign" default="1.0" description="로봇을 차선 왼쪽에 두면 우회전(ω<0) 이어야 한다. 반대면 -1.0"/>
+    <arg name="record" default="False" description="True: ros2 bag 블랙박스 기록 (scripts/record_bag.sh)"/>
+    <arg name="log_root" default="$(env HOME)/pinky_logs"/>
     <arg name="params_file" default="$(find-pkg-share pinky_fleet_agent)/params/lane_agent.yaml"/>
 
     <include file="$(find-pkg-share pinky_bringup)/launch/bringup_robot.launch.xml"
@@ -52,4 +54,8 @@
         <param name="fps" value="$(var camera_fps)"/>
         <param name="jpeg_quality" value="$(var jpeg_quality)"/>
     </node>
+
+    <!-- 블랙박스: record:=True 면 ros2 bag 을 같이 띄운다 (~/pinky_logs/<날짜>/...). scripts/record_bag.sh -->
+    <executable cmd="bash $(find-pkg-share pinky_fleet_agent)/scripts/record_bag.sh robot $(var robot_name) $(var log_root)"
+                output="screen" if="$(var record)"/>
 </launch>

@@ -18,6 +18,8 @@
     <arg name="detector_config"
          default="$(find-pkg-share pinky_lane_station)/config/detector_yolo.yaml"
          description="실전 YOLO 는 detector_yolo.yaml, 모델 없이 배선만 볼 때는 detector_lane.yaml(classic)"/>
+    <arg name="record" default="False" description="True: ros2 bag 블랙박스 기록 (pinky_fleet_agent/scripts/record_bag.sh station)"/>
+    <arg name="log_root" default="$(env HOME)/pinky_logs"/>
     <arg name="use_bridge" default="True" description="가짜 로봇으로 검증할 때는 False"/>
     <arg name="use_coordinator" default="True"
          description="False: 경로·예약 없이 브릿지 + 인식 파이프라인만 (차선만 추종 테스트, lane_only.launch.xml)"/>
@@ -37,4 +39,7 @@
         <param name="detector_config" value="$(var detector_config)"/>
         <param name="publish_debug_image" value="$(var publish_debug_image)"/>
     </node>
+
+    <executable cmd="bash $(find-pkg-share pinky_fleet_agent)/scripts/record_bag.sh station pinky1 $(var log_root)"
+                output="screen" if="$(var record)"/>
 </launch>

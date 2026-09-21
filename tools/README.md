@@ -184,3 +184,37 @@ ros2 run pinky_lane_station record_graph --ros-args -p robot:=pinky1 -p out:=$HO
 
 결과 `road_graph_rec.yaml` 은 검증까지 마친 그래프다. 편집기로 열어 사진 위에서 확인하고
 `pinky_lane_station/config/road_graph.yaml` 로 복사한다. 궤적 원본은 `road_graph_rec_trajectory.csv`.
+
+## 8. 블랙박스 로그 — 기록·수거·삭제·분석 (D12)
+
+주행 영상과 센서값을 한 시간축에 남긴다. 직접 맞출 필요 없다 — `ros2 bag`(mcap) 이 모든 메시지를 stamp 와 함께 저장한다.
+로봇과 관제 PC 둘 다 기록한다 (라이다·odom·cmd_vel 은 로봇에만, 인식 결과·관제 상태는 PC 에만 있다). 자동 삭제는 없다.
+
+```bash
+# 기록 — launch 에 record:=True 만 붙인다 (로봇·관제 모두). ~/pinky_logs/<날짜>/<시각>_<호스트>_<robot|station>_<이름>/
+ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True record:=True
+ros2 launch pinky_lane_station lane_station.launch.xml use_coordinator:=False record:=True
+# 수동 기록
+bash $(ros2 pkg prefix pinky_fleet_agent)/share/pinky_fleet_agent/scripts/record_bag.sh robot pinky1
+ros2 bag info ~/pinky_logs/2026-09-21/143000_pinky_robot_pinky1
+
+# 하루 작업 끝: 로봇 로그를 PC 로 (rsync, 이어받기 가능). --delete-remote 는 체크섬 검증 후 로봇 쪽 삭제
+tools/collect_logs.sh --delete-remote            # pinky@192.168.4.1 → ~/pinky_logs/robot_192.168.4.1/
+
+# 삭제 (로봇·PC 공용). 인자 없이 실행하면 날짜별 용량만 보여준다
+tools/purge_logs.sh                              # 용량 보기
+tools/purge_logs.sh 2026-09-21                   # 그 날짜 삭제 (확인 질문)
+tools/purge_logs.sh all --yes                    # 전부
+tools/purge_logs.sh all --yes ~/pinky_logs/robot_192.168.4.1
+
+# 분석 (PC, ROS 불필요)  pip install mcap mcap-ros2-support
+python3 tools/bag_report.py ~/pinky_logs/2026-09-21/143000_pinky_robot_pinky1
+#   → report.md (토픽 주기·끊김, 라이다 전방 급변·무효 급증, 초음파 튐, cmd 대 odom 속도 불일치,
+#                 상태 전이·체류, quality 분포, path_age) + events.csv (시각순)
+python3 tools/bag_to_video.py <robot_bag> --from 118 --to 135 --out clip.mp4      # 이벤트 전후 클립, 센서·상태 오버레이
+python3 tools/bag_to_video.py <robot_bag> --station <station_bag> --out clip.mp4   # 관제 bag 의 인식 결과도 겹침
+```
+
+용량: 카메라 10 fps JPEG ≈ 1.4 GB/h, 나머지 < 100 MB/h. 5 분 단위로 파일이 나뉘어 크래시가 나도 마지막 5 분만 잃는다.
+두 기기 시계가 달라도 관제 bag 의 `LanePath.source_stamp` 가 로봇 이미지 stamp 그대로라 두 bag 을 이어 맞출 수 있다
+(`bag_to_video.py --station` 이 이 방법을 쓴다).
