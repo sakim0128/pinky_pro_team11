@@ -216,9 +216,13 @@ def test_bridge_lane_topics_match_nodes_and_mission(lane_mission):
     # 노드 소스가 쓰는 토픽 접미사가 전부 브릿지에 있다
     agent = read(os.path.join(AGENT, 'pinky_fleet_agent', 'lane_agent_node.py'))
     for suffix in re.findall(r"f'/\{n\}/([a-z_/]+)'", agent):
-        if suffix in ('state', 'command'):
-            continue                       # bridge_fleet.yaml 담당
+        if suffix in ('state', 'command', 'amcl_pose'):
+            assert f'/pinky1/{suffix}' in fleet, suffix      # bridge_fleet.yaml 담당
+            continue
         assert f'/pinky1/{suffix}' in bridge, suffix
+    for name in ('pinky1', 'pinky2'):
+        t = fleet[f'/{name}/amcl_pose']
+        assert t['type'] == 'geometry_msgs/msg/PoseWithCovarianceStamped' and t['to_domain'] == 0
 
 
 def test_bridge_lane_message_types_exist():

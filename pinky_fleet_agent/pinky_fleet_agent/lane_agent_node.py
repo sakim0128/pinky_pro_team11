@@ -135,6 +135,12 @@ class LaneAgent(Node):
         self._status_pub = self.create_publisher(LaneStatus, f'/{n}/lane_status', RELIABLE_10)
         self._state_pub = self.create_publisher(RobotState, f'/{n}/state', 10)
         self._initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, 'initialpose', 10)
+        # AMCL 공분산을 GUI 로 (agent_node 와 같은 토픽). 마커/항공뷰 모드에선 AMCL 이 없어 안 나온다.
+        pose_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
+                              reliability=QoSReliabilityPolicy.RELIABLE,
+                              durability=QoSDurabilityPolicy.VOLATILE)
+        self._amcl_pose_pub = self.create_publisher(PoseWithCovarianceStamped, f'/{n}/amcl_pose', pose_qos)
+        self.create_subscription(PoseWithCovarianceStamped, 'amcl_pose', self._on_amcl_pose, pose_qos)
 
         self.create_timer(1.0 / float(self.get_parameter('control_rate').value), self._control_tick)
         self.create_timer(1.0 / float(self.get_parameter('status_rate').value), self._status_tick)
@@ -197,6 +203,9 @@ class LaneAgent(Node):
             self.driver.set_command(CMD_SET_SPEED, now, max_v=msg.max_linear_vel,
                                     max_w=msg.max_angular_vel)
         # CMD_GOTO / CMD_SET_MAP 은 차선 모드에서 뜻이 없다
+
+    def _on_amcl_pose(self, msg: PoseWithCovarianceStamped):
+        self._amcl_pose_pub.publish(msg)
 
     def _on_scan(self, msg: LaserScan):
         self.driver.update_scan(msg.ranges, msg.angle_min, msg.angle_increment,

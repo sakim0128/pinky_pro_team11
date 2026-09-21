@@ -60,6 +60,7 @@ class PinkyAgent(Node):
         self.declare_parameter('state_topic', '')     # 비우면 /<robot_name>/state
         self.declare_parameter('command_topic', '')   # 비우면 /<robot_name>/command
         self.declare_parameter('plan_topic', '')      # 비우면 /<robot_name>/plan
+        self.declare_parameter('amcl_pose_topic', '')  # 비우면 /<robot_name>/amcl_pose (공분산 포함, GUI 모니터링용)
         # Nav2 planner_server 가 실제로 발행하는 이름. namespace 를 쓰지 않으므로 /plan 이다.
         self.declare_parameter('plan_in_topic', 'plan')
         self.declare_parameter('map_topic', 'map')
@@ -92,6 +93,8 @@ class PinkyAgent(Node):
             self.get_parameter('command_topic').value or f'/{self._name}/command')
         self._plan_topic = (
             self.get_parameter('plan_topic').value or f'/{self._name}/plan')
+        self._amcl_pose_topic = (
+            self.get_parameter('amcl_pose_topic').value or f'/{self._name}/amcl_pose')
         self._pose_timeout = float(self.get_parameter('pose_timeout').value)
         self._hold_watchdog = float(self.get_parameter('hold_watchdog').value)
         self._link = LinkWatch(self.get_parameter('command_timeout').value,
@@ -175,6 +178,14 @@ class PinkyAgent(Node):
             Path, self.get_parameter('plan_in_topic').value, self._on_plan,
             plan_qos, callback_group=cb)
 
+        # AMCL 의 /amcl_pose(PoseWithCovarianceStamped) 를 로봇 이름이 붙은 토픽으로 중계한다.
+        # 위치는 TF 로 잡지만(끊기지 않음), 공분산은 이 메시지에만 있다 — GUI 가 불확실성 타원·수치를 그린다.
+        # AMCL 은 update_min_d/a 만큼 움직여야 새 값을 내므로 정지 중엔 갱신되지 않는다 (stamp 로 구분).
+        self._amcl_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped, self._amcl_pose_topic, plan_qos)
+        self.create_subscription(
+            PoseWithCovarianceStamped, 'amcl_pose', self._on_amcl_pose, plan_qos, callback_group=cb)
+
         self._nav_client = ActionClient(
             self, NavigateToPose, 'navigate_to_pose', callback_group=cb)
 
@@ -195,7 +206,7 @@ class PinkyAgent(Node):
         self.get_logger().info(
             f'pinky_fleet_agent 시작: name={self._name} domain_id={self._domain_id} '
             f'state={self._state_topic} command={self._command_topic} '
-            f'plan={self._plan_topic} command_timeout={self._link.timeout:.1f}s '
+            f'plan={self._plan_topic} amcl_pose={self._amcl_pose_topic} command_timeout={self._link.timeout:.1f}s '
             f'map_dir={self._map_dir} map={self._map_name or "(미지정)"}')
 
     # ------------------------------------------------------------------ 구독
@@ -203,6 +214,10 @@ class PinkyAgent(Node):
     def _on_plan(self, msg: Path):
         """Nav2 의 /plan 을 그대로 /<robot_name>/plan 으로 흘려보낸다 (GUI 경로 오버레이)."""
         self._plan_pub.publish(msg)
+
+    def _on_amcl_pose(self, msg: PoseWithCovarianceStamped):
+        """/amcl_pose 를 /<robot_name>/amcl_pose 로 중계한다 (공분산 포함, 내용은 손대지 않는다)."""
+        self._amcl_pose_pub.publish(msg)
 
     def _on_odom(self, msg: Odometry):
         self._linear_velocity = msg.twist.twist.linear.x

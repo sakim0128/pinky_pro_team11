@@ -61,6 +61,18 @@ topics:
       history: keep_last
       depth: 1
 
+  # AMCL 위치 + 6x6 공분산 (GUI 불확실성 표시). 에이전트가 /amcl_pose 를 이름 붙여 중계한다.
+  # 로봇이 update_min_d 이상 움직일 때만 갱신된다 — stamp 가 오래됐으면 정지 중인 것.
+  /pinky1/amcl_pose:
+    type: geometry_msgs/msg/PoseWithCovarianceStamped
+    from_domain: 10
+    to_domain: 0
+    qos:
+      reliability: reliable
+      durability: volatile
+      history: keep_last
+      depth: 1
+
   # ------------------------- pinky2 (domain 11) -------------------------
   /pinky2/state:
     type: pinky_fleet_msgs/msg/RobotState
@@ -84,6 +96,18 @@ topics:
 
   /pinky2/plan:
     type: nav_msgs/msg/Path
+    from_domain: 11
+    to_domain: 0
+    qos:
+      reliability: reliable
+      durability: volatile
+      history: keep_last
+      depth: 1
+
+  # AMCL 위치 + 6x6 공분산 (GUI 불확실성 표시). 에이전트가 /amcl_pose 를 이름 붙여 중계한다.
+  # 로봇이 update_min_d 이상 움직일 때만 갱신된다 — stamp 가 오래됐으면 정지 중인 것.
+  /pinky2/amcl_pose:
+    type: geometry_msgs/msg/PoseWithCovarianceStamped
     from_domain: 11
     to_domain: 0
     qos:
