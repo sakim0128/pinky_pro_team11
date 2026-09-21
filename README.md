@@ -191,6 +191,21 @@ v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. 차선을 잃으면 0.6 s 직전 �
 
 ## 실행
 
+**환경 (확정)**
+
+| | 저장소 체크아웃 | 워크스페이스 | 도메인 | 빌드 패키지 |
+|---|---|---|---|---|
+| 관제 PC (`sungah`) | `/home/sungah/fleet_ws/src/pinky_pro_team11` | `~/fleet_ws` | 0 | `pinky_lane_msgs pinky_fleet_agent pinky_lane_station` |
+| 핑키 (`pinky@192.168.4.1`) | `/home/pinky/pinky_pro/src/pinky_pro_team11` | `~/pinky_pro` | 10 (pinky2 는 11) | `pinky_lane_msgs pinky_fleet_agent` |
+
+두 체크아웃 모두 `mini_project_2` 브랜치. 위치추정(마커·항공뷰) 작업은 `mini_project_2_aerial_view`.
+
+```bash
+# 최신 코드 받기 + 빌드 (양쪽 공통 패턴)
+cd <체크아웃> && git checkout mini_project_2 && git pull
+cd <워크스페이스> && colcon build --packages-select <빌드 패키지> && source install/setup.bash
+```
+
 ```bash
 # 관제 PC — 하드웨어 없는 폐루프 (가짜 로봇 2대 + 인식 + 예약). 실제 핑키는 움직이지 않는다.
 export ROS_DOMAIN_ID=0
