@@ -147,3 +147,40 @@ PYTHONPATH=pinky_lane_station:pinky_fleet_station python3 -m pinky_lane_station.
 
 현재 커밋된 `road_graph.yaml` 은 **사진에서 읽은 토폴로지만 맞고 좌표는 초안**이다.
 사진 정합 후 노드를 끌어 테이프 중심선에 맞춘다. 결과 확인용 렌더링: `docs/road_graph_overlay.png`.
+
+## 7. 텔레옵 주행으로 도로망 그래프 기록 (D11)
+
+카메라만 찍은 영상은 map 좌표가 없어 그래프로 못 바꾼다. **위치추정을 켜고** 차선 중앙을 유지하며 한 번 더 주행하되,
+이번엔 위치만 기록한다. 기록 정확도 = 그때 위치추정의 정확도이므로, 항공뷰 마커(`mini_project_2_aerial_view`) 를 세운
+뒤에 하는 것을 권한다. 도구는 `/pinky1/state` 만 보므로 위치 소스와 무관하다.
+
+```bash
+# [로봇]  위치추정만 켠다 (lane_agent 는 안 띄워도 됨). aerial 브랜치면 lane_robot.launch.xml 기본(마커),
+#         AMCL 이면 use_amcl:=True map:=...
+export ROS_DOMAIN_ID=10
+ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 use_camera:=False
+# [로봇 T2] 텔레옵
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+
+# [PC]  브릿지 (state 만 있으면 됨)
+export ROS_DOMAIN_ID=0
+ros2 launch pinky_lane_station lane_bridge.launch.xml
+ros2 topic echo /pinky1/state --field localized          # true 인지 확인
+# [PC T2] 기록
+ros2 run pinky_lane_station record_graph --ros-args -p robot:=pinky1 -p out:=$HOME/road_graph_rec.yaml
+```
+
+| 입력 | 동작 |
+|---|---|
+| `n BL e` | 지금 위치를 노드 `BL`(끝점) 로. 타입 `j` 분기 · `c` 횡단보도 · `e` 끝점 · `w` 경유(기본) |
+| `n JS j` … | 노드마다 찍는다. **같은 이름을 다시 찍으면 같은 노드**(좌표 평균) — 분기를 여러 방향에서 지날 때 |
+| `u` | 마지막 노드 취소 |
+| `p` | 일시정지/재개. 후진·들어 옮기기 전에 누르고, 재개 후 **지금 서 있는 노드를 다시 찍고** 출발 |
+| `l` | 진행 상황 |
+| `s` / `q` | 저장 후 종료 / 저장 없이 종료 |
+
+절차: 출발 노드에서 `n` → 차선 중앙을 유지하며 다음 노드까지 → `n` → … 분기는 **모든 방향을 한 번씩** 지난다
+(같은 노드 쌍을 두 번 지나면 두 번째는 버린다). 횡단보도는 그 위에서 `n CW1 c`. 끝나면 `s`.
+
+결과 `road_graph_rec.yaml` 은 검증까지 마친 그래프다. 편집기로 열어 사진 위에서 확인하고
+`pinky_lane_station/config/road_graph.yaml` 로 복사한다. 궤적 원본은 `road_graph_rec_trajectory.csv`.
