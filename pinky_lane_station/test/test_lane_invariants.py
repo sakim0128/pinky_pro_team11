@@ -102,6 +102,16 @@ def test_lane_only_launch_overrides_only_allowed_params(agent_params):
     assert agent_params['lane_lost_coast'] < agent_params['path_timeout']
 
 
+def test_all_launch_xml_files_parse():
+    """속성값 안의 '<' 같은 문자는 launch 자체를 못 띄운다 (실기에서 한 번 겪음)."""
+    import glob
+    import xml.etree.ElementTree as ET
+    files = glob.glob(os.path.join(REPO, '*', 'launch', '*.xml'))
+    assert files
+    for f in files:
+        ET.parse(f)
+
+
 def test_camera_node_stamps_right_after_capture():
     src = read(os.path.join(AGENT, 'pinky_fleet_agent', 'camera_node.py'))
     cap = src.index('capture_array()')

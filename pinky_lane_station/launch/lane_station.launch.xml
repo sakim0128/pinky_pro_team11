@@ -24,7 +24,7 @@
     <arg name="use_coordinator" default="True"
          description="False: 경로·예약 없이 브릿지 + 인식 파이프라인만 (차선만 추종 테스트, lane_only.launch.xml)"/>
     <arg name="publish_debug_image" default="True"
-         description="/<robot>/lane_debug/compressed 에 검출 결과를 그려 발행 (rqt_image_view)"/>
+         description="/&lt;robot&gt;/lane_debug/compressed 에 검출 결과를 그려 발행 (rqt_image_view)"/>
 
     <include file="$(find-pkg-share pinky_lane_station)/launch/lane_bridge.launch.xml"
              if="$(var use_bridge)"/>
