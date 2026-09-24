@@ -268,3 +268,9 @@ python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_sta
 - `--snap` 으로 고른 카메라 보정값 (`camera_orient`), 초음파 노드(`ros2 run pinky_sensor_adc main_node`) 동작 여부
 - `cam_sign`: 실차에서 로봇을 차선 왼쪽에 두고 우회전(ω<0) 이 나오는지 한 번 확인
 - 이 저장소의 ROS 노드는 ROS 가 없는 환경에서 작성했다 — ROS-free 코어와 텍스트 불변식만 pytest 로 검증했고, 노드 실행(`fake_lane.launch.xml`)은 관제 PC 에서 처음 돌린다
+
+## Live 웹 상태 조회
+
+주행 명령을 발행하지 않는 웹 모니터를 추가했습니다. 기존 실기 백엔드에 연결해
+위치·측정 속도·차선 주행 상태·미션과 수신 상태를 표시합니다.
+설치 및 실행: [live 웹 안내](docs/integration/live_web.md).
