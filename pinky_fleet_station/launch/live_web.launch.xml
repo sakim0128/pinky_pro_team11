@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="host" default="127.0.0.1"/>
+  <arg name="port" default="8080"/>
+  <arg name="map_yaml" default="$(find-pkg-share pinky_fleet_station)/config/map5.yaml"/>
+  <arg name="overhead_camera_topic" default="/overhead/camera/image/compressed"/>
+  <node pkg="pinky_fleet_station" exec="live_web_node" name="fleet_live_web" output="screen">
+    <param name="host" value="$(var host)"/>
+    <param name="port" value="$(var port)"/>
+    <param name="map_yaml" value="$(var map_yaml)"/>
+    <param name="overhead_camera_topic" value="$(var overhead_camera_topic)"/>
+  </node>
+</launch>
