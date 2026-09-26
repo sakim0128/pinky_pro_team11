@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<!--
+  Nav2 + DriveCommandGate 모드 로봇 최상위 launch.
+
+    export ROS_DOMAIN_ID=10
+    ros2 launch pinky_fleet_agent hybrid_robot.launch.xml robot_name:=pinky1 domain_id:=10 map_name:=map4
+
+  bringup(모터/라이다/TF) + Nav2(출력 = /cmd_vel_mission) + drive_command_gate(/cmd_vel 유일 발행자)
+  + hybrid_agent_node. 관제는 FleetCommand(단일 목표) 와 Route/LaneCommand(레인 관제) 둘 다 쓸 수 있다.
+  robot.launch.xml · lane_robot.launch.xml 과 동시에 띄우지 말 것 (셋 다 /<robot_name>/command 를 받는다).
+
+  위치: 기본은 AMCL. use_pose_fuser:=True 면 AMCL 대신 pose_fuser_node 가 /<robot_name>/pose_fix
+  (외부 비전) + odom 으로 map->odom 을 낸다. fix 가 fix_timeout 동안 없으면 TF 가 끊겨 Nav2 가 멈춘다.
+
+  /cmd_vel 경로:
+    controller_server > /cmd_vel_nav > velocity_smoother > /cmd_vel_mission
+    behavior_server   > /cmd_vel_mission
+    수동 조종         > /cmd_vel_teleop
+    /cmd_vel_mission · /cmd_vel_teleop · /estop > drive_command_gate > /cmd_vel
+  hybrid_agent_node 는 ESTOP · 링크 유실에서 /estop true 를 낸다 → 게이트가 0 으로 묶는다.
+-->
+<launch>
+    <arg name="robot_name" default="pinky1"/>
+    <arg name="domain_id" default="10"/>
+    <arg name="map_dir" default="/home/pinky/map"
+         description="이 로봇의 맵 디렉터리. 관제 PC 는 이름만 보내고 여기서 찾는다."/>
+    <arg name="map_name" default="pinklab"
+         description="기동 시 로드할 맵 이름 (확장자 없음)."/>
+    <arg name="map" default="$(var map_dir)/$(var map_name).yaml"
+         description="맵 yaml 전체 경로. 보통은 map_dir/map_name 조합을 그대로 쓴다."/>
+    <arg name="params_file"
+         default="$(find-pkg-share pinky_fleet_agent)/params/nav2_params_fleet.yaml"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="max_linear_vel" default="0.2"/>
+    <arg name="max_angular_vel" default="1.5"/>
+    <arg name="hold_watchdog" default="20.0"
+         description="HOLD(STOP)가 이만큼(s) 갱신되지 않으면 자동 해제한다."/>
+    <arg name="command_timeout" default="3.0"
+         description="관제 명령이 이만큼(s) 끊기면 로봇이 스스로 멈추고 /estop 을 래치한다."/>
+    <arg name="restore_grace" default="1.0"
+         description="연결 복구 직후 이만큼(s) 이동 명령을 무시한다 (재전송 방어)."/>
+    <arg name="launch_bringup" default="True"
+         description="시뮬레이션에서 돌릴 때는 False 로 두고 pinky_gz_sim 을 따로 띄운다."/>
+    <arg name="use_pose_fuser" default="False"
+         description="True: AMCL 대신 pose_fuser_node 가 외부 비전 PoseFix + odom 으로 map->odom 을 낸다."/>
+
+    <include file="$(find-pkg-share pinky_bringup)/launch/bringup_robot.launch.xml"
+             if="$(var launch_bringup)">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <include file="$(find-pkg-share pinky_fleet_agent)/launch/nav2_gated_bringup.launch.xml">
+        <arg name="map" value="$(var map)"/>
+        <arg name="params_file" value="$(var params_file)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+        <arg name="use_pose_fuser" value="$(var use_pose_fuser)"/>
+        <arg name="lifecycle_nodes_nav" value="['controller_server',
+                           'smoother_server',
+                           'planner_server',
+                           'behavior_server',
+                           'bt_navigator',
+                           'waypoint_follower',
+                           'velocity_smoother']"/>
+    </include>
+
+    <node pkg="pinky_fleet_agent" exec="drive_command_gate" name="drive_command_gate" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="pinky_fleet_agent" exec="pose_fuser_node" name="pose_fuser" output="screen"
+          if="$(var use_pose_fuser)">
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- /<robot_name>/diag 가 수명주기를 묻는 노드 = 위 localization + lifecycle_nodes_nav -->
+    <let name="diag_lifecycle_nodes" unless="$(var use_pose_fuser)"
+         value="['map_server', 'amcl', 'controller_server', 'smoother_server', 'planner_server', 'behavior_server', 'bt_navigator', 'waypoint_follower', 'velocity_smoother']"/>
+    <let name="diag_lifecycle_nodes" if="$(var use_pose_fuser)"
+         value="['map_server', 'controller_server', 'smoother_server', 'planner_server', 'behavior_server', 'bt_navigator', 'waypoint_follower', 'velocity_smoother']"/>
+
+    <include file="$(find-pkg-share pinky_fleet_agent)/launch/hybrid_agent.launch.xml">
+        <arg name="robot_name" value="$(var robot_name)"/>
+        <arg name="domain_id" value="$(var domain_id)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+        <arg name="max_linear_vel" value="$(var max_linear_vel)"/>
+        <arg name="max_angular_vel" value="$(var max_angular_vel)"/>
+        <arg name="hold_watchdog" value="$(var hold_watchdog)"/>
+        <arg name="command_timeout" value="$(var command_timeout)"/>
+        <arg name="restore_grace" value="$(var restore_grace)"/>
+        <arg name="map_dir" value="$(var map_dir)"/>
+        <arg name="map_name" value="$(var map_name)"/>
+        <arg name="diag_lifecycle_nodes" value="$(var diag_lifecycle_nodes)"/>
+    </include>
+</launch>
