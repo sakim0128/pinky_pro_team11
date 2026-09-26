@@ -29,6 +29,7 @@ setup(
             'camera_node = pinky_fleet_agent.camera_node:main',
             'pose_fuser_node = pinky_fleet_agent.pose_fuser_node:main',
             'drive_command_gate = pinky_fleet_agent.drive_command_gate:main',
+            'hybrid_agent_node = pinky_fleet_agent.hybrid_agent_node:main',
         ],
     },
 )
