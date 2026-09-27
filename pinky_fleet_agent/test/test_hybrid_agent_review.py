@@ -827,3 +827,23 @@ def test_복구_직후에도_STOP_은_받고_GOTO_는_거른다():
     a._send_goal_to.assert_not_called()
     a._on_command(_stop())
     assert a._hold is True
+
+
+def test_LaneCommand_SET_SPEED_로_링크가_회복돼도_같은_해제_문을_지난다():
+    """A-12 가 SET_SPEED 에도 적용되는지 — 이 브랜치의 SET_SPEED 처리가 해제 문보다 먼저 return 하면, 링크 유실만 걸린
+    로봇이 SET_SPEED 한 발로 취소 확인 없이 풀린다(적대 검토가 잡은 이식 결함). main 은 이 명령에서도 문을 세운다."""
+    a, clk = _agent()
+    _with_handlers(a)
+    a._on_command(_hb())
+    clk.t += 5.0
+    a._odom_at = clk.t                                         # 멈춰 있고 odom 도 신선 — 래치는 안 걸린다
+    a._check_link()
+    assert a._link_lost and not a._chain.latched
+    m = _lane(rc.CMD_SET_SPEED)
+    m.max_linear_vel = 0.12
+    m.max_angular_vel = 1.0
+    a._on_lane_command(m)                                      # 회복이 SET_SPEED 로 왔다
+    assert a._apply_speed.call_args[0] == pytest.approx((0.12, 1.0))
+    assert a._release_pending is not None, "해제 문을 세우지 않고 풀렸다"
+    assert len([f for f in a._futs if f.cbs and f.action == "navigate_to_pose"]) == 1
+    assert a._halted(), "취소 확인 전인데 정지가 아니다"

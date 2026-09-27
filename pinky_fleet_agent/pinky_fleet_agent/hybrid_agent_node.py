@@ -620,8 +620,9 @@ if HAS_RCLPY:
                 self.get_logger().info('Link recovered via LaneCommand (release gate; latch stays until LaneCommand RESUME).')
             if msg.command == LaneCommand.CMD_SET_SPEED:
                 # lane_agent_node 와 같은 뜻 — 속도 상한만 바꾼다. 주행 상태는 건드리지 않는다.
+                # 여기서 return 하지 않는다 — 링크 유실 뒤 첫 명령이 이것이면 아래 해제 문(A-12)을 지나야 한다.
+                # route_chain 은 SET_SPEED 에 빈 동작을 돌려주므로 나머지는 그대로 흘러도 상태가 바뀌지 않는다.
                 self._apply_speed(msg.max_linear_vel, msg.max_angular_vel)
-                return
             before = self._chain.drive_state()
             was_stopped, was_estop = self._chain.stopped, self._chain.estop
             acts = self._chain.on_lane_command(msg.command, msg.route_seq, msg.clear_until_idx)
