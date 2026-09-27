@@ -2,6 +2,8 @@
 
 `mini_project_2` 위에 **새 파일만 얹은** 패치다. 기존 두 모드는 그대로다.
 
+> **배포 전에 §6 "main 동기" 를 본다** — 에이전트가 원 저장소 main 의 어느 커밋까지 따라왔는지, 무엇으로 검증했는지.
+
 | 모드 | launch | /cmd_vel 발행자 | 위치 |
 | :--- | :--- | :--- | :--- |
 | 차선 주행 (기존) | `lane_robot.launch.xml` | `lane_agent_node` | AMCL |
@@ -38,7 +40,7 @@
 | `launch/nav2_gated_bringup.launch.xml` | pinky_pro `bringup_launch.xml` 구성 + 위 navigation. `use_pose_fuser` 면 AMCL 없이 map_server 만 | 같음 |
 | `launch/hybrid_agent.launch.xml` · `launch/hybrid_robot.launch.xml` | 에이전트 단독 / 최상위 | 새로 |
 | `test/test_drive_command_gate.py` · `test_hybrid_link_watch.py` · `test_hybrid_launch.py` | | 새로 |
-| `test/test_route_chain.py` · `test_hybrid_agent_review.py` · `test_hybrid_agent_loopback.py` | | 같은 저장소에서 경로만 바꿔 옮김 (+ §5 수락 시험 추가) |
+| `test/test_route_chain.py` · `test_hybrid_agent_review.py` · `test_hybrid_agent_loopback.py` · `test_hybrid_review_0926_agent.py` · `test_hybrid_review_0926_agent2.py` | | 같은 저장소에서 import·경로만 바꿔 옮김 (+ §5 수락 시험 추가). `test_hybrid_review_0926_agent2.py` 의 월요일 시나리오 경로는 이 저장소 `pinky_lane_station/config/road_graph.yaml` + `pinky_lane_station.road_graph.RoadGraph` 로 만든다 |
 
 ## 2. 실행
 
@@ -81,17 +83,18 @@ hybrid_agent_node > /estop (ESTOP · 링크 유실에서 true) ─────�
 ## 4. 검증 (TESTED_SHA 영수증)
 
 ```text
-TESTED_SHA = 9470111df43eb3da03299c5bebfd958a7c9648a4   (이 문서 커밋의 부모 = 코드 마지막 커밋)
+TESTED_SHA = 1a961ebfac613c72e8df66f3d8af0b4c139095b0   (코드 마지막 커밋 — §6 main 동기)
 git status --porcelain = (비어 있음)
 base = mini_project_2 1f505cb88719c44391cc2781dcc3c5f09c9b7795
 ```
+(첫 판 `9470111` 의 수치는 §6 표의 "동기 전" 열에 남겼다.)
 
 | 무엇 | 어디서 | 결과 |
 | :--- | :--- | :--- |
-| `python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test` | ROS 없는 Python 3.11 | **297 passed, 62 skipped** (skip = ROS 가 필요한 에이전트 시험). 패치 전 베이스 215 passed, 4 skipped |
+| `python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test` | ROS 없는 Python 3.11 | **313 passed, 132 skipped** (skip = ROS 가 필요한 에이전트 시험). 패치 전 베이스 215 passed, 4 skipped |
 | `colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` + `ros2 interface show pinky_lane_msgs/msg/PoseFix` | ROS 2 Jazzy 컨테이너 (`ros:jazzy-ros-base` + 소스 빌드 `nav2_msgs`) | 성공 |
-| `python3 -m pytest pinky_fleet_agent/test` (ROS source 후) | 같은 컨테이너 | **221 passed, 0 skipped** (DDS loopback · 가짜 Nav2 액션 서버 포함) |
-| `ros2 launch pinky_fleet_agent hybrid_robot.launch.xml launch_bringup:=False use_pose_fuser:=True` | 같은 컨테이너 | `/estop` 구독 = `drive_command_gate` · `/cmd_vel` 발행자 = `drive_command_gate` **1개** · `/cmd_vel_mission` 0.1 흘리는 중 `LaneCommand ESTOP` → `/estop true` → `/cmd_vel` 0.0 (5/5) · `drive_gate_status source=ESTOP` · `RESUME` → 0.1 |
+| `python3 -m pytest pinky_fleet_agent/test` (ROS source 후) | 같은 컨테이너 | **307 passed, 0 skipped** (DDS loopback · 가짜 Nav2 액션 서버 포함) |
+| `ros2 launch pinky_fleet_agent hybrid_robot.launch.xml launch_bringup:=False use_pose_fuser:=True` | 같은 컨테이너 | `/estop` 구독 = `drive_command_gate` · `/cmd_vel` 발행자 = `drive_command_gate` **1개** · `/cmd_vel_mission` 0.1 흘리는 중 `LaneCommand ESTOP` → `/estop true` → `/cmd_vel` 0.0 (5/5) · `drive_gate_status source=ESTOP` · `RESUME` → **0.0 유지**(Nav2 가 없어 취소를 확인할 수 없다 — §6 ⚠️; 첫 판 `9470111` 에서는 0.1 로 풀렸다) |
 | 같은 launch, `use_pose_fuser:=False` | 같은 컨테이너 | `amcl` 포함 localization 로드 시도, 진단 대상 9노드 · `True` 면 `amcl` 없이 8노드 + `pose_fuser` |
 | 변경 파일 인코딩 | | 전부 UTF-8 (`git diff --numstat` 에 바이너리 행 없음, UTF-16 BOM 없음, `.py` 전부 compile) |
 
@@ -106,6 +109,7 @@ base = mini_project_2 1f505cb88719c44391cc2781dcc3c5f09c9b7795
   설정에는 아직 없다 (aerial_view 의 `pinky_lane_station/config/bridge_lane.yaml` 에만 있다 — 이 패치는 관제 쪽을
   건드리지 않았다). fix 가 `fix_timeout`(15 s) 동안 없으면 TF 가 끊겨 Nav2 가 멈춘다 — 의도된 동작이다.
 - `test_hybrid_agent_loopback.py` 는 옮긴 그대로라 flake8 스타일 경고(한 줄 세미콜론 등)가 남아 있다. 동작과는 무관하다.
+- `test_hybrid_review_0926_agent2.py` 의 ROS 부분은 옆 패키지 `pinky_lane_station` 을 import 한다 — 이 저장소 체크아웃 전체가 있어야 돈다(`pinky_fleet_agent` 만 떼어 내면 collection 에서 ImportError).
 
 ## 5. 가져오면서 고친 것 (원 저장소 대비)
 
@@ -113,9 +117,78 @@ base = mini_project_2 1f505cb88719c44391cc2781dcc3c5f09c9b7795
 | :--- | :--- | :--- |
 | `hybrid_agent_node.py` | FleetCommand `SET_SPEED` 분기 · 알 수 없는 명령 경고 되살림 | 원본에 없어 SET_SPEED 가 경고 없이 버려졌다 (`agent_node` 에는 있다) |
 | `hybrid_agent_node.py` | 링크 복구 직후 은혜 기간에 **이동 명령만** 거른다 | 원본은 STOP · CANCEL 까지 버렸다 |
-| `hybrid_agent_node.py` | LaneCommand `SET_SPEED` 처리 · `map_dir`/`map_name` 기본값과 보고 이름을 `agent_node` 와 같게 | |
+| `hybrid_agent_node.py` | LaneCommand `SET_SPEED` 처리(속도 상한만 바꾸고, 다른 LaneCommand 처럼 해제 문(§6)도 지난다) · `map_dir`/`map_name` 기본값과 보고 이름을 `agent_node` 와 같게 | |
 | `hybrid_link_watch.py` | `command_timeout` 0 이면 LOST 를 내지 않는다 | 원본은 0(비활성)이어도 첫 poll 에 LOST 를 냈다 |
 | `drive_command_gate.py` | 비상정지 값이 **바뀔 때만** 저장된 입력을 버린다 | 원본은 같은 값이 올 때마다 버려 `/estop false` 가 되풀이되면 주행 입력이 계속 지워졌다 |
 
 수락 시험: `test_hybrid_agent_review.py` 의 `test_B2_*` · `test_LaneCommand_SET_SPEED_*` · `test_복구_직후에도_STOP_은_받고_GOTO_는_거른다`,
 `test_hybrid_link_watch.py::test_zero_timeout_never_fires`, `test_drive_command_gate.py::test_repeated_same_estop_value_keeps_inputs`.
+
+## 6. main 동기 — 원 저장소 에이전트 커밋을 따라온 기록 (배포 전 확인)
+
+원 저장소(rkd1rjs2/robot_mini_project_pinky) main 의 `agent_node.py` · `route_chain.py` 가 고쳐지면 이 브랜치의
+`hybrid_agent_node.py` · `route_chain.py` 도 같은 내용으로 맞춘다. 이 표의 마지막 행이 지금 상태다.
+
+| 날짜 | 원 저장소 커밋 (옮긴 것) | 브랜치 커밋 | 무엇 |
+| :--- | :--- | :--- | :--- |
+| 2026-09-26 | main `dd3b4e0` 시점의 `agent_node.py` · `route_chain.py` | `457659e` (코드 `9470111` 까지) | 첫 이식 (§1) |
+| 2026-09-27 | `6f28c63` · `d0352f4` · `2750fe0` · `46757f9` (+ 시험만 고친 `c541be9` · `6b3c3eb`) | `02c171d` + **`1a961eb`** | 아래 (§6.1) |
+
+### 6.1 2026-09-27 · `02c171d` · `1a961eb` — 원 저장소 `REQ_20260927_CLOUD_SESSION_HYBRID_REPORT.md`
+
+| 원 커밋 | 브랜치 파일 | 무엇이 바뀌나 (운영자가 알아야 할 것) |
+| :--- | :--- | :--- |
+| `6f28c63` | `route_chain.py` | **START 전 위치는 진행도를 밀지 않는다.** START 때 그 순간 위치로 경로 처음부터 다시 투영한다(1 s 넘은 위치는 안 쓴다). 좌표 전환 뒤 옛 좌표계 위치가 진행도를 앞으로 밀어 첫 허가보다 뒤가 되어 영영 대기하거나, 움직이지 않고 도착을 보고하던 것(원 저장소 E2E-1)을 고친다 |
+| `d0352f4` | `route_chain.py` · `hybrid_agent_node.py` | **같은 Route 재전달은 무시**(번호·waypoint·goal·발행 시각이 전부 같을 때) — 도메인 브리지만 재기동해도 달리던 임무가 IDLE 로 서지 않는다. 발행 시각이 다르면(코디네이터 재시작) 새 경로 |
+| `2750fe0` | `hybrid_agent_node.py` | **해제 문 하나**: 정지·ESTOP·링크유실 래치를 푸는 네 길(LaneCommand RESUME·START · FleetCommand RESUME · 링크 회복)이 Nav2 에 스탬프 CancelGoal 을 내고 **확인된 뒤에만** `/estop false`·goto 를 낸다. 확인이 없으면(시간초과·거부·서비스 없음) 래치를 쥔 채 1 Hz 재취소, LaneStatus 사유 `해제 보류 — Nav2 취소 미확인`, 진단 `agent.release_hold`. 우리 goal 은 id 를 기억하고 플릿 통제 중 남의 goal 은 id 로 취소. 정지 중 GOTO 는 거절(진단 `refused`). `navigate_through_poses` · `follow_waypoints` 도 본다. odom 1 s 끊김 · Nav2 상태 모름 = 움직이는 중으로 본다 |
+| `46757f9` | `hybrid_agent_node.py` | 문이 선 채 다시 정지했다 풀리면 문을 **새로** 세운다(옛 스탬프의 확인으로 열지 않는다) |
+
+⚠️ **운영에 바로 닿는 것**: 이제 RESUME 은 Nav2 가 취소를 확인해 줄 때만 로봇을 풀어 준다. **Nav2 가 죽어 있거나
+아직 안 떴으면 RESUME 을 보내도 `/cmd_vel` 은 0 에 머문다**(사유 `해제 보류 — Nav2 취소 미확인`). Nav2 를 살리면
+1 Hz 재취소가 확인되어 열린다. 아래 컨테이너 점검의 "RESUME 뒤 0.0" 이 그 동작이다.
+
+**어떻게 옮겼나**: 3-way merge(공통 조상 = 원 저장소 `agent_node.py`@`dd3b4e0`, 이쪽 = `hybrid_agent_node.py`@`e6ee635`,
+저쪽 = `agent_node.py`@main `b545c84`). 충돌 2곳(import 한 줄, 로그 문구 + 이 브랜치의 SET_SPEED 처리). 옮긴 뒤
+`hybrid_agent_node.py` 와 main `agent_node.py` 의 차이는 §1·§5 의 브랜치 적응 115줄뿐이다.
+
+**이식 뒤 적대 검토** (6 관점 × 독립 검토 → 발견마다 반박 검증 2명): 확정 1건 — 이 브랜치의 SET_SPEED 조기 `return` 이
+새로 옮긴 해제 문(`_release_gate`)보다 위에 남아, 링크 유실만 걸린 로봇이 SET_SPEED 한 발로 취소 확인 없이 풀릴 수 있었다
+(지금 코디네이터는 LaneCommand SET_SPEED 를 보내지 않아 잠재 결함). **`1a961eb`** 에서 return 을 없애고 시험
+`test_LaneCommand_SET_SPEED_로_링크가_회복돼도_같은_해제_문을_지난다` 로 잠갔다(return 을 되살리면 빨강).
+반박된 것: `unique_identifier_msgs` 미선언(main 과 같음) · 지도 이름 realpath 정규화(첫 이식부터 있던 의도) · 주석의 원 저장소
+문서 이름(출처는 파일 머리에 밝혀 둠).
+팀11 파일 변경은 여전히 세 개(`pinky_lane_msgs/CMakeLists.txt` · `pinky_fleet_agent/setup.py` · `package.xml`), 새 ROS 파라미터 없음.
+
+**검증** (`TESTED_SHA = 1a961ebfac613c72e8df66f3d8af0b4c139095b0`, `git status --porcelain` 비어 있음)
+
+| 무엇 | 명령 · 환경 | 동기 전 (`9470111`) | 동기 후 (`1a961eb`) |
+| :--- | :--- | :--- | :--- |
+| 팀11 전체 | `python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test -q` · ROS 없는 Python 3.11 | 297 passed, 62 skipped | **313 passed, 132 skipped** |
+| 에이전트 (ROS) | `colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` 뒤 `python3 -m pytest pinky_fleet_agent/test -q` · ROS 2 Jazzy 컨테이너 | 221 passed, 0 skipped | **307 passed, 0 skipped** |
+| B-4 런타임 | `hybrid_robot.launch.xml launch_bringup:=False use_pose_fuser:=True`, Nav2 실행 패키지 없는 컨테이너 | ESTOP → `/cmd_vel` 0.0, RESUME → 0.1 | ESTOP → `/cmd_vel` 0.0, **RESUME → 0.0 유지** + `해제 보류 — Nav2 취소 미확인` 1 Hz (위 ⚠️, Nav2 가 없어서 확인할 수 없다 — 설계대로) |
+| 인코딩·구조 | `git diff --numstat team11/mini_project_2..HEAD` 바이너리 행 0 · 바뀐 `.py` 전부 `py_compile` 통과 · `_on_command`/`_on_lane_command` 는 각자 한 메서드 | | 통과 |
+
+**되돌림 변이** (그 커밋을 되돌린 코드로 같은 시험을 돌리면 빨개져야 한다 — 시험이 규약을 잡고 있다는 증거)
+
+| 되돌린 것 | 돌린 시험 | 결과 |
+| :--- | :--- | :--- |
+| `6f28c63` (route_chain) | `test_hybrid_review_0926_agent2.py` · `test_route_chain.py` (ROS 없음) | 8 failed |
+| `d0352f4` (route_chain) | 같음 | 7 failed |
+| `d0352f4` (hybrid_agent_node `_on_route` 부분) | `test_hybrid_review_0926_agent2.py` (ROS) | 1 failed (`F2_에이전트_브리지_재기동…`) |
+| `46757f9` | `test_hybrid_review_0926_agent.py` · `test_hybrid_agent_review.py` (ROS) | 2 failed |
+| `2750fe0` 이전 판(`e6ee635` 의 `hybrid_agent_node.py`) | `test_hybrid_review_0926_agent.py` (ROS) | 52 failed (전부) |
+| `1a961eb` 되돌림 (SET_SPEED 조기 return 복원) | `test_hybrid_agent_review.py` (ROS) | 1 failed (새 시험만) |
+
+**수락 기준 ↔ 시험** (원 저장소 REQ §3)
+
+| 기준 | 브랜치 시험 |
+| :--- | :--- |
+| 1 E2E-1 | `test_hybrid_review_0926_agent2.py::test_E2E1_*` (RouteChain 9건 + 에이전트 월요일 순서 3건) |
+| 2 F2 | `test_hybrid_review_0926_agent2.py::test_F2_*` (RouteChain 6건 + 에이전트 4건) |
+| 3 A-1~A-4 · 46757f9 | `test_hybrid_review_0926_agent.py::test_A1_*` `test_A2_*` `test_A3_*` `test_A4_*` `test_A12_*` `test_재검_R2_*`, `test_hybrid_agent_review.py::test_S2_취소_응답이_1초_없어도_해제하지_않고_1Hz_로_다시_취소한다__Nav2_무응답` |
+| 4 A-5 · A-8 | `test_hybrid_review_0926_agent.py::test_A5_*` `test_A8_*`, `test_hybrid_agent_loopback.py` `--scenario-gate0926` · `--scenario-foreign0926` |
+| 5 기존 시험 | 위 표 307 / 313 |
+
+**아직 안 한 것**: §4 와 같다 — 실제 Nav2 가 뜬 환경(가상 팜·실물)에서의 주행은 이 환경에서 못 쟀다. 실물 첫 기동 때
+RESUME 뒤 `ros2 topic echo /pinky1/lane_status` 의 `state_reason` 이 `해제 보류 — Nav2 취소 미확인` 에 머물면 Nav2
+(`bt_navigator` · `navigate_to_pose/_action/cancel_goal`)가 살아 있는지 먼저 본다.
