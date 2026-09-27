@@ -25,10 +25,10 @@ Publishes:
   /{name}/state (pinky_fleet_msgs/RobotState): 10 Hz telemetry uplink to Relay
   /{name}/lane_status (pinky_lane_msgs/LaneStatus): 10 Hz — 코디네이터의 START ack·도착 판정 채널 (D6)
   /{name}/diag (std_msgs/String, JSON 1 Hz): fix_status · Nav2 lifecycle · /estop · 게이트 · 에이전트 (R-5, 스키마는 diag.py)
-  /estop (std_msgs/Bool): **ESTOP·링크 유실에서만** true, LaneCommand RESUME 에서 false.
+  /estop (std_msgs/Bool): **ESTOP·링크 유실에서만** true, LaneCommand RESUME 뒤 **해제 문을 지나서** false.
       대기(clear 0·STOP)는 goal 취소뿐이다 — 게이트 MISSION 소스가 0.5 s 뒤 0 이 된다.
-      래치 동안에는 true 를 `estop_refresh` 초(기본 1 s)마다 다시 낸다 — /estop 은 VOLATILE 이라
-      늦게 뜨거나 재기동한 DriveCommandGate 는 한 번 낸 true 를 영영 못 받는다(관제 검수 P2).
+      래치 동안(해제 문이 false 를 쥐고 있는 동안도)에는 true 를 `estop_refresh` 초(기본 1 s)마다 다시 낸다 —
+      /estop 은 VOLATILE 이라 늦게 뜨거나 재기동한 DriveCommandGate 는 한 번 낸 true 를 영영 못 받는다(관제 검수 P2).
       false 는 되풀이하지 않는다 — 다른 출처가 건 비상정지를 덮으면 안 된다.
   initialpose (geometry_msgs/PoseWithCovarianceStamped): Initial pose
   /{name}/plan (nav_msgs/Path): Plan forwarding
@@ -38,6 +38,40 @@ Publishes:
 
 Action Client:
   navigate_to_pose (nav2_msgs/action/NavigateToPose): Nav2 autonomous navigation
+감시·취소(상태 구독 + cancel_goal): navigate_to_pose · navigate_through_poses · follow_waypoints (NAV_ACTIONS)
+
+## 해제 문 (제3자 검수 REVIEW_20260926 A-1~A-4·A-12)
+
+정지·래치를 푸는 길은 넷이다 — LaneCommand RESUME·START, FleetCommand RESUME, 링크 회복. 어느 것이 먼저 와도
+(A-4: resume_robot 은 Lane RESUME·Fleet RESUME 을 연달아 낸다) 전부 같은 문을 지난다:
+1. 정지·래치가 전부 풀리는 순간 Nav2 액션 셋에 **스탬프 취소**(그 시각까지 수락된 goal 전부)를 낸다.
+   문이 선 채 다시 정지했다 또 풀리면 문을 새로 세운다(쌓인 동작은 두고, 옛 스탬프의 확인은 버린다 — 재검 R-agent-2).
+2. 응답이 ERROR_NONE·ERROR_UNKNOWN_GOAL_ID·ERROR_GOAL_TERMINATED 이고, Nav2 상태를 알면 그 상태의 활성 goal 이
+   전부 goals_canceling 에 있어야 확인이다 — rclpy 서버는 취소를 **거부해도** ERROR_NONE 에 빈 목록을 준다(실측).
+   취소 서비스가 없으면 상태가 '활성 없음' 을 말할 때만 확인이다(A-3).
+3. 확인 전에는 아직 정지다(`_halted`) — 그 사이 들어온 goal 도 취소하고(A-5), /estop false·goto 는 문 뒤에 쌓인다.
+   **시간이 지났다고 열지 않는다**(A-1): 1 s 마다 다시 취소하고, 사유 '해제 보류 — Nav2 취소 미확인' 과 진단
+   `agent.release_hold` 로 보고한다. ERROR_REJECTED·서비스 없음(A-2·A-3)도 같다.
+4. 열 때 지금 시각으로 한 번 더 스탬프 취소를 낸다(응답은 안 기다린다) — 스탬프 뒤 ~ 열기 직전에 수락된 goal(A-5).
+
+## 남의 goal (A-5·A-8·관제 G-6)
+
+에이전트가 낸 goal 은 id 를 기억한다. 남의 goal 은 정지·래치(해제 대기 포함) 중이거나 체인이 플릿 통제(START 받음)
+중이면 취소한다. 체인이 쉬고(시작 전) 래치도 없으면 사람의 수동 goal 은 둔다.
+정지·래치 중 FleetCommand GOTO 는 받아서 곧바로 취소하지 않고 **거부**한다(A-8, 진단 `agent.refused`).
+
+## 모르면 움직이는 중 (A-7·A-9)
+
+- Nav2 상태는 처음엔 '모름'. 액션 상태는 **바뀔 때만** 발행된다(TRANSIENT_LOCAL, 한가하면 몇 분이고 조용하다 — 실측)
+  → 신선함은 받은 시각이 아니라 **발행자가 살아 있는가**로 잰다. 발행자가 2 s 넘게 보였는데 아무것도 안 왔으면
+  서버가 상태를 낸 적이 없다(= goal 이 없었다). 발행자가 사라지면 다시 '모름'. 모르면 정지·데드맨 판단에서 바쁨이다.
+  보조 액션(through_poses·waypoints)은 서버가 없으면 goal 도 없다 — 안 띄운 곳(가짜 Nav2)에서 문이 영영 안 열리지 않게.
+- odom 이 1 s 넘게 안 오면 속도를 모른다 → 데드맨에는 움직이는 중이다.
+
+## HOLD 는 막기가 아니라 사후 취소다 (A-11)
+
+Lane/Fleet STOP(HOLD)은 /estop 을 닫지 않는다. HOLD 중 새로 들어온 우회 goal 은 상태 보고가 닿고 다음 10 Hz 틱이
+취소할 때까지(goal 당 ~100 ms + 상태 지연) 달릴 수 있다. 게이트에서 **막는** 것은 ESTOP·링크 유실(/estop true)뿐이다.
 """
 
 import functools
@@ -47,6 +81,7 @@ import os
 import signal
 import sys
 import threading
+import uuid
 
 try:
     import rclpy
@@ -70,6 +105,10 @@ try:
     from tf2_ros import Buffer, TransformListener
     from pinky_fleet_msgs.msg import FleetCommand, RobotState
     from pinky_lane_msgs.msg import LaneCommand, LaneStatus, Route as RouteMsg
+    from unique_identifier_msgs.msg import UUID     # action_msgs 의 의존 — goal id 를 우리가 정해 기억한다(A-5)
+    # 해제 문을 여는 취소 응답 (A-2). ERROR_REJECTED(1)는 확인이 아니다.
+    RELEASE_OK_CODES = (CancelGoal.Response.ERROR_NONE, CancelGoal.Response.ERROR_UNKNOWN_GOAL_ID,
+                        CancelGoal.Response.ERROR_GOAL_TERMINATED)
     HAS_RCLPY = True
 except ImportError:
     HAS_RCLPY = False
@@ -84,6 +123,16 @@ from . import diag as diag_mod
 INITIAL_POSE_COV_XX = 0.25
 INITIAL_POSE_COV_YY = 0.25
 INITIAL_POSE_COV_YAWYAW = 0.06853891909122467
+
+# 제3자 검수 A-6: 감시·취소하는 Nav2 액션. navigate_to_pose 만 보면 through_poses 는 안 보이고,
+#   waypoint_follower(stop_on_failure: false)는 다리 goal 이 취소돼도 다음 다리로 넘어가 정지를 넘어 산다.
+NAV_ACTIONS = ('navigate_to_pose', 'navigate_through_poses', 'follow_waypoints')
+NAV_PRIMARY = 'navigate_to_pose'        # 이것의 상태를 모르면 '모름'(=바쁨). 보조 액션은 서버가 없으면 goal 도 없다
+NAV_STATUS_SILENT_OK_S = 2.0            # 상태 발행자가 이만큼 보였는데 아무것도 안 왔으면 goal 이 없었다 (A-9)
+ODOM_STALE_S = 1.0                      # odom 이 이만큼 없으면 속도를 모른다 (A-7)
+RELEASE_RETRY_S = 1.0                   # 해제 문: 취소 확인을 기다리는 시간 = 다시 취소하는 간격 (A-1)
+RELEASE_HOLD_REASON = '해제 보류 — Nav2 취소 미확인'
+OWN_GOALS_KEEP = 64                     # 기억하는 우리 goal id 수
 
 
 def yaw_from_quaternion(q):
@@ -115,12 +164,20 @@ def _serialized(fn):
 if HAS_RCLPY:
     class PinkyAgent(Node):
         # S2~S4 상태의 클래스 기본값 — __init__ 을 건너뛰고 만든 시험용 에이전트(도커 통합 d11 등)도 같은 코드를 돈다
-        _nav_active = frozenset()
+        _nav_goals = None                   # 액션별 활성 goal {id: 수락 시각 ns} — None 은 모름 (A-9, __init__ 이 채운다)
+        _own_goals = ()                     # 이 에이전트가 낸 goal id (A-5)
+        _odom_at = None                     # 마지막 odom 수신 시각 (A-7)
         _foreign_cancel_at = None
-        _foreign_canceled = frozenset()     # 이미 취소를 보낸 goal id — 새 id 는 기다리지 않고 바로 취소한다
-        _release_pending = None
+        _foreign_canceled = frozenset()     # 이미 취소를 보낸 (액션, goal id) — 새 id 는 기다리지 않고 바로 취소한다
+        _release_pending = None             # 해제 문 뒤에 쌓인 동작 — None 이면 문이 없다 (A-1~A-5)
         _release_deadline = None
-        _release_future = None              # 해제를 기다리는 **가장 최근** 스탬프 취소 — 옛 응답으로 새 해제를 풀지 않는다
+        _release_seq = 0                    # 해제 문 번호 — 옛 문의 취소 응답으로 새 문을 열지 않는다
+        _release_ok = None                  # 이번 문에서 확인된 액션 → goals_canceling id 집합
+        _release_sent = frozenset()         # 이번 문에서 스탬프 취소를 보낸 액션
+        _release_since = None
+        _release_why = None
+        _release_tries = 0
+        _refused = None                     # A-8: 마지막으로 거부한 이동 명령 (진단)
         _map_load = None                    # R-7: 마지막 지도 교체 결과 {'name','result','detail'} (진단에 싣는다)
 
         def __init__(self):
@@ -217,6 +274,7 @@ if HAS_RCLPY:
             self._last_pose_time = None
             self._linear_velocity = 0.0
             self._angular_velocity = 0.0
+            self._odom_at = None                # A-7: 받은 적 없으면 속도를 모른다
             # ⚠️ 배터리를 받기 전에는 모른다 — 예전엔 95.0 을 내서 재지 않은 값이 그럴듯한 숫자로 보였다
             self._battery_percent = float('nan')
             self._map_info = None
@@ -301,16 +359,23 @@ if HAS_RCLPY:
             self._nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose', callback_group=cb)
             # D7: HOLD 는 **이 Nav2 서버의 모든 goal** 을 취소한다. 에이전트를 거치지 않고 들어온 goal
             #     (`/robotN/goal_pose` → bt_navigator 우회 경로)도 세우기 위해서다. 빈 goal_info = 전부.
-            self._nav_cancel_all = self.create_client(
-                CancelGoal, 'navigate_to_pose/_action/cancel_goal', callback_group=cb)
+            #     제3자 검수 A-6: navigate_through_poses·follow_waypoints 도 같은 규칙으로 본다.
+            self._nav_cancel = {a: self.create_client(CancelGoal, f'{a}/_action/cancel_goal', callback_group=cb)
+                                for a in NAV_ACTIONS}
             # S2~S4 (관제 검수 REVIEW_20260925 §3.2): 에이전트를 거치지 않는 목표(`/robotN/goal_pose` → bt_navigator)를
-            # 보려고 Nav2 액션 서버의 상태를 듣는다. 정지·래치 중에 살아 있는 goal 은 우리 것이 아니다.
-            self._nav_active = set()          # 서버가 ACCEPTED·EXECUTING 이라 보고한 goal id
+            # 보려고 Nav2 액션 서버의 상태를 듣는다.
+            # A-9: 처음엔 **모름**(None) — 예전엔 '한가함'(빈 집합)으로 시작해 구독이 안 맞으면 감시가 조용히 꺼졌다.
+            self._nav_goals = {a: None for a in NAV_ACTIONS}      # 서버가 ACCEPTED·EXECUTING 이라 보고한 goal
+            self._nav_rx_at = {a: None for a in NAV_ACTIONS}      # 마지막 상태 수신 시각 (진단)
+            self._nav_pub_since = {a: None for a in NAV_ACTIONS}  # 상태 발행자가 보이기 시작한 시각
+            self._own_goals = []
             self._foreign_cancel_at = None
-            self._release_pending = None      # 래치 해제 동작 — 우회 goal 취소가 끝난 뒤에 낸다(S2)
+            self._release_pending = None      # 해제 문 — 취소가 확인된 뒤에 /estop false·goto 를 낸다(S2·A-1)
             self._release_deadline = None
-            self.create_subscription(GoalStatusArray, 'navigate_to_pose/_action/status', self._on_nav_status,
-                                     qos_profile_action_status_default, callback_group=cb)
+            for a in NAV_ACTIONS:
+                self.create_subscription(GoalStatusArray, f'{a}/_action/status',
+                                         lambda m, a=a: self._on_nav_status(a, m),
+                                         qos_profile_action_status_default, callback_group=cb)
 
             map_server = self.get_parameter('map_server').value
             self._load_map_client = self.create_client(LoadMap, f'{map_server}/load_map', callback_group=cb)
@@ -427,7 +492,7 @@ if HAS_RCLPY:
                 states[name] = label if (t is not None and now - t <= self.LC_STALE_SEC) else None
             ch = self._chain
             agent = {
-                'drive_state': ch.drive_state(),
+                'drive_state': self._drive_state(),
                 'reason': ch.reason,
                 'route_seq': ch.route_seq if ch.follower is not None else None,
                 'progress_idx': ch.progress_idx if ch.follower is not None else None,
@@ -444,6 +509,20 @@ if HAS_RCLPY:
                 'goal_active': self._goal_handle is not None,
                 'map_name': self._map_name,
                 'map_load': self._map_load,
+                # 제3자 검수 A-9·A-7: 모르는 것은 모른다고 싣는다 — known false 면 정지·데드맨은 바쁨으로 본다.
+                #   상태는 바뀔 때만 오므로 status_age_s 가 큰 것은 '오래됨' 이 아니다 — 신선함은 publisher(발행자 생존)다.
+                'nav2_goals': {a: {'known': g is not None, 'active': None if g is None else len(g),
+                                   'publisher': self._nav_pub_since[a] is not None,
+                                   'status_age_s': None if self._nav_rx_at[a] is None
+                                   else round(now - self._nav_rx_at[a], 3)}
+                               for a, g in self._nav_goals.items()},
+                'odom_age_s': None if self._odom_at is None else round(now - self._odom_at, 3),
+                # A-1~A-3: 해제 문이 닫혀 있으면 왜·얼마나·어느 액션의 취소가 확인 안 됐는지
+                'release_hold': None if self._release_pending is None else {
+                    'reason': RELEASE_HOLD_REASON, 'why': self._release_why,
+                    'since_s': round(now - self._release_since, 3), 'cancel_tries': self._release_tries,
+                    'unconfirmed': [a for a in NAV_ACTIONS if not self._release_confirmed(a)]},
+                'refused': self._refused,
             }
             tf_age = None if self._last_pose_time is None else now - self._last_pose_time
             d = diag_mod.build(
@@ -459,6 +538,14 @@ if HAS_RCLPY:
         def _on_odom(self, msg: Odometry):
             self._linear_velocity = float(msg.twist.twist.linear.x)
             self._angular_velocity = float(msg.twist.twist.angular.z)
+            self._odom_at = self._seconds()
+
+        def _odom_moving(self):
+            """데드맨의 odom 항. 제3자 검수 A-7: odom 이 ODOM_STALE_S 넘게 없으면(한 번도 안 왔으면) 속도를 모른다 —
+            예전엔 마지막 값(없으면 0.0 = 멈춤)을 믿어 멈춰 있다고 보고 래치하지 않았다. 모르면 움직이는 중이다."""
+            if self._odom_at is None or self._seconds() - self._odom_at > ODOM_STALE_S:
+                return True
+            return abs(self._linear_velocity) > 0.01 or abs(self._angular_velocity) > 0.05
 
         def _on_battery(self, msg: Float32):
             self._battery_percent = float(msg.data)
@@ -504,23 +591,39 @@ if HAS_RCLPY:
             if len(waypoints) < 2:
                 self.get_logger().warn(f'Route seq={msg.route_seq} has {len(waypoints)} waypoints: ignored')
                 return
-            self.get_logger().info(
-                f'Route received: seq={msg.route_seq} waypoints={len(waypoints)} goal_idx={msg.goal_idx}')
-            self._apply(self._chain.on_route(msg.route_seq, waypoints, msg.goal_idx))
+            # 통합 검토 F2: 도메인 브리지 재기동은 TRANSIENT_LOCAL Route 를 **같은 메시지 그대로**(발행 시각 포함) 다시 준다.
+            #     그것까지 새 경로로 받으면 RUNNING 중에 started=False 로 돌아가 말없이 IDLE 로 선다. 같은 메시지만 무시한다 —
+            #     코디네이터 재시작은 같은 번호·같은 경로를 **새 발행 시각**으로 주고, 그것은 새 경로다(옛 허가를 버린다).
+            #     시각이 비어 있으면(0) 같은 메시지인지 모른다 — 새 경로로 본다(멈춤 쪽).
+            st = msg.header.stamp
+            stamp = (int(st.sec), int(st.nanosec)) if (st.sec or st.nanosec) else None
+            if self._chain.same_route(msg.route_seq, waypoints, msg.goal_idx, stamp):
+                self.get_logger().info(
+                    f'Route seq={msg.route_seq} re-delivered unchanged (bridge restart?): ignored — keeps START/progress')
+            else:
+                if self._chain.follower is not None and int(msg.route_seq) == self._chain.route_seq:
+                    self.get_logger().warn(
+                        f'Route seq={msg.route_seq} has the current number but a different stamp or waypoints '
+                        f'(coordinator restart?): treated as a new route — back to START wait')
+                self.get_logger().info(
+                    f'Route received: seq={msg.route_seq} waypoints={len(waypoints)} goal_idx={msg.goal_idx}')
+            # 같은 메시지면 on_route 가 스스로 무시한다([] — 판단은 route_chain 한 곳)
+            self._apply(self._chain.on_route(msg.route_seq, waypoints, msg.goal_idx, stamp))
 
         @_serialized
         def _on_lane_command(self, msg: LaneCommand):
             now = self._seconds()
+            was_halted = self._halted_core()
             self._link.pulse(now, heartbeat=(msg.command == LaneCommand.CMD_HEARTBEAT))
             if self._link_lost:
                 self._link_lost = False
-                self.get_logger().info('Link recovered via LaneCommand (latch stays until LaneCommand RESUME).')
+                self.get_logger().info('Link recovered via LaneCommand (release gate; latch stays until LaneCommand RESUME).')
             if msg.command == LaneCommand.CMD_SET_SPEED:
                 # lane_agent_node 와 같은 뜻 — 속도 상한만 바꾼다. 주행 상태는 건드리지 않는다.
                 self._apply_speed(msg.max_linear_vel, msg.max_angular_vel)
                 return
             before = self._chain.drive_state()
-            was_stopped, was_estop, was_latched = self._chain.stopped, self._chain.estop, self._chain.latched
+            was_stopped, was_estop = self._chain.stopped, self._chain.estop
             acts = self._chain.on_lane_command(msg.command, msg.route_seq, msg.clear_until_idx)
             if msg.command == LaneCommand.CMD_START and was_stopped and not self._chain.stopped:
                 # START 가 체인의 STOP 래치를 풀었다 → FleetCommand STOP 이 건 HOLD 도 푼다. 안 풀면 워치독이
@@ -535,86 +638,246 @@ if HAS_RCLPY:
                 # RESUME 은 단일 목표 경로(FleetCommand)의 HOLD 도 푼다
                 self._hold = False
                 self._hold_since = None
-            released = (was_latched and not self._chain.latched) or (was_stopped and not self._chain.stopped)
-            if released:
-                # S2: 래치를 푸는 순간 `/estop false` 가 게이트를 연다 — 그 전에 **지금까지 수락된** goal 을 전부 취소하고,
-                #     취소 응답이 온 뒤에 해제 동작(/estop false·새 goto)을 낸다. 스탬프 취소라 뒤에 보낼 우리 goal 은 안전하다.
-                #     Nav2 상태 보고를 기다리지 않고 **늘** 한다 — 해제 직전에 들어온 우회 goal 은 상태가 아직 안 왔을 수 있다.
-                fut = self._cancel_all_before(self.get_clock().now().to_msg())
-                if fut is not None:
-                    # 앞선 해제가 아직 취소를 기다리면 **이어 붙인다** — 덮어쓰면 그쪽의 ('estop', False) 가 사라져
-                    # 게이트가 ESTOP 에 남은 채 CRUISE 를 보고한다(직렬 검토). 응답은 이번 취소의 것만 받는다.
-                    self._release_pending = (self._release_pending or []) + list(acts)
-                    self._release_deadline = now + 1.0
-                    self._release_future = fut
-                    fut.add_done_callback(self._on_release_cancel_done)
-                    self.get_logger().warn('래치 해제 전 Nav2 의 활성 goal %d 개 취소 — 끝나면 해제한다' % len(self._nav_active))
-                    acts = []
+            # 제3자 검수 A-1~A-4·A-12: 푸는 길이 무엇이든(RESUME·START·링크 회복) 같은 해제 문을 지난다.
+            #     문이 서 있으면 _apply 가 /estop false·goto 를 문 뒤에 쌓는다(연달아 온 해제도 이어 붙는다).
+            self._release_gate(was_halted, f'LaneCommand {msg.command}')
             self._apply(acts)
             after = self._chain.drive_state()
             if before != after:
                 self.get_logger().info(
                     f'lane drive_state {before} -> {after} ({self._chain.reason})')
 
+        # ------------------------------------------------------------------
+        # Nav2 상태 · 남의 goal · 해제 문 (관제 검수 S2~S4, 제3자 검수 REVIEW_20260926 A-1~A-9·A-12)
+        # ------------------------------------------------------------------
         @_serialized
-        def _on_nav_status(self, msg):
+        def _on_nav_status(self, action, msg):
+            # ACCEPTED 도 활성이다 — 수락됐고 곧 실행된다(제3자 검수 §5.2 M01: 빼도 시험이 몰랐다)
             act = (GoalStatus.STATUS_ACCEPTED, GoalStatus.STATUS_EXECUTING)
-            self._nav_active = {bytes(st.goal_info.goal_id.uuid) for st in msg.status_list if st.status in act}
+            self._nav_goals[action] = {
+                bytes(st.goal_info.goal_id.uuid): st.goal_info.stamp.sec * 1_000_000_000 + st.goal_info.stamp.nanosec
+                for st in msg.status_list if st.status in act}
+            self._nav_rx_at[action] = self._seconds()
+            self._try_open()                  # 해제 문이 이 상태를 기다렸을 수 있다
+
+        def _poll_nav_graph(self):
+            """A-9: 상태 발행자가 살아 있는지 본다(틱마다). 액션 상태는 바뀔 때만 오므로 받은 시각으로는 신선함을 못 잰다."""
+            now = self._seconds()
+            for a in NAV_ACTIONS:
+                if self.count_publishers(f'{a}/_action/status') > 0:
+                    if self._nav_pub_since[a] is None:
+                        self._nav_pub_since[a] = now
+                    elif self._nav_goals[a] is None and now - self._nav_pub_since[a] >= NAV_STATUS_SILENT_OK_S:
+                        # TRANSIENT_LOCAL 인데 발행자가 보인 지 2 s 동안 아무것도 안 왔다 → 서버가 상태를 낸 적이 없다(goal 없음)
+                        self._nav_goals[a] = {}
+                    continue
+                self._nav_pub_since[a] = None
+                rx = self._nav_rx_at[a]
+                if rx is not None and now - rx < NAV_STATUS_SILENT_OK_S:
+                    continue                  # 방금 받았다 — 그래프 캐시가 늦게 따라올 수 있다
+                # 발행자가 없다: 받아 둔 목록은 죽은 서버의 것이다. 기본 액션은 '모름', 보조 액션은 서버가 없으니 goal 도 없다
+                self._nav_goals[a] = None if a == NAV_PRIMARY else {}
+
+        def _nav_active_count(self):
+            """Nav2 가 활성이라 보고한 goal 수(액션 셋 합). 하나라도 모르면 None."""
+            goals = self._nav_goals
+            if goals is None or any(g is None for g in goals.values()):
+                return None
+            return sum(len(g) for g in goals.values())
 
         def _nav2_busy(self):
-            """Nav2 가 지금 어떤 goal 이든 진행 중이라고 보고했는가 (에이전트를 거친 것이든 아니든)."""
-            return bool(self._nav_active)
+            """정지·데드맨 판단: Nav2 가 어떤 goal 이든 진행 중이라 보고했거나 **모른다**(A-9 — 모르면 바쁘다)."""
+            n = self._nav_active_count()
+            return n is None or n > 0
 
-        def _halted(self):
+        def _active_goals(self):
+            """아는 활성 goal (액션, id) 전부 — 모르는 액션은 빠진다."""
+            return frozenset((a, gid) for a, g in (self._nav_goals or {}).items() if g for gid in g)
+
+        def _halted_core(self):
+            """정지·래치 그 자체 (해제 문 대기는 뺀다)."""
             return self._chain.stopped or self._chain.latched or self._hold or self._link_lost
 
+        def _halted(self):
+            # A-5: 해제 문이 열리기 전(취소 미확인)도 정지다 — 스탬프 뒤에 들어온 goal 도 계속 취소한다
+            return self._halted_core() or self._release_pending is not None
+
+        def _drive_state(self):
+            """보고하는 drive_state. 해제 문이 goto 를 쥐고 있으면 달리는 중(CRUISE)이 아니라 대기다."""
+            d = self._chain.drive_state()
+            if d == rc.DRIVE_CRUISE and self._release_pending is not None:
+                return rc.DRIVE_WAIT_CLEARANCE
+            return d
+
         def _cancel_all_before(self, stamp_msg):
-            """stamp 까지 수락된 goal 전부 취소(CancelGoal: id 0 + stamp). 서비스가 없으면 None."""
-            if not self._nav_cancel_all.service_is_ready():
-                return None
+            """stamp 까지 수락된 goal 전부 취소(CancelGoal: id 0 + stamp) — 서비스가 있는 액션마다. {액션: future}."""
+            futs = {}
+            for a in NAV_ACTIONS:
+                cli = self._nav_cancel[a]
+                if not cli.service_is_ready():
+                    continue
+                req = CancelGoal.Request()
+                req.goal_info.stamp = stamp_msg
+                futs[a] = cli.call_async(req)
+            return futs
+
+        def _cancel_one(self, action, gid):
+            """goal 하나만 취소(id + 스탬프 0) — 플릿 통제 중 남의 goal. 우리 goal 은 건드리지 않는다."""
+            cli = self._nav_cancel[action]
+            if not cli.service_is_ready():
+                return
             req = CancelGoal.Request()
-            req.goal_info.stamp = stamp_msg
-            return self._nav_cancel_all.call_async(req)
+            req.goal_info.goal_id.uuid = list(gid)
+            cli.call_async(req)
+
+        def _release_gate(self, was_halted, why):
+            """정지·래치가 방금 **전부** 풀렸으면 해제 문을 세운다.
+
+            S2 의 '스탬프 취소 → 응답 뒤 해제' 가 LaneCommand 경로에만 있었다(A-4). 응답 1 s 초과(A-1)·거부(A-2)·
+            서비스 없음(A-3)이면 확인 없이 열었고, 링크 회복(A-12)은 문 없이 풀었다. 이제 모든 길이 여기를 지난다.
+            정지 없이 뒤따른 해제(A-4 의 두 번째 RESUME)는 was_halted 가 거짓이라 문을 건드리지 않고, 동작만 `_apply` 가 이어 붙인다.
+            """
+            if not was_halted or self._halted_core():
+                return
+            if self._release_pending is None:
+                self._release_pending = []
+            # else — 제3자 검수 재검 R-agent-2: 문이 선 채 다시 정지·래치됐다가 또 풀렸다. 옛 문의 확인(다시 정지하기 **전** 스탬프)으로
+            #   열면 그 사이 수락된 goal 이 남는다(상태를 모르면 대조도 못 한다). 쌓인 동작(/estop false 등)은 두고
+            #   번호·확인을 새로 해 지금 스탬프로 다시 취소한다 — 옛 문의 응답은 번호가 달라 버려진다.
+            self._release_seq += 1
+            self._release_ok = {}
+            self._release_sent = set()
+            self._release_since = self._seconds()
+            self._release_why = why
+            self._release_tries = 0
+            self.get_logger().warn(f'{why}: 정지·래치 해제 전 Nav2 goal 스탬프 취소 — 확인되면 연다')
+            self._send_release_cancels()
+            self._try_open()                  # 취소 서비스가 하나도 없고 상태가 '안다 + 활성 없음' 이면 바로 연다(A-3)
+
+        def _send_release_cancels(self):
+            """지금 시각 스탬프로 취소한다(첫 시도와 1 Hz 재시도). 응답은 이번 문의 것만 센다."""
+            stamp_msg = self.get_clock().now().to_msg()
+            seq = self._release_seq
+            for a, fut in self._cancel_all_before(stamp_msg).items():
+                self._release_sent.add(a)
+                fut.add_done_callback(lambda f, a=a, q=seq: self._on_release_cancel_done(a, q, f))
+            self._release_tries += 1
+            self._release_deadline = self._seconds() + RELEASE_RETRY_S
 
         @_serialized
-        def _on_release_cancel_done(self, fut):
-            if fut is not self._release_future:
-                return                        # 옛 해제의 취소 응답 — 새 해제의 취소가 아직 처리되지 않았을 수 있다
-            self._flush_release('취소 완료')
+        def _on_release_cancel_done(self, action, seq, fut):
+            if seq != self._release_seq or self._release_pending is None:
+                return                        # 옛 해제 문의 응답 — 지금 문과 무관하다
+            try:
+                resp = fut.result()
+                code = resp.return_code
+            except Exception:                 # noqa: BLE001 — 응답을 못 읽으면 확인이 아니다
+                resp, code = None, None
+            if code in RELEASE_OK_CODES:
+                self._release_ok[action] = frozenset(bytes(g.goal_id.uuid) for g in resp.goals_canceling)
+            else:
+                self.get_logger().warn(f'{action} 취소 응답 {code} — {RELEASE_HOLD_REASON}, 1 Hz 로 다시 취소한다')
+            self._try_open()
+
+        def _release_confirmed(self, action):
+            """이 액션의 취소가 확인됐는가 (A-1~A-3)."""
+            goals = self._nav_goals[action]
+            ok = self._release_ok.get(action)
+            if ok is not None:
+                # 상태를 알면 대조한다 — rclpy 서버는 취소를 거부해도 ERROR_NONE·빈 목록을 준다(A-2 탐침이 그 서버다).
+                # 모르면 응답 코드만 믿는다 — 실물 Nav2(rclcpp_action)는 거부를 ERROR_REJECTED 로 주고,
+                # 취소할 goal 이 없으면 ERROR_NONE·빈 목록을 준다(09-26 격리 실측, action_tutorials_cpp 서버).
+                return goals is None or all(gid in ok for gid in goals)
+            if action in self._release_sent and self._nav_cancel[action].service_is_ready():
+                return False                  # 보낸 취소의 답을 기다린다 — 시간이 지났다고 열지 않는다(A-1)
+            # 취소 서비스가 없다(처음부터, 또는 보낸 뒤 사라졌다) — 상태가 **안다 + 활성 없음** 일 때만
+            # (A-3: 예전엔 아무것도 안 하고 열었다). 기본 액션은 발행자가 사라지면 '모름' 이라 열리지 않는다.
+            return goals is not None and not goals
+
+        def _try_open(self):
+            if self._release_pending is None:
+                return
+            if all(self._release_confirmed(a) for a in NAV_ACTIONS):
+                self._flush_release('취소 확인')
+
+        def _tick_release(self):
+            """A-1: 시간이 지났다고 열지 않는다(예전엔 1 s 뒤 미확인 채 /estop false). 1 s 마다 다시 취소하고 기다린다."""
+            if self._release_pending is None:
+                return
+            self._try_open()                  # 서비스 없는 액션은 상태로 확인된다 — 콜백 없이 바뀐 것(발행자 등장)을 본다
+            if self._release_pending is None or self._seconds() < self._release_deadline:
+                return
+            if self._release_tries == 1:
+                self.get_logger().warn(f'{RELEASE_HOLD_REASON} ({self._release_why}) — 래치를 쥔 채 1 Hz 로 다시 취소한다')
+            self._send_release_cancels()
 
         def _flush_release(self, why):
             pending, self._release_pending, self._release_deadline = self._release_pending, None, None
-            self._release_future = None
             if pending is None:
                 return
+            # A-5: 스탬프 뒤 ~ 문을 열기 직전 사이에 수락된 goal — 지금 시각으로 한 번 더 스탬프 취소한다.
+            #      응답은 기다리지 않는다. 이 뒤에 낼 우리 goal 은 이 스탬프보다 늦게 수락되므로 안전하다.
+            self._cancel_all_before(self.get_clock().now().to_msg())
             if self._chain.latched:
                 # 기다리는 사이 다시 ESTOP·링크유실 — 해제 동작(/estop false 포함)을 버린다
                 self.get_logger().warn(f'래치 해제 동작 폐기 — 그 사이 다시 래치됨 ({why})')
                 return
+            self.get_logger().info(f'해제 문 열림 ({why} — {self._release_why})')
             self._apply(pending)
 
         def _cancel_foreign_goals(self):
-            """S2·S3: 정지·래치 중 Nav2 에 살아 있는 goal 은 에이전트를 거치지 않은 것이다(우리 것은 정지 때 취소했다).
-            1 Hz 상한으로 전부 취소한다 — 10 Hz STOP 은 '이미 정지' 라 cancel-all 을 다시 내지 않으므로 여기서 본다."""
-            if not (self._halted() and self._nav2_busy()):
+            """S2·S3·A-5: 남의 goal 취소.
+
+            - 정지·래치 중(해제 대기 포함): Nav2 에 살아 있는 goal 전부(cancel-all). 우리 것은 정지 때 이미 취소했다.
+              모르면(A-9) 바쁨으로 보고 같은 1 Hz 로 낸다.
+            - 체인이 플릿 통제(START) 중: 이 에이전트가 내지 않은 goal 만 id 로(관제 G-6 — 예약을 안 보는 우회 goal).
+            - 체인이 쉬고 래치도 없으면: 사람의 수동 goal 은 둔다.
+            새 goal 은 바로, 이미 취소를 보낸 goal 의 재취소는 1 Hz — 10 Hz STOP 은 '이미 정지' 라 cancel-all 을 다시 안 낸다.
+            """
+            halted = self._halted()
+            if halted:
+                if not self._nav2_busy():
+                    return
+                targets = self._active_goals()
+            elif self._chain.started:
+                targets = frozenset(k for k in self._active_goals() if k[1] not in self._own_goals)
+                if not targets:
+                    return
+            else:
                 return
             now = self._seconds()
-            active = frozenset(self._nav_active)
-            fresh = active - self._foreign_canceled
+            fresh = targets - self._foreign_canceled
             # 1 Hz 상한은 **이미 취소를 보낸** goal 의 재취소에만 건다 — 새 id 는 바로(직렬 검토: 시간 상한만 두면
             # 첫 취소 직후 들어온 두 번째 우회 goal 이 최대 0.9 s 달렸다).
             if not fresh and self._foreign_cancel_at is not None and now - self._foreign_cancel_at < 1.0:
                 return
             self._foreign_cancel_at = now
-            self._foreign_canceled = active
-            self.get_logger().warn(f'정지·래치 중 Nav2 활성 goal {len(active)} 개(새 {len(fresh)}) — 에이전트를 거치지 않은 목표로 보고 취소')
-            self._cancel_goal(all_goals=True)
+            self._foreign_canceled = targets
+            if halted:
+                n = self._nav_active_count()
+                what = f'Nav2 활성 goal {len(targets)} 개(새 {len(fresh)})' if n is not None else 'Nav2 상태 모름(A-9)'
+                self.get_logger().warn(f'정지·래치 중 {what} — 에이전트를 거치지 않은 목표로 보고 전부 취소')
+                self._cancel_goal(all_goals=True)
+                return
+            self.get_logger().warn(f'플릿 통제 중 남의 Nav2 goal {len(targets)} 개(새 {len(fresh)}) — 취소 (우리 goal 은 둔다)')
+            for action, gid in sorted(targets):
+                self._cancel_one(action, gid)
 
         def _apply(self, acts):
             """route_chain 동작 목록을 실행한다. estop 은 route_chain 이 내라고 할 때만 발행한다."""
             for act in acts:
                 kind = act[0]
-                if kind == 'goto':
+                if self._release_pending is not None and (kind in ('goto', 'single_goal') or act == ('estop', False)):
+                    # A-1~A-5: 해제 문이 열리기 전 — 움직이게 하는 동작은 문 뒤에 쌓는다. 문이 열릴 때 goto 는
+                    # goal_is_current 로 다시 묻는다(그 사이 STOP·새 경로면 버린다).
+                    self._release_pending.append(act)
+                    continue
+                if kind == 'single_goal':
+                    # FleetCommand RESUME 의 단일 목표 재개 — 문을 지난 뒤에만, 그 사이 다시 정지했으면 안 낸다
+                    if self._goal_valid and not self._halted():
+                        self.get_logger().info('CMD_RESUME: resuming to goal')
+                        self._send_goal()
+                elif kind == 'goto':
                     _, idx, x, y, yaw = act
                     # 🔴 관제 검수 P1: 미뤄 둔 goto 는 다음 틱에 재생된다. 그 사이 STOP·ESTOP·새 경로가 왔으면
                     #    상태기계는 그 목표를 이미 버렸다 — 묻지 않고 보내면 **정지 중에 주행**한다.
@@ -635,10 +898,13 @@ if HAS_RCLPY:
         @_serialized
         def _on_command(self, msg: FleetCommand):
             now = self._seconds()
+            was_halted = self._halted_core()
             prev, curr = self._link.pulse(now, heartbeat=(msg.command == FleetCommand.CMD_HEARTBEAT))
             if prev == LOST and curr in (RESTORED, ARMED):
                 self._link_lost = False
                 self.get_logger().info('LinkWatch recovered to ARMED/RESTORED.')
+                # 제3자 검수 A-12: 링크 회복도 푸는 길이다 — 마지막 틱 뒤 ~ 회복 사이에 수락된 goal 을 문이 거른다
+                self._release_gate(was_halted, '링크 회복')
 
             if msg.command == FleetCommand.CMD_HEARTBEAT:
                 return
@@ -652,8 +918,12 @@ if HAS_RCLPY:
 
             if msg.command == FleetCommand.CMD_GOTO:
                 # 🔴 ESTOP·링크 유실 래치 중에는 단일 목표로도 움직이지 않는다 (예전엔 GOTO 가 /estop false 를 냈다)
-                if self._chain.latched:
-                    self.get_logger().warn('CMD_GOTO ignored: E-STOP/LINK_LOST latched — LaneCommand RESUME first')
+                # 제3자 검수 A-8: STOP(HOLD)·해제 대기 중에도 — 예전엔 받아서 보낸 뒤 감시 취소가 곧바로 취소했다
+                #     (abandon 은 STOP 래치를 안 푼다). 받는 척하지 않고 거부하고 이유를 남긴다.
+                if self._halted():
+                    why = '정지·래치 중' if self._halted_core() else RELEASE_HOLD_REASON
+                    self._refused = {'command': 'GOTO', 'reason': why, 'at': round(now, 3)}
+                    self.get_logger().warn(f'CMD_GOTO refused: {why} — RESUME·START 로 먼저 푼다')
                     return
                 self._apply(self._chain.abandon())
                 self._hold = False
@@ -678,16 +948,18 @@ if HAS_RCLPY:
 
             elif msg.command == FleetCommand.CMD_RESUME:
                 # STOP 래치만 푼다 — ESTOP·링크 유실은 LaneCommand RESUME 으로만 풀린다
-                self._apply(self._chain.on_fleet_resume())
-                if not self._hold:
-                    return
-                self._hold = False
-                self._hold_since = None
-                if self._goal_valid and not self._chain.latched:
-                    self.get_logger().info('CMD_RESUME: resuming to goal')
-                    self._send_goal()
-                else:
-                    self._nav_status = RobotState.NAV_IDLE
+                acts = self._chain.on_fleet_resume()
+                if self._hold:
+                    self._hold = False
+                    self._hold_since = None
+                    if self._goal_valid and not self._chain.latched:
+                        acts = acts + [('single_goal',)]
+                    else:
+                        self._nav_status = RobotState.NAV_IDLE
+                # 제3자 검수 A-4: Fleet RESUME 에는 문이 없었다 — resume_robot 의 Lane·Fleet RESUME 중 Fleet 이 먼저 처리되면
+                #     STOP 을 문 없이 풀고, 뒤따른 Lane RESUME 은 풀 것이 없어 스탬프 취소를 아예 안 냈다. 이제 같은 문.
+                self._release_gate(was_halted, 'FleetCommand RESUME')
+                self._apply(acts)
 
             elif msg.command == FleetCommand.CMD_CANCEL:
                 self._apply(self._chain.abandon())
@@ -738,7 +1010,11 @@ if HAS_RCLPY:
             goal_msg.pose.pose.orientation.w = qw
 
             self._nav_status = RobotState.NAV_ACTIVE
-            future = self._nav_client.send_goal_async(goal_msg)
+            # 제3자 검수 A-5: goal id 를 우리가 정해 기억한다 — 플릿 통제 중 Nav2 상태의 남의 goal 과 가른다
+            gid = uuid.uuid4().bytes
+            self._own_goals.append(gid)
+            del self._own_goals[:-OWN_GOALS_KEEP]
+            future = self._nav_client.send_goal_async(goal_msg, goal_uuid=UUID(uuid=list(gid)))
             future.add_done_callback(lambda f, s=seq, t=tag: self._on_goal_response(f, s, t))
             self.get_logger().info(
                 f'Nav2 Goal sent {tag}: ({gx:.2f}, {gy:.2f}, {math.degrees(gyaw):.0f} deg)')
@@ -813,10 +1089,12 @@ if HAS_RCLPY:
             if handle is not None:
                 handle.cancel_goal_async()
             if all_goals:
-                if self._nav_cancel_all.service_is_ready():
-                    self._nav_cancel_all.call_async(CancelGoal.Request())
-                else:
-                    self.get_logger().warn('cancel-all: NavigateToPose cancel service not ready')
+                # 제3자 검수 A-6: through_poses·waypoints 도 — waypoint_follower 는 다리 goal 만 취소하면 다음 다리로 간다
+                for a in NAV_ACTIONS:
+                    if self._nav_cancel[a].service_is_ready():
+                        self._nav_cancel[a].call_async(CancelGoal.Request())
+                    elif a == NAV_PRIMARY:
+                        self.get_logger().warn('cancel-all: NavigateToPose cancel service not ready')
 
         def _set_map(self, map_name):
             """R-7 웹 전환: map_server 에 map_dir/<map_name>.yaml 을 읽힌다(nav2_msgs/LoadMap).
@@ -824,7 +1102,8 @@ if HAS_RCLPY:
             달리는 중·래치 중에는 거부한다 — 지도가 바뀌면 달리던 목표의 좌표 뜻이 바뀐다. 결과는 로그와 진단
             (`agent.map_load`)에 남고, 성공하면 RobotState.map_name 이 바뀐다(중계가 원점·크기로 대조한다).
             """
-            moving = (self._goal_handle is not None or self._nav2_busy()
+            # 지도 교체는 '안다 + 활성' 인 goal 만 막는다 — 모름=바쁨(A-9)은 정지·데드맨 판단의 규칙이다(동작 그대로)
+            moving = (self._goal_handle is not None or bool(self._active_goals())
                       or abs(self._linear_velocity) > 0.01 or abs(self._angular_velocity) > 0.05)
             if moving or self._chain.latched:
                 self._map_load = {'name': map_name, 'result': 'REFUSED',
@@ -945,8 +1224,9 @@ if HAS_RCLPY:
             self._link_lost = True
             # S4: 에이전트가 보낸 goal 만 보면 우회 goal 로 달리던 로봇은 링크가 끊겨도 안 선다 —
             #     Nav2 가 진행 중이라 하거나 odom 이 움직이면 움직이는 중이다.
+            #     제3자 검수 A-7·A-9: Nav2 상태·odom 을 **모르면** 움직이는 중이다(예전엔 모름이 '멈춤' 이었다).
             moving = (self._goal_handle is not None or self._goal_valid or self._hold or self._nav2_busy()
-                      or abs(self._linear_velocity) > 0.01 or abs(self._angular_velocity) > 0.05)
+                      or self._odom_moving())
             # 래치는 route_chain 이 쥔다 — 단일 목표든 레인 임무든 같은 규칙(LaneCommand RESUME 으로만 해제)
             acts = self._chain.on_link_lost(moving)
             if not acts:
@@ -981,8 +1261,10 @@ if HAS_RCLPY:
             self._nav_status = RobotState.NAV_IDLE
 
         def _refresh_estop(self):
-            """래치 동안 /estop true 를 estop_refresh 초마다 다시 낸다 (늦게 뜬 게이트도 알게)."""
-            if self._estop_refresh <= 0.0 or not self._chain.latched:
+            """래치 동안 /estop true 를 estop_refresh 초마다 다시 낸다 (늦게 뜬 게이트도 알게).
+            해제 문이 /estop false 를 쥐고 있는 동안도 래치다(A-1: 취소 미확인이면 게이트는 닫힌 채다)."""
+            held = self._release_pending is not None and ('estop', False) in self._release_pending
+            if self._estop_refresh <= 0.0 or not (self._chain.latched or held):
                 return
             now = self._seconds()
             if self._estop_last_pub is not None and now - self._estop_last_pub < self._estop_refresh:
@@ -1002,6 +1284,7 @@ if HAS_RCLPY:
         @_serialized
         def _publish_state(self):
             self._update_pose_from_tf()
+            self._poll_nav_graph()
             if self._deferred_acts:
                 acts, self._deferred_acts = self._deferred_acts, []
                 self._apply(acts)
@@ -1011,11 +1294,10 @@ if HAS_RCLPY:
             self._check_hold_watchdog()
             self._refresh_estop()
             self._cancel_foreign_goals()
-            if self._release_pending is not None and self._seconds() >= self._release_deadline:
-                self._flush_release('취소 응답 1 s 없음')
+            self._tick_release()
 
             chain_active = self._chain.follower is not None and self._chain.started
-            drive = self._chain.drive_state()
+            drive = self._drive_state()
 
             msg = RobotState()
             msg.header.stamp = self.get_clock().now().to_msg()
@@ -1070,13 +1352,18 @@ if HAS_RCLPY:
             ls.header.stamp = self.get_clock().now().to_msg()
             ls.header.frame_id = self._global_frame
             ls.robot_name = self._name
-            ls.drive_state = int(st['drive_state'])
+            ls.drive_state = int(self._drive_state())
             reason = st['state_reason']
+            if self._release_pending is not None and not self._halted_core():
+                # 제3자 검수 A-1~A-3: 체인은 풀렸지만 문이 닫혀 있다(/estop false·goto 를 쥐고 있다) — 이유를 그대로 말한다
+                reason = RELEASE_HOLD_REASON
             if self._halted() and self._nav2_busy():
                 # R1 (관제 검수 REVIEW_20260925 §3.3): 정지 사유만 보고 '멈췄다' 로 확인하면 Nav2 goal 이 살아 있어도 확인된다.
                 # 사유에 표식을 붙인다 — 코디네이터의 정지 확인은 사유가 **정확히** 같을 때만이라 이 동안은 확인되지 않는다.
                 # (STOP 에 순번을 싣는 처방은 LaneCommand 에 빈 필드가 없고 팀11 .msg 는 바이트 동일이라 못 한다)
-                reason = f'{reason} · Nav2 활성 {len(self._nav_active)}'
+                # A-9: Nav2 상태를 모르면 멈췄다고 확인하지 않는다.
+                n = self._nav_active_count()
+                reason = f'{reason} · Nav2 활성 {n}' if n is not None else f'{reason} · Nav2 상태 모름'
             ls.state_reason = reason
             ls.route_seq = int(st['route_seq'])
             ls.route_idx = int(st['route_idx'])

@@ -55,6 +55,45 @@ class Clock:
         return self.t
 
 
+class _Fut:
+    """rclpy Future 흉내 — 취소 응답은 시험이 `_answer` 로 준다(안 주면 영영 안 온다 = Nav2 무응답)."""
+
+    def __init__(self, action, req):
+        self.action, self.req, self.cbs, self.resp = action, req, [], None
+
+    def add_done_callback(self, cb):
+        self.cbs.append(cb)
+
+    def result(self):
+        return self.resp
+
+
+def _cancel_client(a, action, ready=True):
+    cli = MagicMock()
+    cli.service_is_ready.return_value = ready
+
+    def call(req):
+        f = _Fut(action, req)
+        a._futs.append(f)
+        return f
+    cli.call_async.side_effect = call
+    return cli
+
+
+def _answer(a, rc=0, canceling=None, action="navigate_to_pose", only=None):
+    """해제 문이 기다리는(콜백 달린) 취소 요청에 답한다. canceling 을 안 주면 그때 Nav2 가 활성이라 한 goal 전부."""
+    from action_msgs.msg import GoalInfo
+    from action_msgs.srv import CancelGoal
+    ids = list(a._nav_goals[action] or {}) if canceling is None else list(canceling)
+    for f in [f for f in (only or a._futs) if f.cbs and f.resp is None and f.action == action]:
+        f.resp = CancelGoal.Response(return_code=rc)
+        f.resp.goals_canceling = [GoalInfo() for _ in ids]
+        for gi, gid in zip(f.resp.goals_canceling, ids):
+            gi.goal_id.uuid = list(gid)
+        for cb in f.cbs:
+            cb(f)
+
+
 def _agent(clock=None):
     """PinkyAgent 의 메서드가 쓰는 것만 가진 가짜. 메서드는 진짜를 묶는다."""
     clk = clock or Clock()
@@ -79,24 +118,38 @@ def _agent(clock=None):
     a._link_lost = False
     a._nav_status = RobotState.NAV_IDLE
     a._link = LinkWatch(3.0, 0.0)
-    a._nav_active = set()
+    # Nav2 액션 상태: 기본 = **안다·활성 없음**(실물처럼 발행자가 있고 goal 이 없다). 보조 액션은 서버가 없다(가짜 Nav2 처럼)
+    a._nav_goals = {x: {} for x in agent_node.NAV_ACTIONS}
+    a._nav_rx_at = {x: None for x in agent_node.NAV_ACTIONS}
+    a._nav_pub_since = {x: -1e9 for x in agent_node.NAV_ACTIONS}
+    a.count_publishers = lambda _topic: 1
+    a._own_goals = []
     a._foreign_cancel_at = None
     a._foreign_canceled = frozenset()
     a._release_pending = None
     a._release_deadline = None
-    a._release_future = None
-    a._nav_cancel_all = MagicMock()
-    a._nav_cancel_all.service_is_ready.return_value = True
-    a._nav_cancel_all.call_async.side_effect = lambda _req: MagicMock()     # 취소마다 새 future
+    a._release_seq = 0
+    a._release_ok = {}
+    a._release_sent = set()
+    a._release_since = None
+    a._release_why = None
+    a._release_tries = 0
+    a._refused = None
+    a._futs = []
+    a._nav_cancel = {x: _cancel_client(a, x, ready=(x == agent_node.NAV_PRIMARY)) for x in agent_node.NAV_ACTIONS}
     a._linear_velocity = 0.0
     a._angular_velocity = 0.0
+    a._odom_at = clk.t
     a._lc_states = {}
     a.get_logger = MagicMock
     a.get_clock = lambda: types.SimpleNamespace(now=lambda: Time(nanoseconds=int(clk.t * 1e9)))
     for name in ("_apply", "_refresh_estop", "_on_command", "_on_lane_command", "_check_hold_watchdog",
                  "_on_nav2_tolerance", "_send_goal_to_real", "_nav2_busy", "_halted", "_cancel_all_before",
                  "_flush_release", "_on_release_cancel_done", "_cancel_foreign_goals", "_check_link",
-                 "_on_goal_response", "_on_lc_state", "_publish_lane_status", "_ask_nav2_tolerance"):
+                 "_on_goal_response", "_on_lc_state", "_publish_lane_status", "_ask_nav2_tolerance",
+                 "_halted_core", "_release_gate", "_send_release_cancels", "_release_confirmed", "_try_open",
+                 "_tick_release", "_on_nav_status", "_poll_nav_graph", "_nav_active_count", "_active_goals",
+                 "_drive_state", "_cancel_one", "_odom_moving"):
         real = getattr(agent_node.PinkyAgent, name if name != "_send_goal_to_real" else "_send_goal_to")
         setattr(a, name, types.MethodType(real, a))
     return a, clk
@@ -193,6 +246,25 @@ def _stop():
     m = FleetCommand()
     m.command = FleetCommand.CMD_STOP
     return m
+
+
+def _ticking(a):
+    """진짜 `_publish_state`(10 Hz 틱)를 부를 수 있게 속성을 채운다 — 틱 안의 두 줄을 시험에 베끼지 않는다(§5.2 M17)."""
+    a._update_pose_from_tf = lambda: None
+    a._last_pose_time = None
+    a._pose_timeout = 2.0
+    a._state_pub = MagicMock()
+    a._lane_status_pub = MagicMock()
+    a._name, a._domain_id, a._global_frame = "pinky1", 10, "map"
+    a._x = a._y = a._yaw = 0.0
+    a._goal = (0.0, 0.0, 0.0)
+    a._max_lin, a._max_ang = 0.2, 1.5
+    a._map_info, a._map_name = None, "my_map"
+    a._battery_percent = float("nan")
+    a._NAV_FROM_DRIVE = agent_node.PinkyAgent._NAV_FROM_DRIVE
+    for name in ("_publish_state", "_localized"):
+        setattr(a, name, types.MethodType(getattr(agent_node.PinkyAgent, name), a))
+    return a._publish_state
 
 
 def test_검수3_STOP_을_10Hz_로_받는_동안에는_워치독이_풀지_않는다():
@@ -295,6 +367,7 @@ def test_검토P1_STOP_뒤_START_로_달리는_체인_goal_을_워치독이_취�
     assert a._hold and a._chain.stopped
     a._on_lane_command(_lane(rc.CMD_START, 4))                 # start_fleet
     assert not a._chain.stopped and a._hold is False          # 둘 다 풀린다
+    _answer(a)                                                 # 제3자 검수 A-1: goto 는 해제 문(취소 확인) 뒤에 나간다
     assert a._goal_tag == ("chain", 4)
     a._cancel_goal.reset_mock()
     for _ in range(250):                                       # 25 s (워치독 1 s) — 하트비트·허가만
@@ -318,7 +391,8 @@ def test_검토P1_워치독은_체인_goal_을_건드리지_않는다():
 def test_검토P2_상태를_고치는_진입점은_모두_같은_잠금을_잡는다():
     """콜백 그룹은 Future done-callback(_on_goal_response·_on_goal_result)을 막지 못한다 — 잠금으로 선다."""
     for name in ("_on_route", "_on_lane_command", "_on_command", "_on_goal_response", "_on_goal_result",
-                 "_on_nav2_tolerance", "_publish_state", "_publish_diag", "shutdown_navigation"):
+                 "_on_nav2_tolerance", "_publish_state", "_publish_diag", "shutdown_navigation",
+                 "_on_nav_status", "_on_release_cancel_done"):
         assert hasattr(getattr(agent_node.PinkyAgent, name), "__wrapped__"), name + " 가 잠금 밖이다"
 
 
@@ -372,9 +446,14 @@ def test_검토P2_에이전트가_내는_STOP_사유가_코디네이터의_정�
 
 # ---- 관제 검수 REVIEW_20260925 §3.2 · 에이전트를 거치지 않는 목표(S2~S4) — 진짜 메서드 ----------------------
 
-def _bypass(a, n=1):
-    """Nav2 가 에이전트 것이 아닌 goal n 개를 진행 중이라고 보고한 상태."""
-    a._nav_active = {bytes([i]) * 16 for i in range(n)}
+def _bypass(a, n=1, action="navigate_to_pose"):
+    """Nav2 가 에이전트 것이 아닌 goal n 개를 진행 중이라고 보고한 상태(수락 시각 0 = 오래전)."""
+    a._nav_goals[action] = {bytes([i + 1]) * 16: 0 for i in range(n)}
+
+
+def _ntp(a):
+    """navigate_to_pose 취소 클라이언트."""
+    return a._nav_cancel["navigate_to_pose"]
 
 
 def test_S2_ESTOP_전이는_이미_STOP_중이어도_cancel_all():
@@ -394,10 +473,10 @@ def test_S2_래치를_풀_때_우회_goal_이_있으면_취소가_끝난_뒤에_
     a._estop_pub.reset_mock()
     _bypass(a)                                                  # ESTOP 중 들어온 우회 goal
     a._on_lane_command(_lane(rc.CMD_RESUME))
-    req = a._nav_cancel_all.call_async.call_args[0][0]
+    req = _ntp(a).call_async.call_args[0][0]
     assert req.goal_info.stamp.sec or req.goal_info.stamp.nanosec   # 스탬프 취소 — 뒤에 보낼 우리 goal 은 안 건드린다
     assert _published_estops(a) == [], "취소 응답 전에 /estop false 를 냈다 — 게이트가 열리며 우회 goal 로 달린다"
-    a._on_release_cancel_done(a._release_future)                      # 취소 응답
+    _answer(a)                                                  # 취소 응답 (우회 goal 이 goals_canceling 에)
     assert _published_estops(a) == [False]
 
 
@@ -409,7 +488,7 @@ def test_S2_취소를_기다리는_사이_다시_ESTOP_이면_해제를_버린�
     a._on_lane_command(_lane(rc.CMD_RESUME))
     a._on_lane_command(_lane(rc.CMD_ESTOP, seq=0))
     a._estop_pub.reset_mock()
-    a._on_release_cancel_done(a._release_future)
+    _answer(a)
     assert False not in _published_estops(a)
 
 
@@ -440,6 +519,9 @@ def test_S4_우회_goal_로_달리다_링크가_끊기면_래치한다():
     a._on_command(_hb())                                       # 링크 무장
     _bypass(a)
     clk.t += 5.0                                               # command_timeout 3 s 넘게 조용
+    # odom 은 신선하고 멈춰 있다 — Nav2 항 하나로만 움직임(제3자 검수 재검 R-agent-1: 이 줄이 없을 땐 odom 이 5 s 묵어
+    # A-7 항이 대신 래치했고, 데드맨이 '아는 활성 goal' 을 무시해도 시험이 몰랐다)
+    a._odom_at = clk.t
     a._check_link()
     assert a._chain.link_lost and True in _published_estops(a)
     assert any(c.kwargs.get("all_goals") for c in a._cancel_goal.call_args_list)
@@ -450,6 +532,7 @@ def test_S4_odom_이_움직여도_달리는_중이다():
     a._on_command(_hb())
     a._linear_velocity = 0.12
     clk.t += 5.0
+    a._odom_at = clk.t                                         # odom 은 신선하다 — 선속도 항 하나로만 움직임(A-7 과 가른다)
     a._check_link()
     assert a._chain.link_lost
 
@@ -460,24 +543,31 @@ def test_S2_Nav2_상태_보고가_오기_전이어도_해제는_취소_응답을
     a._chain.on_route(SEQ, WP5, 4)
     a._on_lane_command(_lane(rc.CMD_ESTOP, seq=0))
     a._estop_pub.reset_mock()
-    assert not a._nav_active                                    # 상태 보고 없음
+    assert a._nav_active_count() == 0                            # 상태 보고 없음(활성 0)
     a._on_lane_command(_lane(rc.CMD_RESUME))
-    assert a._nav_cancel_all.call_async.called and _published_estops(a) == []
-    a._on_release_cancel_done(a._release_future)
+    assert _ntp(a).call_async.called and _published_estops(a) == []
+    _answer(a)
     assert _published_estops(a) == [False]
 
 
-def test_S2_취소_응답이_1초_없으면_해제한다__Nav2_가_죽은_경우():
+def test_S2_취소_응답이_1초_없어도_해제하지_않고_1Hz_로_다시_취소한다__Nav2_무응답():
+    """제3자 검수 A-1: 예전 이름은 `…1초_없으면_해제한다__Nav2_가_죽은_경우` — 응답이 1 s 없으면 **미확인 채** /estop false 를
+    냈다(DDS 탐침 CANCEL_DELAY=2.5: 우회 goal 이 /estop false 뒤에도 살아 있었다). 규칙을 뒤집었다: 확인 없이는 안 연다."""
     a, clk = _agent()
+    tick = _ticking(a)
     a._chain.on_route(SEQ, WP5, 4)
     a._on_lane_command(_lane(rc.CMD_ESTOP, seq=0))
     a._estop_pub.reset_mock()
     a._on_lane_command(_lane(rc.CMD_RESUME))
     assert a._release_pending is not None
-    clk.t += 1.1
-    if a._release_pending is not None and a._seconds() >= a._release_deadline:   # _publish_state 의 그 두 줄
-        a._flush_release("취소 응답 1 s 없음")
-    assert _published_estops(a) == [False]
+    for _ in range(25):                                         # 2.5 s — 진짜 _publish_state 틱 (§5.2 M17)
+        clk.t += 0.1
+        tick()
+    assert False not in _published_estops(a), "취소 확인 없이 게이트를 열었다"
+    assert len([f for f in a._futs if f.cbs]) == 3, "스탬프 취소를 1 Hz 로 다시 내야 한다(0·1·2 s)"
+    assert a._release_pending is not None
+    _answer(a)                                                  # 이제 답한다 — 늦은 응답이라도 이번 문의 것이면 연다
+    assert _published_estops(a)[-1] is False
 
 
 # ---- 안전 묶음 직렬 검토(09-26)가 확인한 것 ------------------------------------------------------
@@ -489,7 +579,7 @@ def test_검토S_새_우회_goal_은_1Hz_상한을_기다리지_않고_바로_�
     clk.t += 0.1
     a._cancel_foreign_goals()
     a._cancel_goal.reset_mock()
-    a._nav_active = {b"B" * 16}                                 # 0.1 s 뒤 goal B
+    a._nav_goals["navigate_to_pose"] = {b"B" * 16: 0}           # 0.1 s 뒤 goal B
     clk.t += 0.1
     a._cancel_foreign_goals()
     assert any(c.kwargs.get("all_goals") for c in a._cancel_goal.call_args_list), "B 가 1 s 상한에 걸려 달렸다"
@@ -500,20 +590,47 @@ def test_검토S_새_우회_goal_은_1Hz_상한을_기다리지_않고_바로_�
 
 
 def test_검토S_해제가_연달아_와도_앞의_estop_false_를_잃지_않는다():
+    """해제 1 이 쌓은 /estop false 는 해제 2 가 잃게 하지 않는다. 그러나 문이 선 채 다시 정지했다 풀렸으면 해제 2 의
+    스탬프로 **새로** 취소하고, 해제 1 의 응답으로는 열지 않는다(이 시험의 원래 f1/f2 — 09-26 판이 '이어 붙기' 로 바꿨던 것을
+    제3자 검수 재검 R-agent-2 로 되살렸다: 옛 응답은 STOP 전 스탬프라 그 사이 수락된 goal 을 확인하지 않는다)."""
     a, _ = _agent()
     a._chain.on_route(SEQ, WP5, 4)
     a._on_lane_command(_lane(rc.CMD_START))
     a._on_lane_command(_lane(rc.CMD_ESTOP, seq=0))
     a._estop_pub.reset_mock()
     a._on_lane_command(_lane(rc.CMD_RESUME))                    # 해제 1 — /estop false 대기
-    f1 = a._release_future
+    f1 = [f for f in a._futs if f.cbs]
     a._on_lane_command(_lane(rc.CMD_STOP))
     a._on_lane_command(_lane(rc.CMD_START))                     # 해제 2 (STOP 래치) — 예전엔 해제 1 을 덮어썼다
-    f2 = a._release_future
-    assert f1 is not f2
-    a._on_release_cancel_done(f1)                               # 옛 응답 — 새 해제의 취소가 아직 안 끝났다
+    f2 = [f for f in a._futs if f.cbs and f not in f1]
+    assert len(f1) == 1 and len(f2) == 1, "다시 정지했다 풀렸는데 해제 2 의 스탬프 취소가 없다"
     assert _published_estops(a) == []
-    a._on_release_cancel_done(f2)
+    _answer(a, only=f1)                                         # 옛 응답 — 해제 2 의 취소는 아직 안 끝났다
+    assert _published_estops(a) == [] and a._release_pending is not None
+    _answer(a, only=f2)
+    assert _published_estops(a) == [False]
+
+
+def test_검토S_옛_해제_문의_늦은_응답은_새_문을_열지_않는다():
+    """§5.2 M09 의 뜻을 지금 구조로: 문 1 이 열린 뒤 다시 정지 → 문 2. 문 1 의 재시도 요청에 대한 늦은 응답이 문 2 를 열면
+    문 2 의 스탬프 취소는 확인되지 않은 채다."""
+    a, clk = _agent()
+    tick = _ticking(a)
+    a._chain.on_route(SEQ, WP5, 4)
+    a._on_lane_command(_lane(rc.CMD_ESTOP, seq=0))
+    a._on_lane_command(_lane(rc.CMD_RESUME))                    # 문 1
+    for _ in range(11):                                         # 1.1 s — 재시도 한 번
+        clk.t += 0.1
+        tick()
+    first, retry = [f for f in a._futs if f.cbs]
+    _answer(a, only=[first])                                    # 문 1 은 첫 응답으로 열린다
+    assert a._release_pending is None
+    a._on_lane_command(_lane(rc.CMD_ESTOP, seq=0))
+    a._estop_pub.reset_mock()
+    a._on_lane_command(_lane(rc.CMD_RESUME))                    # 문 2
+    _answer(a, only=[retry])                                    # 문 1 재시도의 늦은 응답
+    assert a._release_pending is not None and _published_estops(a) == []
+    _answer(a)
     assert _published_estops(a) == [False]
 
 
