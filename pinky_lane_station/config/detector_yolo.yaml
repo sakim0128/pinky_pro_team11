@@ -11,9 +11,9 @@ detector:
   imgsz: 448                      # 학습 입력 448×320 에 맞춤 (긴 변 448)
   conf: 0.35
   iou: 0.5
-  # 우리 클래스 ← 모델 클래스 id. 좌/우는 lane_target 이 화면 위치로 정하므로 0 과 2 를 모두 lane 으로 묶는다.
-  # cone/traffic_light/barricade 는 오버레이 표시용 (lane_target 은 lane/crosswalk 만 쓴다)
-  class_map: {lane: [0, 2], crosswalk: [1], cone: [3], traffic_light: [4], barricade: [5]}
+  # 우리 클래스 ← 모델 클래스 id. 좌/우 라벨은 차선이 3개 이상일 때 "가장 바깥 쌍" 을 고르는 데 쓴다
+  # (≤ 2개면 화면 위치 규칙). barricade 는 정지 트리거, cone/traffic_light 는 오버레이 표시만.
+  class_map: {left_lane: [0], right_lane: [2], crosswalk: [1], cone: [3], traffic_light: [4], barricade: [5]}
 
 target:                           # lane_target.TargetParams
   sample_row_frac: 0.72
@@ -23,6 +23,10 @@ target:                           # lane_target.TargetParams
   crosswalk_stop_row_frac: 0.80
   crosswalk_confirm: 3
   crosswalk_release: 5
+  outer_pair_min_lanes: 3         # 차선 ≥ 3 → 클래스 기준 가장 바깥 쌍
+  barricade_stop_row_frac: 0.80   # 바리게이트 하단이 이 행 아래로 오면 정지
+  barricade_confirm: 3
+  barricade_release: 10           # ≈ 1 s 안 보이면 재출발
 
 pipeline:
   max_rate: 10.0

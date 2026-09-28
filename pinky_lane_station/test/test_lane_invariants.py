@@ -85,8 +85,9 @@ def test_detector_yolo_class_map_matches_model_labels():
     det = cfg['detector']
     assert det['kind'] == 'ultralytics' and det['device'] == 'cpu'
     cm = det['class_map']
-    assert sorted(cm['lane']) == [0, 2] and cm['crosswalk'] == [1]
+    assert cm['left_lane'] == [0] and cm['right_lane'] == [2] and cm['crosswalk'] == [1]
     assert cm['cone'] == [3] and cm['traffic_light'] == [4] and cm['barricade'] == [5]
+    assert 'lane' not in cm                                     # 좌/우 라벨을 합치지 않는다 (작업 1)
     ids = sorted(i for v in cm.values() for i in v)
     assert ids == [0, 1, 2, 3, 4, 5], ids                     # 모든 모델 클래스가 정확히 한 번
     pipe = cfg['pipeline']

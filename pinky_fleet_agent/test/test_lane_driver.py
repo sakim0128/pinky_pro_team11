@@ -9,8 +9,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pinky_fleet_agent.drive_fsm import (  # noqa: E402
-    ARRIVED, CROSSWALK_CLEAR, CROSSWALK_STOP, CRUISE, ESTOP, IDLE, LANE_LOST, LINK_LOST,
-    OBSTACLE_WAIT, WAIT_CLEARANCE, DriveFsm, FsmParams, Inputs,
+    ARRIVED, BARRICADE_WAIT, CROSSWALK_CLEAR, CROSSWALK_STOP, CRUISE, ESTOP, IDLE, LANE_LOST,
+    LANE_SEARCH, LINK_LOST, OBSTACLE_WAIT, WAIT_CLEARANCE, DriveFsm, FsmParams, Inputs,
 )
 from pinky_fleet_agent.lane_control import (  # noqa: E402
     QUALITY_BOTH, QUALITY_JUNCTION, QUALITY_LOST, QUALITY_SINGLE, ControlParams, LaneController,
@@ -321,7 +321,9 @@ def test_driver_stops_when_station_silent_and_when_path_silent():
 
 
 def test_driver_lane_lost_keeps_driving_slowly_on_map_route():
-    sim = Sim(straight())
+    p = DriverParams()
+    p.fsm.lane_search = False                       # 탐색 회전을 끄면 옛 동작: 맵 경로만으로 서행
+    sim = Sim(straight(), params=p)
     sim.lane_quality = QUALITY_LOST
     sim.start()
     out = sim.run(60)
@@ -366,6 +368,8 @@ class LaneOnlySim:
         self.half_lane = half_lane
         self.quality = QUALITY_BOTH
         self.crosswalk = False
+        self.barricade = False
+        self.seen = None                                   # (left, right) 강제. None 이면 quality 로
         self.cam = True
         self.log = []
 
@@ -375,7 +379,9 @@ class LaneOnlySim:
             if self.cam and int(self.t / DT) % 6 == 0:
                 lat = self.y + 0.15 * math.sin(self.yaw)          # 앞쪽 샘플 행에서 본 횡오차
                 e = max(-1.0, min(1.0, lat / self.half_lane))
-                self.d.set_lane_path(self.t, self.t, self.quality, e, self.crosswalk)
+                seen = self.seen or (None, None)
+                self.d.set_lane_path(self.t, self.t, self.quality, e, self.crosswalk,
+                                     barricade=self.barricade, left_seen=seen[0], right_seen=seen[1])
             out = self.d.tick(self.t, 0.0, 0.0, 0.0)              # 위치는 안 준다
             self.x += out.v * math.cos(self.yaw) * DT
             self.y += out.v * math.sin(self.yaw) * DT
@@ -419,6 +425,7 @@ def test_lane_only_crosswalk_stops_3s_once_without_graph():
 
 def test_lane_only_lost_coasts_then_stops():
     s = LaneOnlySim()
+    s.d.p.fsm.lane_search = False                         # 탐색 없이: 잠깐 유지 → 정지
     s.run(3.0)
     s.quality = QUALITY_LOST
     out = s.run(0.4)
@@ -442,3 +449,132 @@ def test_lane_only_obstacle_and_camera_silence_stop():
     s.cam = False                                          # LanePath 침묵 → 0.9 s 뒤 정지
     out = s.run(1.5)
     assert out.state == LINK_LOST and out.v == 0.0
+
+
+# ------------------------------------------------------------ D14 작업 2·5: 탐색 회전 · 바리게이트
+
+def test_fsm_barricade_waits_until_cleared():
+    fsm = DriveFsm()
+    s, f, r = fsm.step(0, Inputs(started=True, barricade=True))
+    assert s == BARRICADE_WAIT and f == 0.0 and '바리게이트' in r
+    assert fsm.step(0.5, Inputs(started=True, barricade=True, crosswalk_trigger=True))[0] == BARRICADE_WAIT
+    assert fsm.step(1.0, Inputs(started=True, obstacle=True, barricade=True))[0] == OBSTACLE_WAIT
+    assert fsm.step(1.5, Inputs(started=True))[0] == CRUISE      # 관제가 해제하면 바로 복귀
+
+
+def test_fsm_lane_search_enters_after_delay_and_returns_on_both():
+    fsm = DriveFsm(FsmParams(search_after=0.5, search_confirm_seconds=0.3, search_max_seconds=8.0))
+    single = Inputs(started=True, lane_visible=True, lane_both=False)
+    assert fsm.step(0.0, single)[0] == CRUISE                  # SINGLE 은 잠시 그냥 주행
+    assert fsm.step(0.4, single)[0] == CRUISE
+    s, f, _ = fsm.step(0.6, single)
+    assert s == LANE_SEARCH and f == 0.0 and not fsm.search_failed
+    both = Inputs(started=True, lane_both=True)
+    assert fsm.step(0.7, both)[0] == LANE_SEARCH               # 0.3 s 확인 전
+    assert fsm.step(0.8, single)[0] == LANE_SEARCH             # 깜빡임은 무시
+    assert fsm.step(1.0, both)[0] == LANE_SEARCH
+    s, f, _ = fsm.step(1.35, both)
+    assert s == CRUISE and f == 1.0
+
+
+def test_fsm_lane_search_times_out_then_stays_stopped():
+    fsm = DriveFsm(FsmParams(search_after=0.0, search_max_seconds=2.0))
+    lost = Inputs(started=True, lane_visible=False, lane_both=False)
+    assert fsm.step(0.0, lost)[0] == LANE_SEARCH
+    assert fsm.step(1.9, lost)[0] == LANE_SEARCH and not fsm.search_failed
+    s, f, r = fsm.step(2.1, lost)
+    assert s == LANE_SEARCH and f == 0.0 and fsm.search_failed and '실패' in r
+    assert fsm.step(5.0, Inputs(started=True, lane_both=True))[0] == LANE_SEARCH   # 확인 시간 전
+    assert fsm.step(5.4, Inputs(started=True, lane_both=True))[0] == CRUISE
+    assert not fsm.search_failed
+
+
+def test_fsm_search_only_on_lost_when_single_disabled():
+    fsm = DriveFsm(FsmParams(search_after=0.0, search_on_single=False))
+    assert fsm.step(0.0, Inputs(started=True, lane_visible=True, lane_both=False))[0] == CRUISE
+    assert fsm.step(0.1, Inputs(started=True, lane_visible=False, lane_both=False))[0] == LANE_SEARCH
+
+
+def test_fsm_junction_counts_as_pair_and_stop_states_reset_timer():
+    fsm = DriveFsm(FsmParams(search_after=0.5))
+    fsm.step(0.0, Inputs(started=True, lane_both=False))
+    fsm.step(0.4, Inputs(started=True, crosswalk_trigger=True, lane_both=False))     # 정지 상태
+    assert fsm.state == CROSSWALK_STOP
+    s = fsm.step(3.5, Inputs(started=True, lane_both=False))[0]
+    assert s == CROSSWALK_CLEAR                       # 정지 중 시간은 탐색 타이머에 안 쌓인다 → 바로 탐색 아님
+    s = fsm.step(4.2, Inputs(started=True, lane_both=False, travelled=1.0))[0]
+    assert s == LANE_SEARCH                           # 이제 0.5 s 넘겼다
+
+
+def test_lane_only_single_left_rotates_right_until_pair_returns():
+    """왼쪽 차선만 보이면 도로는 오른쪽 → 우회전(ω<0) 하다가 쌍이 보이면 다시 주행."""
+    s = LaneOnlySim(y0=0.0)
+    s.run(2.0)
+    yaw0 = s.yaw
+    s.quality = QUALITY_SINGLE
+    s.seen = (True, False)
+    out = s.run(1.5)
+    assert out.state == LANE_SEARCH and out.v == 0.0 and out.omega < 0.0
+    assert s.yaw < yaw0 - 0.2                          # 실제로 우회전했다
+    s.quality = QUALITY_BOTH
+    s.seen = None
+    out = s.run(1.0)
+    assert out.state == CRUISE and out.v > 0.0
+    assert s.run(6.0).state == CRUISE and abs(s.yaw) < 0.15     # 다시 중앙으로 수렴
+
+
+def test_lane_only_single_right_rotates_left_and_lost_uses_error_sign():
+    s = LaneOnlySim()
+    s.run(1.0)
+    s.quality = QUALITY_SINGLE
+    s.seen = (False, True)
+    assert s.run(1.5).omega > 0.0
+    s2 = LaneOnlySim(y0=0.0)
+    s2.run(1.0)
+    s2.y = +0.05                                       # 로봇이 왼쪽 → 마지막 유효 error_x > 0
+    s2.run(0.35)
+    s2.quality = QUALITY_LOST
+    s2.seen = (False, False)
+    assert s2.run(1.5).omega < 0.0                     # 차선 중앙이 오른쪽에 있었다 → 우회전
+
+
+def test_lane_only_search_direction_is_held_and_stops_on_timeout():
+    s = LaneOnlySim()
+    s.d.p.fsm.search_max_seconds = 2.0
+    s.run(1.0)
+    s.quality = QUALITY_SINGLE
+    s.seen = (True, False)
+    s.run(1.0)
+    s.seen = (False, True)                            # 회전 중 다른 쪽만 보여도 방향은 유지
+    out = s.run(0.5)
+    assert out.state == LANE_SEARCH and out.omega < 0.0
+    out = s.run(2.0)
+    assert out.state == LANE_SEARCH and out.omega == 0.0 and out.v == 0.0 and '실패' in out.reason
+
+
+def test_lane_only_barricade_stops_and_resumes_when_cleared():
+    s = LaneOnlySim()
+    s.run(2.0)
+    s.barricade = True
+    out = s.run(1.0)
+    assert out.state == BARRICADE_WAIT and out.v == 0.0 and out.omega == 0.0
+    x_stop = s.x
+    s.run(3.0)
+    assert s.x == x_stop                              # 치워질 때까지 움직이지 않는다
+    s.barricade = False
+    out = s.run(1.0)
+    assert out.state == CRUISE and out.v > 0.0
+
+
+def test_route_mode_search_turns_toward_lookahead():
+    """경로가 있으면 회전 방향은 다음 웨이포인트 쪽: 로봇이 경로 왼쪽(+y)을 보고 있으면 우회전."""
+    sim = Sim(straight())
+    sim.start()
+    sim.run(2)
+    sim.yaw = +0.8                                    # 경로(x 축)에서 왼쪽으로 크게 틀어짐
+    sim.lane_quality = QUALITY_LOST
+    out = sim.run(1.5)
+    assert out.state == LANE_SEARCH and out.v == 0.0 and out.omega < 0.0
+    sim.lane_quality = QUALITY_BOTH
+    out = sim.run(2.0)
+    assert out.state == CRUISE and out.v > 0.0

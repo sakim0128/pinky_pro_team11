@@ -128,8 +128,8 @@ YOLO 모델이 나온 뒤 첫 실차 테스트. 시작·목적지 없이 기동 
 횡단보도 3 s 정지·장애물 정지·카메라 끊김 정지는 그대로 동작한다.
 
 **모델**: 가중치는 git 밖, 관제 PC `~/models/lane_26n.pt`. `pinky_lane_station/config/detector_yolo.yaml` 이 가리킨다.
-모델 클래스 0(왼쪽 라인)·2(오른쪽 라인)는 둘 다 `lane` 으로 묶고 좌/우는 화면 위치로 정한다. 1 은 `crosswalk`,
-3 라바콘·4 신호등·5 바리게이트는 오버레이 표시용(주행 판단에는 아직 안 쓴다).
+모델 클래스 0 → `left_lane`, 2 → `right_lane` (라벨은 차선이 3개 이상일 때만 쓰고, 2개 이하면 화면 위치로 정한다). 1 은 `crosswalk`,
+5 `barricade` 는 정지 트리거, 3 라바콘·4 신호등은 오버레이 표시용.
 yolo26 은 `pip install -U ultralytics`(8.4+). 학습 입력이 448×320 이라 `imgsz 448`(긴 변). 관제 PC 는 CPU, p95 > 100 ms 면 320 으로.
 
 **상위 30 % 마스킹**: 학습 때 이미지 상위 30 % 를 검정으로 채웠으므로 추론 입력도 똑같이 채운다
@@ -160,7 +160,17 @@ ros2 topic pub -1 /pinky1/lane_command pinky_lane_msgs/msg/LaneCommand "{command
 
 값의 흐름: 로봇 `camera_node` → `/pinky1/camera/image/compressed` → 관제 `lane_pipeline_node`(YOLO → 폴리곤 → 0.72·H 행에서 좌/우 x →
 중앙 → `error_x_norm`, 횡단보도 하단 y ≥ 0.8·H) → `/pinky1/lane_path` → 로봇 `lane_agent_node`(lane_only: ω = −Kp·e − Kd·ė,
-v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. 차선을 잃으면 0.6 s 직전 명령 유지 후 정지, LanePath 가 0.9 s 끊겨도 정지.
+v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. LanePath 가 0.9 s 끊기면 정지.
+
+**차선 규칙 (D14)**
+- 차선 ≤ 2개: 화면 중앙에 가장 가까운 좌/우 쌍. **≥ 3개**: 모델 클래스 기준 가장 바깥 쌍 — 왼쪽 클래스 중 가장 왼쪽,
+  오른쪽 클래스 중 가장 오른쪽 (왼쪽 1 + 오른쪽 2 면 오른쪽은 왼쪽과 가장 먼 것). 클래스가 위치와 모순이면 위치 규칙. `scene_state.pair_rule` 로 확인.
+- 차선 쌍이 0.5 s 이상 안 보이면(한쪽만 보이거나 없음) `LANE_SEARCH`: 제자리 회전 0.4 rad/s. 방향은 경로가 있으면 다음 웨이포인트 쪽,
+  없으면 안 보이는 차선 쪽(왼쪽만 보이면 우회전). 쌍이 0.3 s 이어지면 주행 복귀, 8 s 넘기면 정지(`state_reason` 에 실패).
+  끄려면 `fsm.lane_search: false` (그때는 0.6 s 직전 명령 유지 후 정지).
+- 횡단보도: 하단 y ≥ 0.8·H 에서 3 프레임 확정 → 3 s 정지 → 0.6 m 재래치. 바리게이트: 같은 조건으로 확정 → `BARRICADE_WAIT`,
+  10 프레임(≈1 s) 안 보이면 자동 재출발. 라이다 장애물 정지와 겹쳐 동작한다.
+- 메시지가 바뀌었으므로 **양쪽 모두 `pinky_lane_msgs` 재빌드** (LanePath.barricade_*, SceneState 좌/우 수, LaneStatus 10/11).
 
 ---
 

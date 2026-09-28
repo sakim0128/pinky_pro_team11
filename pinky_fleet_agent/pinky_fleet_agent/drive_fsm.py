@@ -4,8 +4,13 @@ ROS 에 의존하지 않는다. 매 틱 ``step(now, inputs)`` 에 관측을 넣�
 reason) 을 돌려준다. speed_factor 0 이면 정지, 1 이면 정상, 0.5 면 서행.
 
 우선순위 (위가 이긴다):
-    ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_CLEAR
-          > ARRIVED > LANE_LOST > CRUISE > IDLE
+    ESTOP > LINK_LOST > OBSTACLE_WAIT > BARRICADE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP
+          > CROSSWALK_CLEAR > ARRIVED > LANE_SEARCH > LANE_LOST > CRUISE > IDLE
+
+LANE_SEARCH (D14 작업 2): 차선 쌍(BOTH)이 search_after 이상 안 보이면 진입. speed_factor 0 이고
+드라이버가 제자리 회전을 건다 (방향은 드라이버가 정한다). BOTH 가 search_confirm_seconds 이어지면
+CRUISE 복귀, search_max_seconds 를 넘기면 search_failed 를 세우고 정지한 채 머문다.
+BARRICADE_WAIT (작업 5): 카메라 바리게이트 트리거. 관제 디바운스가 풀리면(치워짐) 자동 복귀.
 
 횡단보도 재래치는 시간이 아니라 **주행거리** 로 막는다 — 3 초 서 있던 로봇은 정의상 느리다.
 빨간불·타임아웃 류의 "오래 기다리면 스스로 출발" 은 넣지 않는다. mini_project_1 의
@@ -15,13 +20,14 @@ hold_watchdog 이 같은 논쟁 끝에 "그때 할 일은 재출발이 아니라
 from dataclasses import dataclass, field
 
 IDLE, CRUISE, WAIT_CLEARANCE, CROSSWALK_STOP, CROSSWALK_CLEAR, OBSTACLE_WAIT, \
-    LANE_LOST, ARRIVED, ESTOP, LINK_LOST = range(10)
+    LANE_LOST, ARRIVED, ESTOP, LINK_LOST, BARRICADE_WAIT, LANE_SEARCH = range(12)
 
 STATE_NAMES = {
     IDLE: 'IDLE', CRUISE: 'CRUISE', WAIT_CLEARANCE: 'WAIT_CLEARANCE',
     CROSSWALK_STOP: 'CROSSWALK_STOP', CROSSWALK_CLEAR: 'CROSSWALK_CLEAR',
     OBSTACLE_WAIT: 'OBSTACLE_WAIT', LANE_LOST: 'LANE_LOST', ARRIVED: 'ARRIVED',
-    ESTOP: 'ESTOP', LINK_LOST: 'LINK_LOST',
+    ESTOP: 'ESTOP', LINK_LOST: 'LINK_LOST', BARRICADE_WAIT: 'BARRICADE_WAIT',
+    LANE_SEARCH: 'LANE_SEARCH',
 }
 
 
@@ -31,6 +37,11 @@ class FsmParams:
     crosswalk_relatch_distance: float = 0.60     # CLEAR 진입 후 이만큼 가기 전엔 재트리거 무시 (crosswalk_zone 보다 커야 한다)
     lane_lost_speed_factor: float = 0.5
     blind_warn_distance: float = 0.60            # 카메라 없이 이만큼 이상 달리면 reason 에 경고
+    lane_search: bool = True                     # 차선 쌍이 안 보이면 제자리 회전 탐색 (D14 작업 2)
+    search_on_single: bool = True                # SINGLE 도 탐색 트리거 (False 면 LOST/STALE 만)
+    search_after: float = 0.5                    # 쌍이 이만큼(s) 안 보여야 탐색 시작
+    search_confirm_seconds: float = 0.3          # 탐색 중 BOTH 가 이만큼 이어지면 복귀
+    search_max_seconds: float = 8.0              # 이보다 오래 돌면 실패 → 정지
 
 
 @dataclass
@@ -44,7 +55,9 @@ class Inputs:
     at_clearance: bool = False      # 진행도가 clear_until 에 닿았고 clear_until < goal
     clearance_reason: str = ''
     crosswalk_trigger: bool = False # 디바운스 통과한 횡단보도 트리거
+    barricade: bool = False         # 디바운스 통과한 바리게이트 (관제가 해제할 때까지 True)
     lane_visible: bool = True       # quality ∈ {BOTH, SINGLE, JUNCTION}
+    lane_both: bool = True          # quality ∈ {BOTH, JUNCTION} — 탐색 복귀 조건
     arrived: bool = False
     travelled: float = 0.0          # 누적 주행거리 (m). 상태 진입 후 거리 계산에 쓴다
 
@@ -56,7 +69,10 @@ class DriveFsm:
     entered_at: float = 0.0
     entered_travel: float = 0.0
     reason: str = ''
+    search_failed: bool = False     # LANE_SEARCH 가 search_max_seconds 를 넘김 → 드라이버는 회전도 멈춘다
     _crosswalk_clear_from: float = None
+    _nonboth_since: float = None
+    _both_since: float = None
 
     def _enter(self, state, now, travelled, reason=''):
         if state != self.state:
@@ -88,6 +104,9 @@ class DriveFsm:
         if inp.obstacle:
             self._enter(OBSTACLE_WAIT, t, d, inp.obstacle_reason or '장애물')
             return self.state, 0.0, self.reason
+        if inp.barricade:
+            self._enter(BARRICADE_WAIT, t, d, '바리게이트 — 치워지면 재출발')
+            return self.state, 0.0, self.reason
 
         # 횡단보도: 정지 유지 중이면 시간이 찰 때까지 그대로
         if self.state == CROSSWALK_STOP:
@@ -115,6 +134,34 @@ class DriveFsm:
 
         if inp.arrived:
             self._enter(ARRIVED, t, d, '도착')
+            return self.state, 0.0, self.reason
+
+        # 차선 쌍 탐색 (BOTH/JUNCTION 이 아닌 시간을 잰다 — 주행 상태에서만)
+        if inp.lane_both:
+            self._nonboth_since = None
+            if self._both_since is None:
+                self._both_since = t
+        else:
+            self._both_since = None
+            if self._nonboth_since is None:
+                self._nonboth_since = t
+        if self.state == LANE_SEARCH:
+            if inp.lane_both and t - self._both_since >= p.search_confirm_seconds:
+                self.search_failed = False
+                self._enter(CRUISE, t, d, '차선 쌍 회복 — 주행')
+                return self.state, 1.0, self.reason
+            if self.since_entry(t) >= p.search_max_seconds:
+                self.search_failed = True
+                self.reason = f'차선 탐색 실패 {p.search_max_seconds:.0f}s — 정지'
+            else:
+                self.reason = f'차선 탐색 회전 {self.since_entry(t):.1f}/{p.search_max_seconds:.0f}s'
+            return self.state, 0.0, self.reason
+        want_search = (p.lane_search and not inp.lane_both
+                       and (p.search_on_single or not inp.lane_visible)
+                       and (t - self._nonboth_since) >= p.search_after)
+        if want_search:
+            self.search_failed = False
+            self._enter(LANE_SEARCH, t, d, '차선 탐색 회전 0.0/%.0fs' % p.search_max_seconds)
             return self.state, 0.0, self.reason
 
         if not inp.lane_visible:

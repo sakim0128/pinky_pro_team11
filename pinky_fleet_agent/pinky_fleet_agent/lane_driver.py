@@ -14,7 +14,7 @@ ROS 에 의존하지 않는다. 노드는 메시지를 풀어 ``set_*`` 로 넣�
 import math
 from dataclasses import dataclass, field
 
-from .drive_fsm import IDLE, STATE_NAMES, DriveFsm, FsmParams, Inputs
+from .drive_fsm import IDLE, LANE_SEARCH, STATE_NAMES, DriveFsm, FsmParams, Inputs
 from .lane_control import (QUALITY_BOTH, QUALITY_JUNCTION, QUALITY_LOST, QUALITY_SINGLE,
                            QUALITY_STALE, ControlParams, LaneController)
 from .link_watch import LinkWatch
@@ -39,6 +39,7 @@ class DriverParams:
     junction_zone: float = 0.25           # 분기 노드 ± 이 거리는 JUNCTION 취급 (관제가 안 보내도)
     lane_only: bool = False               # 경로·위치 없이 카메라 차선 중앙만 따라간다 (테스트 모드)
     lane_lost_coast: float = 0.6          # lane_only: 차선을 잃고 이만큼(s) 직전 명령 유지 후 정지
+    search_omega: float = 0.4             # LANE_SEARCH 제자리 회전 각속도 (rad/s)
 
 
 @dataclass
@@ -80,7 +81,10 @@ class LaneDriver:
         self.station_link = LinkWatch(self.p.link_timeout)
         self.path_link = LinkWatch(self.p.path_timeout, restore_grace=0.0)
         # 최근 LanePath
-        self._lane = {'stamp': None, 'quality': QUALITY_LOST, 'error_x': None, 'crosswalk': False}
+        self._lane = {'stamp': None, 'quality': QUALITY_LOST, 'error_x': None, 'crosswalk': False,
+                      'barricade': False, 'left_seen': False, 'right_seen': False}
+        self._search_dir = 0.0
+        self._last_valid_error = None      # 마지막 BOTH/SINGLE 의 error_x (LOST 탐색 방향용)
         self._travelled = 0.0
         self._last_xy = None
         self._last_tick = None
@@ -128,11 +132,20 @@ class LaneDriver:
         self.clearance_reason = reason
         self.set_command(CMD_CLEARANCE, now, route_seq=route_seq, clear_until=idx)
 
-    def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False):
+    def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False,
+                      barricade=False, left_seen=None, right_seen=None):
         self.path_link.on_command(now, heartbeat=True)
-        self._lane = {'stamp': float(source_stamp), 'quality': int(quality),
+        q = int(quality)
+        if left_seen is None:            # 옛 호출자: quality 로 추정
+            left_seen = q == QUALITY_BOTH
+        if right_seen is None:
+            right_seen = q == QUALITY_BOTH
+        self._lane = {'stamp': float(source_stamp), 'quality': q,
                       'error_x': None if error_x is None else float(error_x),
-                      'crosswalk': bool(crosswalk)}
+                      'crosswalk': bool(crosswalk), 'barricade': bool(barricade),
+                      'left_seen': bool(left_seen), 'right_seen': bool(right_seen)}
+        if q in (QUALITY_BOTH, QUALITY_SINGLE) and error_x is not None:
+            self._last_valid_error = float(error_x)
 
     def update_scan(self, ranges, angle_min, angle_increment, range_min=0.05, range_max=12.0):
         self.guard.update_scan(ranges, angle_min, angle_increment, range_min, range_max)
@@ -154,6 +167,44 @@ class LaneDriver:
         s = self.follower.progress_s
         return any(abs(self.follower.cum[i] - s) <= tolerance for i in idx_list
                    if 0 <= i < len(self.follower.cum))
+
+    def _search_direction(self, x, y, yaw):
+        """LANE_SEARCH 회전 방향 (+1 좌회전 / −1 우회전).
+
+        경로가 있으면 다음 lookahead 점이 있는 쪽. 없으면 안 보이는 차선 쪽
+        (왼쪽만 보이면 도로는 오른쪽 → 우회전). 둘 다 없으면 마지막 error_x 부호, 그것도 없으면
+        직전 방향을 유지한다 (탐색 중 방향이 뒤집히지 않게).
+        """
+        cam_sign = 1.0 if self.p.control.cam_sign >= 0 else -1.0
+        if self.follower is not None:
+            px, py = self.follower.lookahead_point()
+            ang = math.atan2(py - y, px - x) - yaw
+            ang = math.atan2(math.sin(ang), math.cos(ang))
+            if abs(ang) > 1e-3:
+                return 1.0 if ang > 0 else -1.0
+        left, right = self._lane['left_seen'], self._lane['right_seen']
+        if left != right:
+            return (-1.0 if left else 1.0) * cam_sign
+        e = self._last_valid_error
+        if e is not None and abs(e) > 1e-3:
+            return (-1.0 if e > 0 else 1.0) * cam_sign
+        return self._search_dir if self._search_dir else cam_sign
+
+    def _apply_search(self, out, x, y, yaw):
+        """FSM 이 LANE_SEARCH 이면 v=0, ω=±search_omega (실패면 0). 처리했으면 True."""
+        if out.state != LANE_SEARCH:
+            self._search_dir = 0.0
+            return False
+        self.controller.reset()
+        self._last_cmd = (0.0, 0.0)
+        self._lost_since = None
+        if self.fsm.search_failed:
+            out.v, out.omega = 0.0, 0.0
+            return True
+        if not self._search_dir:
+            self._search_dir = self._search_direction(x, y, yaw)
+        out.v, out.omega = 0.0, self._search_dir * self.p.search_omega
+        return True
 
     # ------------------------------------------------ 틱
 
@@ -185,12 +236,13 @@ class LaneDriver:
         if self.follower and self._near_any(self.junction_idx, p.junction_zone):
             quality = QUALITY_JUNCTION
         lane_visible = quality in (QUALITY_BOTH, QUALITY_SINGLE, QUALITY_JUNCTION)
+        lane_both = quality in (QUALITY_BOTH, QUALITY_JUNCTION)
         out.quality = quality
         out.error_x = error_x if error_x is not None else 0.0
 
         if self.follower is None and p.lane_only:
             return self._tick_lane_only(now, dt, out, blocked, obstacle_reason, quality, error_x,
-                                        lane_visible)
+                                        lane_visible, lane_both)
         if self.follower is None:
             inp = Inputs(started=False, estop=self.estop, link_ok=self.station_link.alive(now),
                          path_ok=True, obstacle=blocked, obstacle_reason=obstacle_reason,
@@ -220,13 +272,16 @@ class LaneDriver:
             path_ok=self.path_link.alive(now),
             obstacle=blocked, obstacle_reason=obstacle_reason,
             at_clearance=at_clearance, clearance_reason=self.clearance_reason,
-            crosswalk_trigger=crosswalk_trigger, lane_visible=lane_visible,
+            crosswalk_trigger=crosswalk_trigger, barricade=self._lane['barricade'],
+            lane_visible=lane_visible, lane_both=lane_both,
             arrived=arrived, travelled=self._travelled,
         )
         state, speed_factor, reason = self.fsm.step(now, inp)
         out.state, out.state_name, out.reason = state, STATE_NAMES[state], reason
         out.odom_since_state = self.fsm.travelled_since_entry(self._travelled)
 
+        if self._apply_search(out, x, y, yaw):
+            return out
         if speed_factor <= 0.0:
             self.controller.reset()
             out.v, out.omega = 0.0, 0.0
@@ -241,20 +296,24 @@ class LaneDriver:
 
     # ------------------------------------------------ 차선만 (테스트 모드)
 
-    def _tick_lane_only(self, now, dt, out, blocked, obstacle_reason, quality, error_x, lane_visible):
-        """경로·위치 없이 카메라 error_x 만으로 중앙 주행. 횡단보도·장애물·링크 감시는 그대로."""
+    def _tick_lane_only(self, now, dt, out, blocked, obstacle_reason, quality, error_x,
+                        lane_visible, lane_both):
+        """경로·위치 없이 카메라 error_x 만으로 중앙 주행. 횡단보도·바리게이트·장애물·링크 감시는 그대로."""
         p = self.p
         inp = Inputs(
             started=self.started, estop=self.estop,
             link_ok=self.station_link.alive(now), path_ok=self.path_link.alive(now),
             obstacle=blocked, obstacle_reason=obstacle_reason,
             at_clearance=False, crosswalk_trigger=self._lane['crosswalk'],   # 존 검사 없음 (그래프가 없다)
-            lane_visible=lane_visible, arrived=False, travelled=self._travelled,
+            barricade=self._lane['barricade'],
+            lane_visible=lane_visible, lane_both=lane_both, arrived=False, travelled=self._travelled,
         )
         state, speed_factor, reason = self.fsm.step(now, inp)
         out.state, out.state_name, out.reason = state, STATE_NAMES[state], reason
         out.odom_since_state = self.fsm.travelled_since_entry(self._travelled)
         out.edge_id = 'lane_only'
+        if self._apply_search(out, 0.0, 0.0, 0.0):
+            return out
         if speed_factor <= 0.0:
             self.controller.reset()
             self._last_cmd = (0.0, 0.0)

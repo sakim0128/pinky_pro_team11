@@ -187,7 +187,9 @@ class LaneAgent(Node):
 
     def _on_lane_path(self, msg: LanePath):
         self.driver.set_lane_path(self._now(), stamp_seconds(msg.source_stamp), int(msg.quality),
-                                  float(msg.error_x_norm), bool(msg.crosswalk_detected))
+                                  float(msg.error_x_norm), bool(msg.crosswalk_detected),
+                                  barricade=bool(getattr(msg, 'barricade_detected', False)),
+                                  left_seen=bool(msg.left_seen), right_seen=bool(msg.right_seen))
 
     def _on_fleet_command(self, msg: FleetCommand):
         now = self._now()

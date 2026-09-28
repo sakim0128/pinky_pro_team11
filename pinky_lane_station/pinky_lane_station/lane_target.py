@@ -5,18 +5,21 @@ ROS 에 의존하지 않는다. 검출기(YOLO-seg / classic / stub) 가 낸 ``I
     est = LaneTargetEstimator(TargetParams())
     r = est.update(instances, width, height)      # -> TargetResult (LanePath 필드와 1:1)
 
-쌍 선택 (설계 D3)
+쌍 선택 (설계 D3 + D14 작업 1)
     lane 인스턴스마다 샘플 행 y_s = sample_row_frac·H 에서 폴리곤과의 교차 구간 중점 x
     (교차가 없으면 대체 행들 → 그래도 없으면 최하단 점 x).
-    좌 후보 = x < W/2 중 최대, 우 후보 = x > W/2 중 최소  — 화면 중앙에 가장 가까운 쌍.
+    차선 ≤ 2 : 좌 후보 = x < W/2 중 최대, 우 후보 = x > W/2 중 최소  — 화면 중앙에 가장 가까운 쌍.
+    차선 ≥ 3 : 모델 클래스(left_lane / right_lane) 기준 **가장 바깥 쌍** — 왼쪽 클래스 중 가장 왼쪽,
+              오른쪽 클래스 중 가장 오른쪽 (예: 왼쪽 1 + 오른쪽 2 → 왼쪽 그대로, 오른쪽은 왼쪽과 가장 먼 것).
+              한쪽 클래스가 없으면 그쪽은 화면 위치 규칙, 좌 ≥ 우 로 모순이면 전체를 위치 규칙으로.
     BOTH   : target_x = (xL + xR)/2, 반폭 이력에 (xR − xL)/2 추가
     SINGLE : target_x = x ± half_lane_px (이력 중앙값. 이력이 없으면 초기값)
     LOST   : 없음
     error_x = (target_x − W/2)/(W/2)   차선 중앙이 화면 오른쪽이면 양수 (= 로봇이 왼쪽 치우침)
 
-횡단보도
-    crosswalk 인스턴스의 최하단 y ≥ stop_row_frac·H 이면 raw. 연속 confirm 프레임이면 확정,
-    연속 release 프레임 동안 raw 가 없으면 해제.
+횡단보도 / 바리게이트
+    crosswalk(barricade) 인스턴스의 최하단 y ≥ stop_row_frac·H 이면 raw. 연속 confirm 프레임이면 확정,
+    연속 release 프레임 동안 raw 가 없으면 해제. 바리게이트는 해제가 길다 (치워진 걸 1 s 확인).
 """
 
 from collections import deque
@@ -26,8 +29,13 @@ QUALITY_BOTH, QUALITY_SINGLE, QUALITY_JUNCTION, QUALITY_STALE, QUALITY_LOST = 0,
 QUALITY_NAMES = {QUALITY_BOTH: 'BOTH', QUALITY_SINGLE: 'SINGLE', QUALITY_JUNCTION: 'JUNCTION',
                  QUALITY_STALE: 'STALE', QUALITY_LOST: 'LOST'}
 
-CLS_LANE = 'lane'
+CLS_LANE = 'lane'               # 좌/우 정보 없는 차선 (classic·stub 검출기)
+CLS_LEFT = 'left_lane'          # 모델 클래스 0
+CLS_RIGHT = 'right_lane'        # 모델 클래스 2
 CLS_CROSSWALK = 'crosswalk'
+CLS_BARRICADE = 'barricade'
+LANE_CLASSES = (CLS_LANE, CLS_LEFT, CLS_RIGHT)
+SIDE_OF_CLASS = {CLS_LEFT: 'L', CLS_RIGHT: 'R'}
 
 
 @dataclass
@@ -74,6 +82,12 @@ class TargetParams:
     crosswalk_min_width_frac: float = 0.25
     crosswalk_confirm: int = 3
     crosswalk_release: int = 5
+    outer_pair_min_lanes: int = 3         # 차선이 이 수 이상이면 클래스 기준 가장 바깥 쌍
+    barricade_stop_row_frac: float = 0.80 # 바리게이트 최하단 y ≥ 이 행이면 정지 트리거
+    barricade_min_conf: float = 0.30
+    barricade_min_width_frac: float = 0.15
+    barricade_confirm: int = 3
+    barricade_release: int = 10           # ≈ 1 s (10 fps) 동안 안 보여야 해제
 
 
 @dataclass
@@ -93,9 +107,16 @@ class TargetResult:
     crosswalk_detected: bool = False
     crosswalk_bottom_y: int = 0
     crosswalk_confidence: float = 0.0
+    left_count: int = 0             # 모델이 왼쪽 클래스로 낸 차선 수
+    right_count: int = 0
+    pair_rule: str = 'nearest'      # 'nearest' | 'outer' — 이번 프레임 쌍 선택 규칙
+    barricade_raw: bool = False
+    barricade_detected: bool = False
+    barricade_bottom_y: int = 0
+    barricade_confidence: float = 0.0
     image_width: int = 0
     image_height: int = 0
-    candidates: list = field(default_factory=list)   # [(x, conf), ...] 진단용
+    candidates: list = field(default_factory=list)   # [(x, conf, side), ...] 진단용
 
     @property
     def quality_name(self):
@@ -160,10 +181,12 @@ class LaneTargetEstimator:
         self.p = params or TargetParams()
         self._half_hist = deque(maxlen=self.p.half_lane_history)
         self._crosswalk = CrosswalkDebounce(self.p.crosswalk_confirm, self.p.crosswalk_release)
+        self._barricade = CrosswalkDebounce(self.p.barricade_confirm, self.p.barricade_release)
 
     def reset(self):
         self._half_hist.clear()
         self._crosswalk.reset()
+        self._barricade.reset()
 
     @property
     def half_lane_px(self):
@@ -171,6 +194,31 @@ class LaneTargetEstimator:
             return self.p.half_lane_px_init
         s = sorted(self._half_hist)
         return s[len(s) // 2]
+
+    # ------------------------------------------------ 쌍 선택
+
+    @staticmethod
+    def _nearest_pair(cands, cx):
+        left = max((c for c in cands if c[0] < cx), key=lambda c: c[0], default=None)
+        right = min((c for c in cands if c[0] > cx), key=lambda c: c[0], default=None)
+        return left, right
+
+    def _select_pair(self, cands, cx, r):
+        """(left, right) 후보. 차선 ≥ outer_pair_min_lanes 이고 클래스 라벨이 있으면 가장 바깥 쌍."""
+        r.pair_rule = 'nearest'
+        if len(cands) < self.p.outer_pair_min_lanes:
+            return self._nearest_pair(cands, cx)
+        lefts = [c for c in cands if c[3] == 'L']
+        rights = [c for c in cands if c[3] == 'R']
+        if not lefts and not rights:
+            return self._nearest_pair(cands, cx)
+        near_l, near_r = self._nearest_pair(cands, cx)
+        left = min(lefts, key=lambda c: c[0]) if lefts else near_l
+        right = max(rights, key=lambda c: c[0]) if rights else near_r
+        if left and right and left[0] >= right[0]:
+            return self._nearest_pair(cands, cx)          # 클래스와 위치가 모순 → 위치 우선
+        r.pair_rule = 'outer'
+        return left, right
 
     # ------------------------------------------------ 메인
 
@@ -181,18 +229,19 @@ class LaneTargetEstimator:
         r = TargetResult(image_width=W, image_height=H)
         rows = [p.sample_row_frac * H] + [f * H for f in p.fallback_row_fracs]
 
-        lanes = [i for i in instances if i.cls == CLS_LANE and i.conf >= p.min_lane_conf
+        lanes = [i for i in instances if i.cls in LANE_CLASSES and i.conf >= p.min_lane_conf
                  and i.height >= p.min_lane_height_frac * H and len(i.polygon) >= 3]
         r.lane_count = len(lanes)
+        r.left_count = sum(1 for i in lanes if i.cls == CLS_LEFT)
+        r.right_count = sum(1 for i in lanes if i.cls == CLS_RIGHT)
 
         cands = []
         for inst in lanes:
             x, y = instance_x_at_rows(inst, rows)
-            cands.append((x, y, inst.conf))
-        r.candidates = [(round(x, 1), round(c, 2)) for x, _, c in cands]
+            cands.append((x, y, inst.conf, SIDE_OF_CLASS.get(inst.cls)))
+        r.candidates = [(round(x, 1), round(c, 2), side) for x, _, c, side in cands]
 
-        left = max((c for c in cands if c[0] < cx), key=lambda c: c[0], default=None)
-        right = min((c for c in cands if c[0] > cx), key=lambda c: c[0], default=None)
+        left, right = self._select_pair(cands, cx, r)
         half = self.half_lane_px
 
         if left and right and (right[0] - left[0]) < p.narrow_pair_frac * 2.0 * half:
@@ -247,4 +296,14 @@ class LaneTargetEstimator:
             r.crosswalk_confidence = float(best.conf)
             r.crosswalk_raw = best.bottom_y >= p.crosswalk_stop_row_frac * H
         r.crosswalk_detected = self._crosswalk.update(r.crosswalk_raw)
+
+        # ------------------------------------------------ 바리게이트
+        bars = [i for i in instances if i.cls == CLS_BARRICADE and i.conf >= p.barricade_min_conf
+                and i.width >= p.barricade_min_width_frac * W]
+        if bars:
+            best = max(bars, key=lambda i: i.bottom_y)
+            r.barricade_bottom_y = int(round(best.bottom_y))
+            r.barricade_confidence = float(best.conf)
+            r.barricade_raw = best.bottom_y >= p.barricade_stop_row_frac * H
+        r.barricade_detected = self._barricade.update(r.barricade_raw)
         return r

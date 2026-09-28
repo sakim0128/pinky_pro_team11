@@ -127,3 +127,78 @@ def test_crosswalk_requires_width():
     est = LaneTargetEstimator(TargetParams(crosswalk_confirm=1))
     r = est.update([crosswalk(450, x0=300, x1=340)], W, H)
     assert not r.crosswalk_raw
+
+
+# ------------------------------------------------ D14 작업 1: 차선 ≥ 3 → 클래스 기준 가장 바깥 쌍
+
+def sided(x, side, conf=0.9):
+    cls = {'L': 'left_lane', 'R': 'right_lane', None: 'lane'}[side]
+    return Instance(cls, conf, [(x - 8, H * 0.45), (x + 8, H * 0.45), (x + 12, H), (x - 12, H)])
+
+
+def test_two_lanes_use_nearest_rule_even_with_labels():
+    r = LaneTargetEstimator().update([sided(200, 'L'), sided(440, 'R')], W, H)
+    assert r.quality == QUALITY_BOTH and r.pair_rule == 'nearest'
+    assert (r.left_x, r.right_x) == (200, 440) and (r.left_count, r.right_count) == (1, 1)
+
+
+def test_left_one_right_two_picks_farthest_right():
+    """사용자 예: 왼쪽 1 + 오른쪽 2 → 왼쪽 그대로, 오른쪽은 왼쪽과 가장 먼 것."""
+    r = LaneTargetEstimator().update([sided(200, 'L'), sided(400, 'R'), sided(560, 'R')], W, H)
+    assert r.quality == QUALITY_BOTH and r.pair_rule == 'outer'
+    assert (r.left_x, r.right_x) == (200, 560) and (r.left_count, r.right_count) == (1, 2)
+
+
+def test_left_two_right_one_picks_farthest_left():
+    r = LaneTargetEstimator().update([sided(80, 'L'), sided(240, 'L'), sided(440, 'R')], W, H)
+    assert r.pair_rule == 'outer' and (r.left_x, r.right_x) == (80, 440)
+
+
+def test_two_and_two_picks_outermost_both():
+    r = LaneTargetEstimator().update([sided(60, 'L'), sided(200, 'L'), sided(440, 'R'), sided(600, 'R')], W, H)
+    assert r.pair_rule == 'outer' and (r.left_x, r.right_x) == (60, 600)
+
+
+def test_outer_rule_falls_back_to_position_when_labels_contradict():
+    """오른쪽 클래스 선이 왼쪽 클래스 선보다 왼쪽에 있으면 위치 규칙."""
+    r = LaneTargetEstimator().update([sided(500, 'L'), sided(150, 'R'), sided(300, 'R')], W, H)
+    assert r.pair_rule == 'nearest'
+    assert (r.left_x, r.right_x) == (300, 500)
+
+
+def test_outer_rule_without_labels_uses_nearest():
+    r = LaneTargetEstimator().update([line(40), line(200), line(440), line(600)], W, H)
+    assert r.pair_rule == 'nearest' and (r.left_x, r.right_x) == (200, 440)
+
+
+def test_outer_rule_one_side_unlabeled_uses_position_for_that_side():
+    r = LaneTargetEstimator().update([sided(200, 'L'), sided(440, None), sided(560, None)], W, H)
+    assert r.pair_rule == 'outer' and (r.left_x, r.right_x) == (200, 440)
+
+
+# ------------------------------------------------ D14 작업 5: 바리게이트
+
+def barricade(bottom_y, conf=0.9, x0=200, x1=440):
+    return Instance('barricade', conf, [(x0, bottom_y - 60), (x1, bottom_y - 60),
+                                        (x1, bottom_y), (x0, bottom_y)])
+
+
+def test_barricade_triggers_only_near_bottom_and_debounces():
+    est = LaneTargetEstimator(TargetParams(barricade_confirm=2, barricade_release=3))
+    r = est.update([line(200), line(440), barricade(300)], W, H)
+    assert r.barricade_bottom_y == 300 and not r.barricade_raw and not r.barricade_detected
+    r = est.update([line(200), line(440), barricade(400)], W, H)
+    assert r.barricade_raw and not r.barricade_detected          # 1/2
+    r = est.update([line(200), line(440), barricade(400)], W, H)
+    assert r.barricade_detected                                  # 확정
+    for i in range(3):
+        r = est.update([line(200), line(440)], W, H)
+        assert r.barricade_detected == (i < 2)                   # 3 프레임 뒤 해제
+    assert r.quality == QUALITY_BOTH                             # 차선 판정에는 영향 없음
+
+
+def test_barricade_requires_width_and_conf():
+    est = LaneTargetEstimator(TargetParams(barricade_confirm=1))
+    assert not est.update([barricade(420, x0=300, x1=340)], W, H).barricade_raw
+    assert not est.update([barricade(420, conf=0.1)], W, H).barricade_raw
+    assert est.update([barricade(420)], W, H).barricade_detected
