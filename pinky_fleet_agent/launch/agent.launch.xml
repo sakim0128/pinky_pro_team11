@@ -26,6 +26,12 @@
          description="연결 복구 직후 이만큼(s) 이동 명령을 무시한다 (RELIABLE QoS 재전송 방어)."/>
     <arg name="hold_watchdog" default="20.0"
          description="관제 PC 가 죽어도 로봇이 영원히 서 있지 않도록 HOLD 를 자동 해제하는 시간(s). 0 이면 비활성."/>
+    <arg name="initial_pose_on_start" default="False"
+         description="로봇을 지정 초기 위치에 물리 배치한 경우에만 True. AMCL 준비 후 /initialpose를 1회 발행한다."/>
+    <arg name="initial_pose_delay_sec" default="5.0"/>
+    <arg name="initial_pose_x" default="0.11"/>
+    <arg name="initial_pose_y" default="1.08"/>
+    <arg name="initial_pose_yaw" default="0.0"/>
 
     <node pkg="pinky_fleet_agent" exec="agent_node" name="pinky_fleet_agent" output="screen">
         <param name="robot_name" value="$(var robot_name)"/>
@@ -45,5 +51,10 @@
         <param name="command_timeout" value="$(var command_timeout)"/>
         <param name="restore_grace" value="$(var restore_grace)"/>
         <param name="hold_watchdog" value="$(var hold_watchdog)"/>
+        <param name="initial_pose_on_start" value="$(var initial_pose_on_start)"/>
+        <param name="initial_pose_delay_sec" value="$(var initial_pose_delay_sec)"/>
+        <param name="initial_pose_x" value="$(var initial_pose_x)"/>
+        <param name="initial_pose_y" value="$(var initial_pose_y)"/>
+        <param name="initial_pose_yaw" value="$(var initial_pose_yaw)"/>
     </node>
 </launch>

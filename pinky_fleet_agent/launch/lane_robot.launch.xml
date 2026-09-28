@@ -26,6 +26,11 @@
     <arg name="record" default="False" description="True: ros2 bag 블랙박스 기록 (scripts/record_bag.sh)"/>
     <arg name="log_root" default="$(env HOME)/pinky_logs"/>
     <arg name="params_file" default="$(find-pkg-share pinky_fleet_agent)/params/lane_agent.yaml"/>
+    <arg name="initial_pose_on_start" default="False"/>
+    <arg name="initial_pose_delay_sec" default="5.0"/>
+    <arg name="initial_pose_x" default="0.11"/>
+    <arg name="initial_pose_y" default="1.08"/>
+    <arg name="initial_pose_yaw" default="0.0"/>
 
     <include file="$(find-pkg-share pinky_bringup)/launch/bringup_robot.launch.xml"
              if="$(var launch_bringup)">
@@ -51,6 +56,11 @@
         <arg name="camera_fps" value="$(var camera_fps)"/>
         <arg name="jpeg_quality" value="$(var jpeg_quality)"/>
         <arg name="use_ultrasonic" value="$(var launch_ultrasonic)"/>
+        <arg name="initial_pose_on_start" value="$(var initial_pose_on_start)"/>
+        <arg name="initial_pose_delay_sec" value="$(var initial_pose_delay_sec)"/>
+        <arg name="initial_pose_x" value="$(var initial_pose_x)"/>
+        <arg name="initial_pose_y" value="$(var initial_pose_y)"/>
+        <arg name="initial_pose_yaw" value="$(var initial_pose_yaw)"/>
     </include>
 
     <!-- 블랙박스: record:=True 면 ros2 bag 을 같이 띄운다 (~/pinky_logs/<날짜>/...). scripts/record_bag.sh -->

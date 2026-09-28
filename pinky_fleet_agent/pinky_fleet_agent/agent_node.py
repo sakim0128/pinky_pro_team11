@@ -86,6 +86,17 @@ class PinkyAgent(Node):
         self.declare_parameter('follow_path_plugin', 'FollowPath')
 
         self._name = self.get_parameter('robot_name').value
+        # 실제 로봇을 지정 지점에 배치한 뒤에만 launch 인자로 명시적으로 켠다.
+        # 이름별 기본값은 웹 관제의 reset 좌표와 같은 map5 기준이다.
+        startup_pose = {
+            'pinky1': (0.11, 1.08, 0.0),
+            'pinky2': (0.16, 0.74, -math.pi / 2.0),
+        }.get(self._name, (0.0, 0.0, 0.0))
+        self.declare_parameter('initial_pose_on_start', False)
+        self.declare_parameter('initial_pose_delay_sec', 5.0)
+        self.declare_parameter('initial_pose_x', startup_pose[0])
+        self.declare_parameter('initial_pose_y', startup_pose[1])
+        self.declare_parameter('initial_pose_yaw', startup_pose[2])
         self._domain_id = int(self.get_parameter('domain_id').value)
         self._state_topic = (
             self.get_parameter('state_topic').value or f'/{self._name}/state')
@@ -162,6 +173,12 @@ class PinkyAgent(Node):
         self._state_pub = self.create_publisher(RobotState, self._state_topic, 10)
         self._initialpose_pub = self.create_publisher(
             PoseWithCovarianceStamped, 'initialpose', 10)
+        self._startup_initial_pose_timer = None
+        if bool(self.get_parameter('initial_pose_on_start').value):
+            delay = max(0.1, float(self.get_parameter('initial_pose_delay_sec').value))
+            self._startup_initial_pose_timer = self.create_timer(delay, self._publish_startup_initial_pose)
+            self.get_logger().info(
+                f'기동 초기 위치 예약: {delay:.1f}s 후 /initialpose 1회 발행')
 
         # Nav2 의 전역 경로를 로봇 이름이 붙은 토픽으로 중계한다.
         # planner_server 는 namespace 를 쓰지 않아 /plan 으로 발행하는데, domain_bridge 의
@@ -468,6 +485,16 @@ class PinkyAgent(Node):
             '관제 GUI 에서 초기 위치를 다시 지정하세요.')
 
     # ------------------------------------------------------ initialpose / 속도
+
+    def _publish_startup_initial_pose(self):
+        """AMCL이 구독자를 만든 뒤 지정 위치를 한 번만 전달한다."""
+        if self._startup_initial_pose_timer is not None:
+            self._startup_initial_pose_timer.cancel()
+            self._startup_initial_pose_timer = None
+        self._publish_initial_pose(
+            float(self.get_parameter('initial_pose_x').value),
+            float(self.get_parameter('initial_pose_y').value),
+            float(self.get_parameter('initial_pose_yaw').value))
 
     def _publish_initial_pose(self, x, y, yaw):
         msg = PoseWithCovarianceStamped()
