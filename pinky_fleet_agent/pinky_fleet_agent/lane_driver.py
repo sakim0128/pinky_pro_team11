@@ -233,7 +233,8 @@ class LaneDriver:
                 quality = QUALITY_STALE
         else:
             quality = QUALITY_LOST
-        if self.follower and self._near_any(self.junction_idx, p.junction_zone):
+        in_junction = bool(self.follower) and self._near_any(self.junction_idx, p.junction_zone)
+        if in_junction:
             quality = QUALITY_JUNCTION
         lane_visible = quality in (QUALITY_BOTH, QUALITY_SINGLE, QUALITY_JUNCTION)
         lane_both = quality in (QUALITY_BOTH, QUALITY_JUNCTION)
@@ -273,6 +274,7 @@ class LaneDriver:
             obstacle=blocked, obstacle_reason=obstacle_reason,
             at_clearance=at_clearance, clearance_reason=self.clearance_reason,
             crosswalk_trigger=crosswalk_trigger, barricade=self._lane['barricade'],
+            junction_trigger=in_junction,
             lane_visible=lane_visible, lane_both=lane_both,
             arrived=arrived, travelled=self._travelled,
         )

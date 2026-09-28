@@ -5,7 +5,11 @@ reason) 을 돌려준다. speed_factor 0 이면 정지, 1 이면 정상, 0.5 면
 
 우선순위 (위가 이긴다):
     ESTOP > LINK_LOST > OBSTACLE_WAIT > BARRICADE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP
-          > CROSSWALK_CLEAR > ARRIVED > LANE_SEARCH > LANE_LOST > CRUISE > IDLE
+          > CROSSWALK_CLEAR > JUNCTION_STOP > JUNCTION_PASS > ARRIVED > LANE_SEARCH > LANE_LOST > CRUISE > IDLE
+
+JUNCTION_STOP / JUNCTION_PASS (D14 작업 3): 항공뷰 위치가 그래프 분기 노드 반경(junction_zone) 에 들어오면
+junction_stop_seconds 정지 → 카메라 없이 경로(pure-pursuit) 만으로 junction_speed_factor 로 통과. 반경을 벗어나고
+차선 쌍이 junction_exit_confirm 동안 보이면 CRUISE. 재래치는 주행거리(junction_relatch_distance).
 
 LANE_SEARCH (D14 작업 2): 차선 쌍(BOTH)이 search_after 이상 안 보이면 진입. speed_factor 0 이고
 드라이버가 제자리 회전을 건다 (방향은 드라이버가 정한다). BOTH 가 search_confirm_seconds 이어지면
@@ -20,14 +24,15 @@ hold_watchdog 이 같은 논쟁 끝에 "그때 할 일은 재출발이 아니라
 from dataclasses import dataclass, field
 
 IDLE, CRUISE, WAIT_CLEARANCE, CROSSWALK_STOP, CROSSWALK_CLEAR, OBSTACLE_WAIT, \
-    LANE_LOST, ARRIVED, ESTOP, LINK_LOST, BARRICADE_WAIT, LANE_SEARCH = range(12)
+    LANE_LOST, ARRIVED, ESTOP, LINK_LOST, BARRICADE_WAIT, LANE_SEARCH, \
+    JUNCTION_STOP, JUNCTION_PASS = range(14)
 
 STATE_NAMES = {
     IDLE: 'IDLE', CRUISE: 'CRUISE', WAIT_CLEARANCE: 'WAIT_CLEARANCE',
     CROSSWALK_STOP: 'CROSSWALK_STOP', CROSSWALK_CLEAR: 'CROSSWALK_CLEAR',
     OBSTACLE_WAIT: 'OBSTACLE_WAIT', LANE_LOST: 'LANE_LOST', ARRIVED: 'ARRIVED',
     ESTOP: 'ESTOP', LINK_LOST: 'LINK_LOST', BARRICADE_WAIT: 'BARRICADE_WAIT',
-    LANE_SEARCH: 'LANE_SEARCH',
+    LANE_SEARCH: 'LANE_SEARCH', JUNCTION_STOP: 'JUNCTION_STOP', JUNCTION_PASS: 'JUNCTION_PASS',
 }
 
 
@@ -42,6 +47,11 @@ class FsmParams:
     search_after: float = 0.5                    # 쌍이 이만큼(s) 안 보여야 탐색 시작
     search_confirm_seconds: float = 0.3          # 탐색 중 BOTH 가 이만큼 이어지면 복귀
     search_max_seconds: float = 8.0              # 이보다 오래 돌면 실패 → 정지
+    junction_stop: bool = True                   # 분기 노드 반경 진입 시 정지 후 통과 (D14 작업 3)
+    junction_stop_seconds: float = 1.0
+    junction_speed_factor: float = 0.4           # 통과 속도 = v_max × 이 값
+    junction_exit_confirm: float = 0.3           # 반경 밖에서 차선 쌍이 이만큼(s) 보이면 CRUISE
+    junction_relatch_distance: float = 0.60      # STOP 진입 후 이만큼 가기 전엔 재트리거 무시 (> 2·junction_zone)
 
 
 @dataclass
@@ -56,6 +66,7 @@ class Inputs:
     clearance_reason: str = ''
     crosswalk_trigger: bool = False # 디바운스 통과한 횡단보도 트리거
     barricade: bool = False         # 디바운스 통과한 바리게이트 (관제가 해제할 때까지 True)
+    junction_trigger: bool = False  # 위치가 그래프 분기 노드 반경 안 (경로 모드만)
     lane_visible: bool = True       # quality ∈ {BOTH, SINGLE, JUNCTION}
     lane_both: bool = True          # quality ∈ {BOTH, JUNCTION} — 탐색 복귀 조건
     arrived: bool = False
@@ -73,6 +84,8 @@ class DriveFsm:
     _crosswalk_clear_from: float = None
     _nonboth_since: float = None
     _both_since: float = None
+    _junction_stop_travel: float = None     # 마지막 JUNCTION_STOP 진입 시 주행거리 (재래치용)
+    _exit_both_since: float = None
 
     def _enter(self, state, now, travelled, reason=''):
         if state != self.state:
@@ -131,6 +144,37 @@ class DriveFsm:
         if relatch_blocked:
             self.reason = f'횡단보도 통과 {self.travelled_since_entry(d):.2f}/{p.crosswalk_relatch_distance:.2f} m'
             return self.state, 1.0, self.reason
+
+        # 교차로: 정지 → 경로만으로 통과 → 반경 밖에서 쌍 확인
+        if self.state == JUNCTION_STOP:
+            if self.since_entry(t) < p.junction_stop_seconds:
+                self.reason = f'교차로 정지 {self.since_entry(t):.1f}/{p.junction_stop_seconds:.0f}s'
+                return self.state, 0.0, self.reason
+            self._enter(JUNCTION_PASS, t, d, '교차로 통과 — 경로만')
+            self._exit_both_since = None
+        if self.state == JUNCTION_PASS:
+            if inp.junction_trigger:
+                self._exit_both_since = None
+                self.reason = '교차로 통과 — 경로만'
+                return self.state, p.junction_speed_factor, self.reason
+            if inp.lane_both:
+                if self._exit_both_since is None:
+                    self._exit_both_since = t
+                if t - self._exit_both_since >= p.junction_exit_confirm:
+                    self._enter(CRUISE, t, d, '교차로 벗어남 — 주행')
+                    return self.state, 1.0, self.reason
+            else:
+                self._exit_both_since = None
+            if self.travelled_since_entry(d) < p.junction_relatch_distance:
+                self.reason = f'교차로 통과 {self.travelled_since_entry(d):.2f}/{p.junction_relatch_distance:.2f} m'
+                return self.state, p.junction_speed_factor, self.reason
+            self._enter(LANE_LOST, t, d, '교차로 뒤 차선 없음')      # 아래 탐색/서행 규칙으로 넘긴다
+        junction_relatch_ok = (self._junction_stop_travel is None
+                               or d - self._junction_stop_travel >= p.junction_relatch_distance)
+        if p.junction_stop and inp.junction_trigger and junction_relatch_ok:
+            self._junction_stop_travel = d
+            self._enter(JUNCTION_STOP, t, d, '교차로 정지 0.0/%.0fs' % p.junction_stop_seconds)
+            return self.state, 0.0, self.reason
 
         if inp.arrived:
             self._enter(ARRIVED, t, d, '도착')

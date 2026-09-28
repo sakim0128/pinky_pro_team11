@@ -24,7 +24,7 @@ from pinky_lane_station.bag_analysis import (  # noqa: E402
 
 DRIVE_NAMES = {0: 'IDLE', 1: 'CRUISE', 2: 'WAIT_CLEARANCE', 3: 'CROSSWALK_STOP', 4: 'CROSSWALK_CLEAR',
                5: 'OBSTACLE_WAIT', 6: 'LANE_LOST', 7: 'ARRIVED', 8: 'ESTOP', 9: 'LINK_LOST',
-               10: 'BARRICADE_WAIT', 11: 'LANE_SEARCH'}
+               10: 'BARRICADE_WAIT', 11: 'LANE_SEARCH', 12: 'JUNCTION_STOP', 13: 'JUNCTION_PASS'}
 QUALITY_NAMES = {0: 'BOTH', 1: 'SINGLE', 2: 'JUNCTION', 3: 'STALE', 4: 'LOST'}
 
 

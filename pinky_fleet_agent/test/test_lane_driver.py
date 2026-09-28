@@ -336,7 +336,7 @@ def test_driver_lane_lost_keeps_driving_slowly_on_map_route():
 def test_driver_junction_zone_disables_camera():
     sim = Sim(straight(), junction_idx=[15])
     sim.start()
-    sim.run(12)
+    sim.run(40)                                        # 교차로 정지 1 s + 서행 통과까지
     q = [o.quality for t, o in sim.log if 1.3 < o.route_idx * 0.1 < 1.7]
     assert q and all(v == QUALITY_JUNCTION for v in q)
 
@@ -578,3 +578,60 @@ def test_route_mode_search_turns_toward_lookahead():
     sim.lane_quality = QUALITY_BOTH
     out = sim.run(2.0)
     assert out.state == CRUISE and out.v > 0.0
+
+
+# ------------------------------------------------------------ D14 작업 3: 교차로 정지 → 경로만 통과
+
+def test_fsm_junction_stop_then_pass_then_cruise():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, JUNCTION_STOP
+    fsm = DriveFsm(FsmParams(junction_stop_seconds=1.0, junction_exit_confirm=0.3,
+                             junction_relatch_distance=0.6, junction_speed_factor=0.4))
+    inside = Inputs(started=True, junction_trigger=True, lane_both=True)     # 반경 안: quality JUNCTION
+    s, f, _ = fsm.step(0.0, inside)
+    assert s == JUNCTION_STOP and f == 0.0
+    assert fsm.step(0.9, inside)[0] == JUNCTION_STOP
+    s, f, _ = fsm.step(1.1, inside)
+    assert s == JUNCTION_PASS and f == 0.4
+    s, f, _ = fsm.step(2.0, Inputs(started=True, lane_both=False, travelled=0.3))   # 반경 밖, 아직 쌍 없음
+    assert s == JUNCTION_PASS and f == 0.4
+    assert fsm.step(2.1, Inputs(started=True, lane_both=True, travelled=0.35))[0] == JUNCTION_PASS
+    s, f, _ = fsm.step(2.5, Inputs(started=True, lane_both=True, travelled=0.4))
+    assert s == CRUISE and f == 1.0
+    # 재래치: 0.6 m 안에서는 다시 안 선다
+    assert fsm.step(2.6, Inputs(started=True, junction_trigger=True, lane_both=True, travelled=0.5))[0] == CRUISE
+    assert fsm.step(2.7, Inputs(started=True, junction_trigger=True, lane_both=True, travelled=0.7))[0] == JUNCTION_STOP
+
+
+def test_fsm_junction_pass_without_pair_falls_to_lane_lost_after_relatch():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, JUNCTION_STOP
+    fsm = DriveFsm(FsmParams(junction_stop_seconds=0.0, junction_relatch_distance=0.6, lane_search=False))
+    assert fsm.step(0.0, Inputs(started=True, junction_trigger=True, lane_both=True))[0] == JUNCTION_STOP
+    assert fsm.step(0.1, Inputs(started=True, junction_trigger=True, lane_both=True))[0] == JUNCTION_PASS
+    assert fsm.step(1.0, Inputs(started=True, lane_visible=False, lane_both=False, travelled=0.5))[0] == JUNCTION_PASS
+    assert fsm.step(1.5, Inputs(started=True, lane_visible=False, lane_both=False, travelled=0.7))[0] == LANE_LOST
+
+
+def test_fsm_junction_priority_below_crosswalk_and_obstacle():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_STOP
+    fsm = DriveFsm()
+    assert fsm.step(0.0, Inputs(started=True, junction_trigger=True, obstacle=True))[0] == OBSTACLE_WAIT
+    assert fsm.step(0.1, Inputs(started=True, junction_trigger=True, crosswalk_trigger=True))[0] == CROSSWALK_STOP
+    fsm2 = DriveFsm(FsmParams(junction_stop=False))
+    assert fsm2.step(0.0, Inputs(started=True, junction_trigger=True, lane_both=True))[0] == CRUISE
+
+
+def test_driver_stops_at_junction_then_passes_slowly_on_route():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, JUNCTION_STOP
+    sim = Sim(straight(), junction_idx=[15])          # 노드 1.5 m, 반경 0.25
+    sim.start()
+    out = sim.run(60)
+    assert out.state == ARRIVED
+    stop = [(t, o) for t, o in sim.log if o.state == JUNCTION_STOP]
+    assert stop and all(o.v == 0.0 and o.omega == 0.0 for _, o in stop)
+    assert 0.95 <= stop[-1][0] - stop[0][0] + DT <= 1.15                      # 1 s 정지
+    assert 1.15 <= stop[0][1].route_idx * 0.1 <= 1.35                         # 반경 진입 지점
+    passing = [o for _, o in sim.log if o.state == JUNCTION_PASS]
+    assert passing and max(o.v for o in passing) <= 0.15 * 0.4 + 1e-6         # 서행
+    assert all(o.quality == QUALITY_JUNCTION for o in passing if 1.3 < o.route_idx * 0.1 < 1.7)
+    runs = sum(1 for i in range(1, len(sim.log)) if sim.log[i][1].state == JUNCTION_STOP != sim.log[i - 1][1].state)
+    assert runs == 1                                                           # 교차로 정지는 한 번

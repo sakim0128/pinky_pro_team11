@@ -163,6 +163,7 @@ def test_agent_yaml_keys_exist_in_driver_params(agent_params):
 
 def test_crosswalk_relatch_exceeds_zone(agent_params):
     assert agent_params['fsm']['crosswalk_relatch_distance'] > agent_params['crosswalk_zone']
+    assert agent_params['fsm']['junction_relatch_distance'] > 2 * agent_params['junction_zone']
 
 
 def test_path_timeout_covers_three_stale_periods(agent_params, detector_cfg):
