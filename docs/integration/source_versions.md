@@ -18,4 +18,4 @@ PR 제출 전 upstream 최신 변경을 다시 확인해야 합니다.
 - 시작 커밋: 1f505cb88719c44391cc2781dcc3c5f09c9b7795 → 2026-09-28 upstream `5faddf1`(PR #3) 병합
 - 원 저장소: rkd1rjs2/robot_mini_project_pinky main `f8fc97d`(relay_station export 기준) · 에이전트 커밋 `6f28c63` `d0352f4` `2750fe0` `46757f9` 반영
 - 가져온 원본: mini_project_2_aerial_view `21ebc31` 의 `PoseFix.msg` · `pose_fuser.py` · `pose_fuser_node.py` · `test_pose_fuser.py`(바이트 동일)
-- 팀11 파일 변경은 `pinky_lane_msgs/CMakeLists.txt` · `pinky_fleet_agent/setup.py` · `pinky_fleet_agent/package.xml` 세 개(각 한두 줄)
+- 팀11 코드·설정 변경은 `pinky_lane_msgs/CMakeLists.txt` · `pinky_fleet_agent/setup.py` · `pinky_fleet_agent/package.xml` 세 개(각 한두 줄); 문서는 이 파일과 `status.md` 에 절을 덧붙였다

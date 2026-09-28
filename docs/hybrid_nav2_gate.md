@@ -14,7 +14,7 @@
 
 ## 1. 무엇이 바뀌었나
 
-**고친 팀11 파일은 세 개이고 모두 한두 줄 추가다.** 나머지는 새 파일이다.
+**고친 팀11 코드·설정 파일은 세 개이고 모두 한두 줄 추가다.** 나머지는 새 파일이다(팀11 관례 문서 `docs/integration/{status,source_versions}.md` 에는 §7 E-5 로 절을 덧붙였다).
 
 | 파일 | 변경 |
 | :--- | :--- |
@@ -192,3 +192,32 @@ base = mini_project_2 1f505cb88719c44391cc2781dcc3c5f09c9b7795
 **아직 안 한 것**: §4 와 같다 — 실제 Nav2 가 뜬 환경(가상 팜·실물)에서의 주행은 이 환경에서 못 쟀다. 실물 첫 기동 때
 RESUME 뒤 `ros2 topic echo /pinky1/lane_status` 의 `state_reason` 이 `해제 보류 — Nav2 취소 미확인` 에 머물면 Nav2
 (`bt_navigator` · `navigate_to_pose/_action/cancel_goal`)가 살아 있는지 먼저 본다.
+
+## 7. export 정리 (E-1~E-7) — `relay_station/` PR 전 수정 (2026-09-28)
+
+원 저장소 `docs/REQ_20260928_CLOUD_SESSION_EXPORT_FIXES.md` 의 E-1~E-7. 브랜치 커밋: 병합 **`e2ca87c`** + 정리 **`d31e75a`**.
+
+| # | 무엇 | 어떻게 · 확인 |
+| :-- | :-- | :-- |
+| E-1 | upstream 최신에 다시 맞춤 | `git merge team11/mini_project_2`(`5faddf1`, PR #3 live 웹·상부 추적기·map5) → 충돌 0 · `git merge-base HEAD team11/mini_project_2` = `5faddf1` |
+| E-2 | 외부 사이트를 가리키는 낱말 제거 | 19곳을 중립어로("외부 사이트" · "다른 배포 체계" · "외부 가공 단"). `relay_station/tests/test_team11_export.py::test_외부_사이트를_가리키는_낱말이_없다` 가 잠근다(낱말을 넣으면 빨강 — 확인) |
+| E-3 | `index.html` 접속 안내 | 자리표시자 IP 링크 세 개를 지우고 **지금 연 주소**(`location.origin`) + "원격(`:18081`)은 보기 전용" 한 줄. `test_page_honesty` 의 단언은 그 뜻으로 |
+| E-4 | 원 저장소 main 최신 | export 기준 `c784497` → **`f8fc97d`** (`8b68b6d`: `/api/status` 에 `view_only` + `tests/test_review_0928_view_only.py`). `relay_station/README.md` 첫 줄에 기준 커밋 |
+| E-5 | 팀11 관례 문서 | `docs/integration/relay_station.md`(실행법 · 팀11 관제와의 관계 · 영상 공유 `/api/sources` · `/video_feed?src=` · map4/map5) · `status.md` 09-28 절 · `source_versions.md` 기준 커밋 |
+| E-6 | map4 ↔ map5 | 코드 변경 없음. `relay_station/fleet/config/profiles/profiles.yaml` 주석 + `relay_station.md`·`README.md` 에 "map5 프로파일은 팀 결정 뒤" |
+| E-7 | skip 4건 | 사유를 이 저장소 기준(대사 대상 부재 · `hybrid_robot.launch.xml` · `pinky_fleet_agent`)으로 다시 적고, README 에 skip 22 = 환경 18 + 사유 4 를 적어 통과로 세지 않게 |
+
+**검증** (`TESTED_SHA = d31e75a`, `git status --porcelain` 비어 있음, ROS 2 Jazzy 컨테이너 · `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤)
+
+| 대상 | 명령 | 결과 |
+| :-- | :-- | :-- |
+| 중계 | `cd relay_station && python3 -m pytest tests -q` | **1425 passed, 22 skipped** (동기 전 export `d32ff07`: 1419 / 22) |
+| 에이전트 | `python3 -m pytest pinky_fleet_agent/test -q` | **307 passed, 0 skipped** (§6 과 같다) |
+| 팀11 station·lane | `python3 -m pytest pinky_lane_station/test pinky_fleet_station/test -q` · ROS 없는 Python 3.11 | **153 passed, 4 skipped** (PyQt5 · ultralytics · mcap_ros2 없음 — 팀11 원본과 같은 skip) |
+| 팀11 전체(ROS 없음) | `python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test -q` | 332 passed, 132 skipped (skip = ROS 필요 에이전트 시험 + 위 4) |
+| 공개 규칙 | `python3 -m pytest relay_station/tests/test_team11_export.py -q` | 7 항목 (키 기본값 없음 · 키 없으면 거절(소스·메서드) · 사설 주소 자리표시자뿐 · 개인 경로 없음 · 낱말 없음 · COLCON_IGNORE) |
+| 구조 | `git diff --name-status team11/mini_project_2..HEAD` | 팀11 코드·설정 변경은 여전히 `pinky_lane_msgs/CMakeLists.txt` · `pinky_fleet_agent/setup.py` · `package.xml` 세 개(M). 문서는 E-5 가 요구한 `docs/integration/{status,source_versions}.md` 두 개에 **절을 덧붙였다**(기존 내용 그대로). 나머지 전부 A. 바이너리 취급 행 0, 바뀐 `.py` 전부 compile |
+
+⚠️ ROS 2 Jazzy 컨테이너의 pytest 7.4 로 `pinky_lane_station/test` · `pinky_fleet_station/test` 를 디렉터리로 주면 module 수준
+`importorskip`(PyQt5 등)에서 수집이 멈춰 "1 skipped" 만 나온다 — 팀11 원본 `5faddf1` 에서도 같다(이 브랜치 탓이 아니다). 그래서 이 두 묶음의
+수치는 ROS 없는 pytest 8 에서 잰 것이다(팀11 README 도 "테스트 (ROS 불필요)" 다).
