@@ -39,6 +39,14 @@ class DriverParams:
     junction_zone: float = 0.25           # 분기 노드 ± 이 거리는 JUNCTION 취급 (관제가 안 보내도)
     lane_only: bool = False               # 경로·위치 없이 카메라 차선 중앙만 따라간다 (테스트 모드)
     lane_lost_coast: float = 0.6          # lane_only: 차선을 잃고 이만큼(s) 직전 명령 유지 후 정지
+    # lane_only: 흰선(좌/우 차선) 넘지 않기 — 샘플 행에서 선과 화면 중앙 사이 여유 (화면 폭 비율)
+    line_margin_frac: float = 0.08        # 이보다 가까우면 정지 후 안쪽으로 제자리 회전
+    line_clear_frac: float = 0.12         # 이만큼 벌어지면 회전 끝 (히스테리시스)
+    # lane_only: 한쪽 차선만 보이면 제자리 회전으로 반대쪽 차선을 찾는다
+    single_hold: float = 0.3              # 한쪽만 보이는 상태가 이만큼(s) 이어지면 탐색 시작
+    search_timeout: float = 4.0           # 이 안에 양쪽을 못 찾으면 정지
+    both_confirm: int = 2                 # 양쪽이 연속 이만큼(LanePath 프레임) 보이면 탐색 끝
+    turn_omega: float = 0.4               # 제자리 회전 속도 (rad/s)
 
 
 @dataclass
@@ -80,7 +88,12 @@ class LaneDriver:
         self.station_link = LinkWatch(self.p.link_timeout)
         self.path_link = LinkWatch(self.p.path_timeout, restore_grace=0.0)
         # 최근 LanePath
-        self._lane = {'stamp': None, 'quality': QUALITY_LOST, 'error_x': None, 'crosswalk': False}
+        self._lane = {'stamp': None, 'quality': QUALITY_LOST, 'error_x': None, 'crosswalk': False,
+                      'sides': None}
+        self._both_streak = 0
+        self._single_since = None
+        self._search = None                  # (시작 시각, 회전 방향 +1 화면 왼쪽 / -1 화면 오른쪽)
+        self._line_guard = None              # 너무 가까운 선 'left' / 'right'
         self._travelled = 0.0
         self._last_xy = None
         self._last_tick = None
@@ -128,11 +141,18 @@ class LaneDriver:
         self.clearance_reason = reason
         self.set_command(CMD_CLEARANCE, now, route_seq=route_seq, clear_until=idx)
 
-    def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False):
+    def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False,
+                      left_seen=None, right_seen=None, left_x=0, right_x=0, width=0):
+        """left_seen/right_seen/left_x/right_x/width(px) 를 주면 lane_only 의 선 넘기 방지·차선 탐색이 켜진다."""
         self.path_link.on_command(now, heartbeat=True)
+        sides = None
+        if left_seen is not None and right_seen is not None and width and width > 0:
+            sides = {'left': bool(left_seen), 'right': bool(right_seen),
+                     'left_x': float(left_x), 'right_x': float(right_x), 'width': float(width)}
         self._lane = {'stamp': float(source_stamp), 'quality': int(quality),
                       'error_x': None if error_x is None else float(error_x),
-                      'crosswalk': bool(crosswalk)}
+                      'crosswalk': bool(crosswalk), 'sides': sides}
+        self._both_streak = self._both_streak + 1 if int(quality) == QUALITY_BOTH else 0
 
     def update_scan(self, ranges, angle_min, angle_increment, range_min=0.05, range_max=12.0):
         self.guard.update_scan(ranges, angle_min, angle_increment, range_min, range_max)
@@ -259,6 +279,7 @@ class LaneDriver:
             self.controller.reset()
             self._last_cmd = (0.0, 0.0)
             self._lost_since = None
+            self._single_since = self._search = self._line_guard = None
             out.v, out.omega = 0.0, 0.0
             return out
         if not lane_visible:
@@ -276,8 +297,69 @@ class LaneDriver:
                 out.reason = '차선 없음 — 정지'
             return out
         self._lost_since = None
+        if self._lane['sides'] is not None:
+            turn = self._line_guard_turn(out)
+            if turn is None:
+                turn = self._search_turn(now, out, quality)
+            if turn is not None:
+                self.controller.reset()
+                out.v, out.omega = 0.0, turn
+                self._last_cmd = (out.v, out.omega)
+                return out
         out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False)
         self._last_cmd = (out.v, out.omega)
         # 위치가 없으니 주행거리는 명령 속도로 추측한다 (횡단보도 재래치 거리 판정용)
         self._travelled += abs(out.v) * dt
         return out
+
+    def _turn(self, image_dir):
+        """화면 기준 방향(+1 왼쪽, -1 오른쪽) → 제자리 회전 ω. cam_sign 으로 실제 방향을 맞춘다."""
+        return image_dir * self.p.turn_omega * self.p.control.cam_sign
+
+    def _line_guard_turn(self, out):
+        """좌/우 차선이 화면 중앙에 너무 가까우면 정지하고 반대쪽(차선 안쪽)으로 제자리 회전."""
+        p, sd = self.p, self._lane['sides']
+        cx, w = 0.5 * sd['width'], sd['width']
+        margin = {}
+        if sd['left']:
+            margin['left'] = (cx - sd['left_x']) / w
+        if sd['right']:
+            margin['right'] = (sd['right_x'] - cx) / w
+        if self._line_guard is not None:
+            m = margin.get(self._line_guard)
+            if m is None or m >= p.line_clear_frac:
+                self._line_guard = None
+        if self._line_guard is None:
+            close = [k for k, m in margin.items() if m < p.line_margin_frac]
+            if not close:
+                return None
+            self._line_guard = min(close, key=lambda k: margin[k])
+            self._search = None
+        side = self._line_guard
+        m = margin.get(side, 0.0)
+        out.reason = (f'{"왼쪽" if side == "left" else "오른쪽"} 흰선 근접 {m:.2f} — '
+                      f'정지 후 안쪽으로 회전')
+        return self._turn(-1.0 if side == 'left' else 1.0)
+
+    def _search_turn(self, now, out, quality):
+        """한쪽 차선만 single_hold 이상 보이면 안 보이는 쪽으로 제자리 회전해 양쪽을 찾는다."""
+        p, sd = self.p, self._lane['sides']
+        if quality != QUALITY_SINGLE:
+            self._single_since = None
+        elif self._single_since is None:
+            self._single_since = now
+        if self._search is not None and self._both_streak >= p.both_confirm:
+            self._search = None
+        if self._search is None:
+            if self._single_since is None or now - self._single_since < p.single_hold:
+                return None
+            # 왼쪽 선만 보이면 오른쪽 선을 찾아 화면 오른쪽으로 돈다
+            self._search = (now, -1.0 if sd['left'] else 1.0)
+        started, image_dir = self._search
+        elapsed = now - started
+        if elapsed > p.search_timeout:
+            out.reason = f'차선 탐색 실패 {p.search_timeout:.1f}s — 정지'
+            return 0.0
+        out.reason = (f'한쪽 차선만 보임 — {"오른쪽" if image_dir < 0 else "왼쪽"}으로 회전 탐색 '
+                      f'{elapsed:.1f}/{p.search_timeout:.1f}s')
+        return self._turn(image_dir)

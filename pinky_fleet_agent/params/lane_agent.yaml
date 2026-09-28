@@ -18,6 +18,14 @@ pinky_lane_agent:
     junction_zone: 0.25
     lane_only: false             # true: 경로·위치 없이 카메라 차선 중앙만 (lane_only.launch.xml 이 덮는다)
     lane_lost_coast: 0.6
+    # lane_only: 흰선(좌/우 차선) 넘지 않기. 샘플 행에서 선~화면 중앙 여유 (화면 폭 비율)
+    line_margin_frac: 0.08       # 이보다 가까우면 정지 후 안쪽으로 제자리 회전
+    line_clear_frac: 0.12        # 이만큼 벌어지면 회전 끝
+    # lane_only: 한쪽 차선만 보이면 제자리 회전으로 반대쪽 차선 탐색
+    single_hold: 0.3             # 한쪽만 보이는 상태가 이만큼(s) 이어지면 탐색 시작
+    search_timeout: 4.0          # 이 안에 못 찾으면 정지
+    both_confirm: 2              # 양쪽이 연속 이만큼(프레임) 보이면 주행 재개
+    turn_omega: 0.4              # 제자리 회전 속도 (rad/s)
     auto_start: false
     control:
       v_max: 0.15

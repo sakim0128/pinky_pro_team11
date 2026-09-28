@@ -187,7 +187,10 @@ class LaneAgent(Node):
 
     def _on_lane_path(self, msg: LanePath):
         self.driver.set_lane_path(self._now(), stamp_seconds(msg.source_stamp), int(msg.quality),
-                                  float(msg.error_x_norm), bool(msg.crosswalk_detected))
+                                  float(msg.error_x_norm), bool(msg.crosswalk_detected),
+                                  left_seen=bool(msg.left_seen), right_seen=bool(msg.right_seen),
+                                  left_x=int(msg.left_x), right_x=int(msg.right_x),
+                                  width=int(msg.image_width))
 
     def _on_fleet_command(self, msg: FleetCommand):
         now = self._now()

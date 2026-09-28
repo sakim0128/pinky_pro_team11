@@ -355,7 +355,7 @@ def test_driver_estop_and_resume():
 class LaneOnlySim:
     """직선 차선(중심 y = 0) 위 유니사이클. 카메라 error_x 는 횡오차 + 헤딩 성분으로 흉내낸다."""
 
-    def __init__(self, y0=0.04, yaw0=0.0, v_max=0.10, half_lane=0.10, auto_start=True):
+    def __init__(self, y0=0.04, yaw0=0.0, v_max=0.10, half_lane=0.10, auto_start=True, sides=False):
         p = DriverParams()
         p.lane_only = True
         p.control.v_max = v_max
@@ -367,15 +367,38 @@ class LaneOnlySim:
         self.quality = QUALITY_BOTH
         self.crosswalk = False
         self.cam = True
+        self.sides = sides
+        self.hide = None                                          # 'left' / 'right' 를 안 보이게
         self.log = []
+
+    def camera(self):
+        """샘플 행(0.15 m 앞)에서 본 좌/우 차선 px. 폭 640, 1400 px/m. 화면 밖이면 안 보임."""
+        W, k, cx = 640, 1400.0, 320.0
+        lat = self.y + 0.15 * math.sin(self.yaw)
+        xl = cx - (self.half_lane - lat) * k
+        xr = cx + (self.half_lane + lat) * k
+        left = 0.0 <= xl < cx and self.hide != 'left'
+        right = cx < xr <= W and self.hide != 'right'
+        if left and right:
+            q, tx = QUALITY_BOTH, 0.5 * (xl + xr)
+        elif left or right:
+            q, tx = QUALITY_SINGLE, (xl + self.half_lane * k) if left else (xr - self.half_lane * k)
+        else:
+            q, tx = QUALITY_LOST, cx
+        e = max(-1.0, min(1.0, (tx - cx) / cx))
+        return q, e, dict(left_seen=left, right_seen=right, left_x=int(xl), right_x=int(xr), width=W)
 
     def run(self, seconds):
         for _ in range(int(seconds / DT)):
             self.t += DT
-            if self.cam and int(self.t / DT) % 6 == 0:
-                lat = self.y + 0.15 * math.sin(self.yaw)          # 앞쪽 샘플 행에서 본 횡오차
-                e = max(-1.0, min(1.0, lat / self.half_lane))
-                self.d.set_lane_path(self.t, self.t, self.quality, e, self.crosswalk)
+            if self.cam and int(self.t / DT) % 3 == 0:
+                if self.sides:
+                    q, e, kw = self.camera()
+                    self.d.set_lane_path(self.t, self.t, q, e, self.crosswalk, **kw)
+                else:
+                    lat = self.y + 0.15 * math.sin(self.yaw)      # 앞쪽 샘플 행에서 본 횡오차
+                    e = max(-1.0, min(1.0, lat / self.half_lane))
+                    self.d.set_lane_path(self.t, self.t, self.quality, e, self.crosswalk)
             out = self.d.tick(self.t, 0.0, 0.0, 0.0)              # 위치는 안 준다
             self.x += out.v * math.cos(self.yaw) * DT
             self.y += out.v * math.sin(self.yaw) * DT
@@ -442,3 +465,84 @@ def test_lane_only_obstacle_and_camera_silence_stop():
     s.cam = False                                          # LanePath 침묵 → 0.9 s 뒤 정지
     out = s.run(1.5)
     assert out.state == LINK_LOST and out.v == 0.0
+
+
+# ------------------------------------------------------------ lane_only: 흰선 넘지 않기 · 한쪽 차선 탐색
+
+def test_lane_only_with_sides_still_converges():
+    s = LaneOnlySim(y0=0.03, yaw0=0.05, sides=True)
+    out = s.run(8.0)
+    assert out.state == CRUISE and out.v > 0.0
+    assert abs(s.y) < 0.02 and s.x > 0.5
+
+
+def test_lane_only_line_guard_stops_and_turns_inward():
+    s = LaneOnlySim(y0=0.075, yaw0=0.05, sides=True)          # 왼쪽 선에 바짝 붙음
+    s.run(0.3)
+    first = [o for _, o in s.log if '흰선' in o.reason]
+    assert first and all(o.v == 0.0 and o.omega < 0.0 for o in first)   # 정지 + 오른쪽(안쪽) 회전
+    ys = []
+    for _ in range(160):
+        s.run(DT)
+        ys.append(s.y)
+    assert max(ys) < 0.10                                     # 선을 넘지 않았다
+    assert s.log[-1][1].state == CRUISE and s.log[-1][1].v > 0.0 and s.x > 0.3
+
+
+def test_lane_only_line_guard_never_crosses_while_driving():
+    s = LaneOnlySim(y0=0.0, yaw0=0.3, sides=True)             # 왼쪽 선을 향해 비스듬히
+    s.d.p.control.kp = s.d.p.control.kd = 0.0                 # 카메라 조향 없이 — 가드만으로 막는지
+    ys = []
+    for _ in range(300):
+        s.run(DT)
+        ys.append(s.y)
+    assert max(ys) < 0.06 and min(ys) > -0.10                # 가드 없으면 0.068 에서 선이 중앙을 넘는다
+    assert any('흰선' in o.reason for _, o in s.log)          # 가드가 실제로 개입했다
+    assert s.log[-1][1].v > 0.0 and s.x > 1.0                 # 멈춰 버리지 않고 계속 간다
+
+
+def test_lane_only_single_short_does_not_search():
+    s = LaneOnlySim(y0=0.0, sides=True)
+    s.run(2.0)
+    s.hide = 'right'
+    s.run(0.2)                                                 # 0.3 s 미만
+    s.hide = None
+    s.run(1.0)
+    assert not any('탐색' in o.reason for _, o in s.log)
+
+
+def test_lane_only_single_rotates_toward_missing_line_then_drives():
+    s = LaneOnlySim(y0=0.0, sides=True)
+    s.run(2.0)
+    s.hide = 'right'                                           # 왼쪽 선만 보인다
+    s.run(0.5)
+    out = s.log[-1][1]
+    assert '탐색' in out.reason and out.v == 0.0 and out.omega < 0.0   # 오른쪽으로 제자리 회전
+    x_before = s.x
+    s.hide = None                                              # 오른쪽 선이 다시 보인다
+    s.run(0.4)
+    assert s.log[-1][1].v >= 0.0 and '탐색' not in s.log[-1][1].reason
+    s.run(3.0)
+    assert s.log[-1][1].state == CRUISE and s.x > x_before
+
+
+def test_lane_only_single_search_times_out_and_stops():
+    s = LaneOnlySim(y0=0.0, sides=True)
+    s.run(1.0)
+    # 돌아도 오른쪽 선만 계속 보이는 상황 (시뮬 기하와 무관하게 고정)
+    s.camera = lambda: (QUALITY_SINGLE, 0.1, dict(left_seen=False, right_seen=True,
+                                                  left_x=0, right_x=520, width=640))
+    s.run(1.0)
+    assert s.log[-1][1].omega > 0.0
+    s.run(4.0)
+    out = s.log[-1][1]
+    assert out.v == 0.0 and out.omega == 0.0 and '실패' in out.reason
+
+
+def test_lane_only_turn_direction_follows_cam_sign():
+    s = LaneOnlySim(y0=0.0, sides=True)
+    s.d.p.control.cam_sign = -1.0
+    s.run(1.0)
+    s.hide = 'right'
+    s.run(0.5)
+    assert s.log[-1][1].omega > 0.0
