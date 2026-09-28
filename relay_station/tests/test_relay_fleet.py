@@ -376,7 +376,7 @@ def test_R_A12_unmeasured_ui_data_not_faked():
 # =============================================================================
 # R-A13 (P0-1): Robot 2 odom parameterization in vision_pose_adapter & launch
 # =============================================================================
-@pytest.mark.skip(reason='원 저장소 robot_onboard/pinky_navigation·robots/ 를 대사한다 — 팀11 레포에 없다 (원 저장소에서도 실패 중)')
+@pytest.mark.skip(reason='이 레포의 로봇 런치는 pinky_fleet_agent/launch/hybrid_robot.launch.xml 하나다 — 대사 대상(원 저장소의 robotN_drive.launch.py·vision_pose_adapter.py·robots/ 기동 스크립트)이 없다. 게이트 단일 소유권은 test_R_A10 이 잰다')
 def test_R_A13_robot2_odom_topic_parameterization():
     adapter_path = os.path.join(REPO_ROOT, "robot_onboard", "pinky_navigation", "scripts", "vision_pose_adapter.py")
     with open(adapter_path, "r", encoding="utf-8") as f:

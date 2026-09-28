@@ -173,4 +173,4 @@ def test_접속_안내는_기록이라고_적혀_있다():
     """
     t = _html()
     assert "기준 기록" in t, "접속 안내가 현황처럼 보인다 (as-of 가 없다)"
-    assert "NETWORK_AND_PORTS" in t, "최신을 어디서 보는지 안 알려준다"
+    assert "location.origin" in t, "접속 주소를 화면이 스스로 채우지 않는다 (박힌 주소는 사이트가 바뀌면 틀린다)"

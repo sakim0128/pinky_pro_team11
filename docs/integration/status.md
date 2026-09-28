@@ -138,3 +138,26 @@ Overhead 카드와 P′ 위치를 연결한다.
 - 아직 publisher가 없으므로 값이나 영상을 만들지 않는다.
 
 검증: station 테스트 88개 통과, ROS 3개 패키지 colcon 빌드 성공.
+
+## 2026-09-28 — relay_station(중계 관제국)·hybrid 로봇 스택 이식 (rkd1rjs2 팀원)
+
+완료한 변경(브랜치 `mini_project_integration`, upstream `5faddf1` 위):
+
+- 로봇 온보드: `pinky_fleet_agent` 에 `hybrid_agent_node`(Nav2 + 레인 관제 수신) · `drive_command_gate`(`/cmd_vel` 단일 발행자) ·
+  `pose_fuser_node`(aerial_view 원본) · `route_chain` 을 **추가**했다. 기존 `agent_node`·`lane_agent_node`·launch 는 바이트 그대로.
+  새 최상위 launch `hybrid_robot.launch.xml`. `pinky_lane_msgs` 에 `PoseFix.msg`(aerial_view 와 바이트 동일)를 더했다.
+  기록: [`docs/hybrid_nav2_gate.md`](../hybrid_nav2_gate.md) (§6 "main 동기" — 원 저장소 에이전트 커밋을 따라온 표).
+- 중계 관제국 `relay_station/`(웹 관제 `:8889` · 플릿 코디네이터 · 도메인 브리지 · 영상 공유). `COLCON_IGNORE` — 빌드 대상 아님.
+  이 저장소 관제(`pinky_lane_station`)와 같은 메시지 계약을 쓰는 다른 구현이라 **같은 로봇에 둘을 동시에 붙이지 않는다**.
+  안내: [`relay_station.md`](relay_station.md).
+- 공개 규칙: 비전 API 키는 코드에 기본값이 없고 없으면 거절 · 사설/tailnet 주소는 자리표시자 · 개인 경로 없음 —
+  `relay_station/tests/test_team11_export.py` 가 잠근다.
+
+확인할 사항:
+
+- **map4 ↔ map5**: live 웹·상부 추적기는 map5, 중계 좌표 프로파일은 map4. 로봇 Nav2 지도를 무엇으로 통일할지 팀 결정 뒤
+  map5 프로파일을 넣는다(`relay_station/fleet/config/profiles/profiles.yaml` 주석).
+- 실물 배포는 09-28 저녁 원 저장소 쪽(중계 노트북 + 실물 두 대)에서 했다. 이 저장소 체크아웃으로는 아직 돌려 보지 않았다.
+
+검증(ROS 2 Jazzy 컨테이너, `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤):
+수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7. station·lane 시험은 그대로 초록.

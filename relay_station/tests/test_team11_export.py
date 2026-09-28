@@ -94,3 +94,10 @@ def test_개인_기기_경로가_없다():
 
 def test_colcon_이_건너뛴다():
     assert os.path.exists(os.path.join(RELAY, "COLCON_IGNORE"))
+
+
+def test_외부_사이트를_가리키는_낱말이_없다():
+    """공개 팀 레포 — 원 저장소 운영 환경의 이름(홈랩/homelab)은 식별자가 아니어도 밖의 사이트를 가리킨다 (REQ E-2)."""
+    pat = re.compile(r"홈랩|homelab", re.I)
+    bad = ["%s: %s" % (rel, m.group(0)) for rel, text in _texts() for m in pat.finditer(text)]
+    assert not bad, bad

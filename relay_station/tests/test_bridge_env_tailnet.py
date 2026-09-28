@@ -124,7 +124,7 @@ def test_프로파일은_tailscale0_멀티캐스트off_peer는_localhost와_환�
 
 
 def test_프로파일_파일에_주소가_박혀_있지_않다():
-    """tailnet 주소는 홈랩 식별자 — 공개 레포 금지(지시서 규칙)."""
+    """tailnet 주소는 외부 사이트 식별자 — 공개 레포 금지(지시서 규칙)."""
     text = open(XML, encoding="utf-8").read()
     assert not re.search(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", text)
 

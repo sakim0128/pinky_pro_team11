@@ -382,7 +382,7 @@ def test_OPS10_아는_미션은_내비게이터_명령으로_보낸다(g, monkey
     node.send_mission.assert_called_once_with(cmd)
 
 
-@pytest.mark.skip(reason='원 저장소 robots/robot1 미션 내비게이터를 대사한다 — 팀11 레포에 없다')
+@pytest.mark.skip(reason='대사 대상(원 저장소 robots/robot1/services/robot1_mission_navigator.py)이 이 레포에 없다 — hybrid_robot.launch.xml 의 로봇은 mission_cmd 문자열이 아니라 FleetCommand·LaneCommand 로 움직인다. 400 BAD_MISSION 검증은 위 두 시험이 잰다')
 def test_OPS10_받는_미션은_내비게이터가_아는_명령이고_GUI_는_그_값을_보낸다():
     import gateway_web_server as gws
     nav = io.open(os.path.join(REPO, "robots", "robot1", "services", "robot1_mission_navigator.py"), encoding="utf-8").read()

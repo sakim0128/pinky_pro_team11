@@ -2453,7 +2453,12 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 'gateway': {
                     'port': self.server.server_port,
                     'status': 'OPERATIONAL'
-                }
+                },
+                # U-1 (HANDOFF_20260928 §3-3): 이 요청의 출처가 움직이는 조작을 낼 수 없는 곳이면 화면이 보기 전용으로
+                # 그린다(V2 는 이 응답을 state.gateway 로 두고 `state.gateway?.view_only` 를 본다 — 최상위). 18081 원격 보기
+                # 경로는 socat 이 127.0.0.2 로 붙어 들어오므로 포트·쿼리와 무관하게 서버가 말한다 — 화면이 숨기는 조작 =
+                # 서버가 403 으로 거절할 조작(같은 판정 집합 LOCAL_CONTROL_IPS).
+                'view_only': self.client_address[0] not in LOCAL_CONTROL_IPS,
             }
             body = json.dumps(status).encode('utf-8')
             self._send_json(body)

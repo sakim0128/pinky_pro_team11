@@ -1,6 +1,6 @@
 # relay_station — 중계 관제국 (웹 관제 · 플릿 코디네이터 · 도메인 브리지)
 
-rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 옮긴 것이다(원 저장소 main `c784497`).
+rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 옮긴 것이다(원 저장소 main `f8fc97d`).
 **colcon 패키지가 아니다** — `COLCON_IGNORE` 가 있어 `colcon build` 는 이 폴더를 건너뛴다. 순수 Python 과 셸이며,
 실행에는 ROS 2 Jazzy 와 이 레포의 `pinky_fleet_msgs` · `pinky_lane_msgs` 가 필요하다.
 
@@ -37,15 +37,17 @@ rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 
 ## 원 저장소에서 옮기며 바꾼 것
 
 - **비전 API 키**: 원 저장소는 기본 키를 코드에 두고, 키가 비면 인증을 **통과**시켰다. 여기서는 기본값을 없애고 키가 비면 **거절**한다.
-- **신원**: 현장·tailnet IP → 위 자리표시자, 개인 홈 경로 → `$HOME` 기준(systemd 는 `%h`), 어댑터 MAC 이 든 NIC 이름 → 자리표시자.
+- **신원**: 현장·tailnet IP → 위 자리표시자, 개인 홈 경로 → `$HOME` 기준(systemd 는 `%h`), 어댑터 MAC 이 든 NIC 이름 → 자리표시자,
+  원 저장소 운영 환경을 가리키는 낱말은 중립어("외부 사이트" · "다른 배포 체계")로. 화면(`index.html`)의 접속 주소 안내는 박힌 주소 대신
+  **지금 연 주소**(`location.origin`)를 보이고 "원격(`:18081`)은 보기 전용" 한 줄만 남겼다.
 - **경로**: 에이전트 `robot_onboard/pinky_fleet_agent` → `pinky_fleet_agent`(`agent_node` → `hybrid_agent_node`),
   메시지 `shared_msgs/pinky_*_msgs` → `pinky_*_msgs`, 레포 루트 `configs/` → `relay_station/configs/`.
-- **싣지 않은 것**: 원 저장소의 도커 홈랩 복제본(`docker/`, 카메라 발행기 `docker/host_camera_publisher.py` 하나만 — 시험이 대사한다),
+- **싣지 않은 것**: 원 저장소의 도커 복제본(외부 사이트용 운영 환경, `docker/` — 카메라 발행기 `docker/host_camera_publisher.py` 하나만 남겼다, 시험이 대사한다),
   게이트웨이 실행본 심링크 검사, 쓰지 않는 스크린샷, 에이전트 시험(→ `pinky_fleet_agent/test/`), 원 저장소 인프라·문서를 대사하는 시험,
   태블릿 비전 코드(용도가 바뀌어 싣지 않는다 — 비전 수신 API 는 남아 있지만 키 없이는 닫혀 있다).
 - **시험**: 원 저장소의 다른 폴더(`robots/` · `tablet/` · `robot_onboard/pinky_navigation`)를 대사하는 4개는 사유를 적어 `skip`,
   팀11 구조에 맞춰 고친 것 3곳(게이트 위치 → `hybrid_robot.launch.xml`, Nav2 허용치, pipefail 규칙 문턱).
-  `tests/test_team11_export.py` 가 위 규칙(키 · 주소 · 경로 · COLCON_IGNORE)을 잠근다.
+  `tests/test_team11_export.py` 가 위 규칙(키 · 주소 · 경로 · 낱말 · COLCON_IGNORE)을 잠근다.
 - 주석의 `docs/*.md` 는 **원 저장소**의 설계·검수 문서를 가리킨다(이 레포에는 없다).
 
 ## 시험
@@ -56,4 +58,13 @@ colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agen
 cd <이 레포>/relay_station && python3 -m pytest tests -q        # numpy · opencv-python · psutil · pyyaml 필요
 ```
 
-일부 시험은 Chrome · socat · tailscale0 · 격리 네트워크(unshare)가 없으면 skip 한다.
+기대(ROS 2 Jazzy 컨테이너, 2026-09-28 export): **1425 passed, 22 skipped** — skip 은 통과가 아니다. 22 = 환경(Chrome 16 · 격리 네트워크
+`unshare -rn` 2 · socat 1 · tailscale0 1) 18 + 이 레포에 대사 대상이 없어 사유를 적어 둔 4(`test_relay_fleet.py::test_R_A13_*`,
+`test_control_topic_naming.py::test_로봇_온보드는_*`, `test_review_0926_ui2.py::test_OPS10_받는_미션은_*`,
+`test_v2_front_honesty.py::test_데모_마커_ID_*`). 환경을 갖추면 18 은 돌아야 하고, failed 가 1 이라도 있으면 보고한다.
+
+## map4 ↔ map5
+
+이 레포의 live 웹(`pinky_fleet_station`, `:8080`)·상부 추적기는 **map5**(236×128, 0.01 m/셀, 원점 −0.01/−0.01)를 쓰고, 이 중계의
+좌표 프로파일(`fleet/config/profiles/`)은 **map4**(47×25, 0.05 m/셀, 가운데 원점)다. 로봇 Nav2 지도를 무엇으로 통일할지는 팀 결정이고,
+map5 프로파일은 그 뒤에 넣는다. 자세한 것은 `docs/integration/relay_station.md`.

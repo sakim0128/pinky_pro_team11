@@ -65,7 +65,7 @@ def test_위치_출처_행이_있고_없으면_미수신():
     assert "위치 출처" in code and 'r.poseSource || "미수신"' in code
 
 
-@pytest.mark.skip(reason='원 저장소 tablet/ 설정을 대사한다 — 태블릿 코드는 이 레포에 싣지 않았다')
+@pytest.mark.skip(reason='정본(원 저장소 tablet/vision/config/markers.yaml)이 이 레포에 없다 — 태블릿 비전은 용도가 바뀌어 싣지 않았다')
 def test_데모_마커_ID_가_태블릿_설정_정본과_같다():
     """`tablet/vision/config/markers.yaml` 이 마커 ID 의 정본이다(T-9)."""
     cfg = yaml.safe_load(open(MARKERS, encoding="utf-8"))

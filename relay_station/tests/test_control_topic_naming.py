@@ -142,7 +142,7 @@ def test_발행하는_명령_이름을_브리지가_실제로_나른다():
         + chr(10).join("  %s:%d  ->  %s" % m for m in missing))
 
 
-@pytest.mark.skip(reason='원 저장소 robot_onboard(/goal_pose 를 쓰는 Nav2 스크립트)가 대상인 음성 대조군 — 팀11 레포의 로봇 코드는 액션으로 목표를 보낸다')
+@pytest.mark.skip(reason='음성 대조군의 대상(원 저장소 robot_onboard 의 /goal_pose 발행 스크립트)이 이 레포에 없다 — 여기 로봇 코드(pinky_fleet_agent)는 NavigateToPose 액션으로 목표를 보내 /goal_pose 문자열이 0 이다. 양성 시험(중계 이름)은 그대로 돈다')
 def test_로봇_온보드는_표준_이름을_지킨다():
     """⚠️ 로봇 **안**에서는 `/goal_pose` 가 맞다 — 여기까지 고치면 Nav2 가 깨진다.
 

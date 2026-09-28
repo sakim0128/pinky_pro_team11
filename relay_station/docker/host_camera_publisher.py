@@ -16,7 +16,7 @@
     X-Publisher-Session 기동마다 새로 발급 — 앱에 [MUST] 로 요구한 바로 그 규약이다
     X-Frame-Seq         **내보낸** 프레임만 센다 — 또 하나의 [MUST]
     X-Process-Ms/Rules  검열 상자를 적용한 시간과 규칙 버전 (가공 단 흉내)
-    GET /process        검열 상자 좌표를 낸다 ← 홈랩 쪽에 요청해 둔 것을 여기선 먼저 쓴다
+    GET /process        검열 상자 좌표를 낸다 ← 외부 가공 단에 요청해 둔 것을 여기선 먼저 쓴다
     GET /status         **디코드한 실제 프레임 크기**를 낸다 (설정값이 아니다, MCVA-70)
 
 ⭐ 검열 상자를 흉내내는 이유: 현장 관측 경로는 검열 단 **아래**에 있어서, 흐린 영역이
@@ -407,7 +407,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/status":
             return self._json(self.camera.status())
         if path == "/process":
-            # ⭐ 검열 상자를 **좌표로** 낸다. 홈랩 가공 단에 요청해 둔 바로 그것이라,
+            # ⭐ 검열 상자를 **좌표로** 낸다. 외부 가공 단에 요청해 둔 바로 그것이라,
             #    게이트웨이의 ROI 제외 로직을 실물 없이 여기에 대고 만들 수 있다.
             return self._json(self.censor.public())
         if path == "/healthz":
