@@ -233,6 +233,19 @@ def test_bridge_lane_topics_match_nodes_and_mission(lane_mission):
     for name in ('pinky1', 'pinky2'):
         t = fleet[f'/{name}/amcl_pose']
         assert t['type'] == 'geometry_msgs/msg/PoseWithCovarianceStamped' and t['to_domain'] == 0
+    # 항공뷰: 관제 overhead_tracker_node → 로봇 pose_fuser_node (D14)
+    for robot in lane_mission['robots']:
+        t = bridge[f"/{robot['name']}/overhead_pose"]
+        assert t['type'] == 'geometry_msgs/msg/PoseStamped'
+        assert (t['from_domain'], t['to_domain']) == (0, int(robot['domain_id']))
+    tracker = read(os.path.join(REPO, 'pinky_fleet_station', 'pinky_fleet_station', 'overhead_tracker_node.py'))
+    assert "f'/{name}/overhead_pose'" in tracker                  # 팀원 노드의 토픽 이름과 일치
+    fuser = read(os.path.join(AGENT, 'pinky_fleet_agent', 'pose_fuser_node.py'))
+    assert "f'/{name}/overhead_pose'" in fuser and 'PoseStamped' in fuser
+    setup = read(os.path.join(AGENT, 'setup.py'))
+    assert 'pose_fuser_node = pinky_fleet_agent.pose_fuser_node:main' in setup
+    launch = read(os.path.join(AGENT, 'launch', 'lane_robot.launch.xml'))
+    assert 'exec="pose_fuser_node"' in launch and 'use_overhead' in launch and '$(eval' not in launch
 
 
 def test_bridge_lane_message_types_exist():
