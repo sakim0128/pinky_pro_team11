@@ -90,6 +90,10 @@ def _names_in(node):
     return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
 
 
+def _attrs_in(node):
+    return {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)}
+
+
 # ---- 게이트 -------------------------------------------------------------------
 
 def test_로컬_게이트가_한_곳에_정의돼_있다():
@@ -115,6 +119,13 @@ def test_게이트_없는_POST_경로가_새로_생기지_않았다():
     ungated = set()
     for paths, branch in _post_branches():
         if "LOCAL_CONTROL_IPS" in _names_in(branch):
+            continue
+        # 2026-09-28 제어권 정책: 움직이는 경로(플릿 start/resume/assign · 목표 · 미션 · 재개 · 좌표 전환)는
+        # `self._deny_if_cannot_move(...)` 가, /api/control/acquire·release 는 `CONTROL_POLICY` 가 문이다
+        # (허용 목록 주소·로컬만 — 기본 목록은 비어 있어 예전 LOCAL_CONTROL_IPS 와 같다). test_control_policy.py ·
+        # test_control_0928_control_policy_wiring.py 가 그 문을 잰다. 정지 계열이 같은 가지 안에서 문 뒤에 있지 않은 것은
+        # 예전(LOCAL_CONTROL_IPS 시절)과 같다 — R-4 는 아래 시험이 따로 기록한다.
+        if "CONTROL_POLICY" in _names_in(branch) or "_deny_if_cannot_move" in _attrs_in(branch):
             continue
         ungated.update(paths)
     new = ungated - UNGATED_KNOWN

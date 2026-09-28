@@ -65,8 +65,10 @@ cd <이 레포>/relay_station && python3 -m pytest tests -q        # numpy · op
 `unshare -rn` 2 · socat 1 · tailscale0 1) 18 + 이 레포에 대사 대상이 없어 사유를 적어 둔 4(`test_relay_fleet.py::test_R_A13_*`,
 `test_control_topic_naming.py::test_로봇_온보드는_*`, `test_review_0926_ui2.py::test_OPS10_받는_미션은_*`,
 `test_v2_front_honesty.py::test_데모_마커_ID_*`). 환경을 갖추면 18 은 돌아야 하고, failed 가 1 이라도 있으면 보고한다.
-2026-09-28 저녁 제어권 정책으로 시험 20 이 늘었다(`test_control_policy.py` 12 · `test_control_0928_control_policy_wiring.py` 8 — rclpy 없이 돈다);
-컨테이너 전체 수치는 재측정 전이다.
+2026-09-28 저녁 제어권 정책으로 시험 20 이 늘었다(`test_control_policy.py` 12 · `test_control_0928_control_policy_wiring.py` 8 — rclpy 없이 돈다).
+재측정(같은 컨테이너, 제어권 정책 `71faa4f` + 시험 수정 뒤): **1445 passed, 22 skipped**, failed 0. 수정한 시험은 `test_calibration_http.py::test_게이트_없는_POST_경로가_새로_생기지_않았다`
+하나 — 움직이는 POST 가지의 문이 `LOCAL_CONTROL_IPS` 이름에서 `_deny_if_cannot_move` / `CONTROL_POLICY` 로 바뀐 것을 시험이 몰라 7 경로를 "새 무게이트" 로 잡았다
+(원 저장소 main `1eed3f8` 에서도 같은 실패). 시험이 두 문을 알아보게 했고, 정지 계열이 같은 가지에서 문 뒤에 있지 않은 것은 예전과 같다(R-4 기록 그대로).
 
 ## map4 ↔ map5
 

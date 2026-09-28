@@ -252,3 +252,9 @@ RESUME 뒤 `ros2 topic echo /pinky1/lane_status` 의 `state_reason` 이 `해제 
 | 공개 규칙 | `python3 -m pytest relay_station/tests/test_team11_export.py -q` | 6 passed, 1 skipped (ROS 없음 → 진짜 메서드 시험 skip; 컨테이너에서 7) |
 | 런치 수락 | `hybrid_robot.launch.xml launch_bringup:=False` 뒤 토픽 검사(§4 와 같은 절차) | `/cmd_vel` 발행자 = `drive_command_gate` 하나 · `LaneCommand ESTOP` 뒤 `/cmd_vel` 5표본 0.0 · `source=ESTOP` · RESUME 뒤 0.0(Nav2 없음 → 해제 문 fail-closed, §6 과 같다) |
 | 구조 | `git diff --diff-filter=M --name-only 094e5d7 HEAD` | 팀11 파일 수정은 여전히 `pinky_lane_msgs/CMakeLists.txt` · `pinky_fleet_agent/setup.py` · `package.xml` + `docs/integration/{status,source_versions}.md` 절 추가 — 5개 |
+
+**추가 (09-28 밤, 제어권 정책)** — 관제가 원 저장소 main `1eed3f8`(팀원 노트북도 중계를 거쳐 움직이는 명령을 낸다 · 기본 닫힘 · `configs/control_allow.json`)을
+팀11 `mini_project_integration` 에 **`71faa4f`** 로 직접 push 했다(`relay_station/` 만 · 시험 +20). 재측정: `cd relay_station && python3 -m pytest tests -q` →
+처음 **1 failed**(`test_calibration_http.py::test_게이트_없는_POST_경로가_새로_생기지_않았다` — 시험이 새 문 `_deny_if_cannot_move`/`CONTROL_POLICY` 를 몰라
+`/api/fleet/*` 5 + `/api/control/*` 2 를 무게이트로 잡음, 원 저장소 main 에서도 같다) → 시험만 고쳐 **1445 passed, 22 skipped**. 에이전트·station 시험은 이 커밋이
+건드리지 않는다(319 · 188/24 그대로).
