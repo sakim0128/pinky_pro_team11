@@ -141,7 +141,7 @@ Overhead 카드와 P′ 위치를 연결한다.
 
 ## 2026-09-28 — relay_station(중계 관제국)·hybrid 로봇 스택 이식 (rkd1rjs2 팀원)
 
-완료한 변경(브랜치 `mini_project_integration`, upstream `5faddf1` 위):
+완료한 변경(브랜치 `mini_project_integration`, upstream `5faddf1` 위 → 09-28 저녁 `main` `094e5d7`(= 새 브랜치 `mini_project_integration`) 병합, 충돌 0 — PR 대상은 `mini_project_integration`):
 
 - 로봇 온보드: `pinky_fleet_agent` 에 `hybrid_agent_node`(Nav2 + 레인 관제 수신) · `drive_command_gate`(`/cmd_vel` 단일 발행자) ·
   `pose_fuser_node`(aerial_view 원본) · `route_chain` 을 **추가**했다. 기존 `agent_node`·`lane_agent_node`·launch 는 바이트 그대로.
@@ -158,6 +158,9 @@ Overhead 카드와 P′ 위치를 연결한다.
 - **map4 ↔ map5**: live 웹·상부 추적기는 map5, 중계 좌표 프로파일은 map4. 로봇 Nav2 지도를 무엇으로 통일할지 팀 결정 뒤
   map5 프로파일을 넣는다(`relay_station/fleet/config/profiles/profiles.yaml` 주석).
 - 실물 배포는 09-28 저녁 원 저장소 쪽(중계 노트북 + 실물 두 대)에서 했다. 이 저장소 체크아웃으로는 아직 돌려 보지 않았다.
+- 상류 `mini_project_1`(`094e5d7`)과의 관계: `nav2_params_fleet.yaml` 튠은 하이브리드 런치가 같은 파일을 쓰므로 그대로 적용. `agent_node` 의
+  Nav2 파라미터 감사(`param_audit`)는 `hybrid_agent_node` 에 아직 없다(후속). 하이브리드 스택은 절대 토픽(`/cmd_vel` · `/estop`)이라
+  `pinky_fleet_sim` 의 네임스페이스 로봇에서는 뜨지 않는다(실기 전용). 표는 `docs/hybrid_nav2_gate.md` §8.
 
 검증(ROS 2 Jazzy 컨테이너, `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤):
-수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7. station·lane 시험은 그대로 초록.
+수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7(병합 전) · §8(`094e5d7` 병합 뒤: 에이전트 319 · 중계 1425/22 · station·lane 188/24). station·lane 시험은 그대로 초록.

@@ -1,6 +1,6 @@
 # Nav2 + 게이트 모드 (`hybrid_robot.launch.xml`) — 외부 비전 위치 · /cmd_vel 단일 발행자 · 레인 관제 수용
 
-`mini_project_2` 위에 **새 파일만 얹은** 패치다. 기존 두 모드는 그대로다.
+`mini_project_2` 위에 **새 파일만 얹은** 패치다(09-28 저녁 팀11 `main` `094e5d7` = `mini_project_integration` 까지 병합, §8). 기존 두 모드는 그대로다.
 
 > **배포 전에 §6 "main 동기" 를 본다** — 에이전트가 원 저장소 main 의 어느 커밋까지 따라왔는지, 무엇으로 검증했는지.
 
@@ -207,7 +207,7 @@ RESUME 뒤 `ros2 topic echo /pinky1/lane_status` 의 `state_reason` 이 `해제 
 | E-6 | map4 ↔ map5 | 코드 변경 없음. `relay_station/fleet/config/profiles/profiles.yaml` 주석 + `relay_station.md`·`README.md` 에 "map5 프로파일은 팀 결정 뒤" |
 | E-7 | skip 4건 | 사유를 이 저장소 기준(대사 대상 부재 · `hybrid_robot.launch.xml` · `pinky_fleet_agent`)으로 다시 적고, README 에 skip 22 = 환경 18 + 사유 4 를 적어 통과로 세지 않게 |
 
-**검증** (`TESTED_SHA = d31e75a`, `git status --porcelain` 비어 있음, ROS 2 Jazzy 컨테이너 · `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤)
+**검증** (`TESTED_SHA = d31e75a`, `git status --porcelain` 비어 있음, ROS 2 Jazzy 컨테이너 · `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤 — **병합 전 기록**이다. 팀11 `main` `094e5d7` 병합 뒤 수치와 diff 기준은 §8)
 
 | 대상 | 명령 | 결과 |
 | :-- | :-- | :-- |
@@ -221,3 +221,34 @@ RESUME 뒤 `ros2 topic echo /pinky1/lane_status` 의 `state_reason` 이 `해제 
 ⚠️ ROS 2 Jazzy 컨테이너의 pytest 7.4 로 `pinky_lane_station/test` · `pinky_fleet_station/test` 를 디렉터리로 주면 module 수준
 `importorskip`(PyQt5 등)에서 수집이 멈춰 "1 skipped" 만 나온다 — 팀11 원본 `5faddf1` 에서도 같다(이 브랜치 탓이 아니다). 그래서 이 두 묶음의
 수치는 ROS 없는 pytest 8 에서 잰 것이다(팀11 README 도 "테스트 (ROS 불필요)" 다).
+
+## 8. 팀11 `main` 병합 — PR 대상 `mini_project_integration` (2026-09-28 저녁)
+
+팀11 에 새 브랜치 **`mini_project_integration`** 이 생겼다(= `main` `094e5d7`). `094e5d7` 은 `mini_project_2` `5faddf1` 위에
+`mini_project_1`(PR #2 · #4)을 얹은 것이다: `pinky_fleet_sim` 패키지(가제보 2대, `/pinky1/...` 네임스페이스) · `params/nav2_params_fleet.yaml`
+실기 튠(`max_obstacle_height` 0.2 · `raytrace_max_range` 2.5) · `agent_node` 의 Nav2 파라미터 감사(`param_audit.py`, `GetParameters`) ·
+`agent.launch.xml` 인자 7개(`map_server` `controller_server` `velocity_smoother` `nav2_params_file` `audit_*`) · `robot.launch.xml` 이
+`nav2_params_file` 전달 · `test_param_audit.py` · `pinky_fleet_station/test/test_sim_*.py`. PR 대상을 `mini_project_2` → **`mini_project_integration`**
+으로 바꾸고 병합했다: 커밋 **`f2d4e5b`**, 충돌 0, `git merge-base HEAD team11/mini_project_integration` = `094e5d7`.
+
+상류 변경이 이 브랜치에 미치는 것(코드 변경 없음 — 전부 기록·후속):
+
+| 상류 변경 | 하이브리드 스택 |
+| :-- | :-- |
+| `nav2_params_fleet.yaml` 튠 | `hybrid_robot.launch.xml` 의 `params_file` 기본값이 **같은 파일**이라 그대로 적용된다. `nav2_gated_navigation.launch.xml` 은 노드 이름(`controller_server` · `velocity_smoother` · `behavior_server` · `bt_navigator`)을 바꾸지 않고 `cmd_vel` 출력만 `cmd_vel_mission` 으로 돌린다 |
+| `agent.launch.xml` 새 인자 | `hybrid_agent.launch.xml` 은 받지 않는다. `hybrid_agent_node` 는 `controller_server` · `velocity_smoother` · `follow_path_plugin` 을 파라미터로 선언하고(기본값 = 상대 이름) `_apply_speed` 가 그 이름으로 `SetParameters` 를 부른다 — 상류 `agent_node` 의 같은 부분은 바뀌지 않았다 |
+| Nav2 파라미터 감사(`param_audit`) | 하이브리드에는 **없다**. 같은 params 파일·같은 노드 이름이라 감사 규칙은 그대로 옮길 수 있다 — **후속 PR** (이 PR 범위 밖) |
+| `pinky_fleet_sim` 네임스페이스 로봇 | 하이브리드 스택은 `/cmd_vel` · `/estop` · `/drive_gate_status` 가 절대 토픽이다 — 시뮬의 `/pinky1/...` 로봇에서는 뜨지 않는다(실기 전용). 필요하면 후속 |
+| `agent_node` 가 `import yaml` | `pinky_fleet_agent/package.xml` 에 `python3-yaml` 이 없다 — 상류 몫(PR 본문에 제안). 이 브랜치의 새 파일은 yaml 을 import 하지 않는다 |
+
+**검증** (`TESTED_SHA = f2d4e5b`, `git status --porcelain` 비어 있음, ROS 2 Jazzy 컨테이너 · `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤)
+
+| 대상 | 명령 | 결과 |
+| :-- | :-- | :-- |
+| 에이전트 | `python3 -m pytest pinky_fleet_agent/test -q` | **319 passed, 0 skipped** (§7 의 307 + 상류 `test_param_audit.py` 12) |
+| 중계 | `cd relay_station && python3 -m pytest tests -q` | **1425 passed, 22 skipped** (§7 과 같다) |
+| 팀11 station·lane | `python3 -m pytest pinky_lane_station/test pinky_fleet_station/test -q` · ROS 없는 Python 3.11 | **188 passed, 24 skipped** (§7 의 153/4 + 상류 `test_sim_*` — skip 은 PyQt5 · ultralytics · mcap_ros2 · `pinky_description`/xacro 없음, `main` 원본과 같다) |
+| 팀11 전체(ROS 없음) | `python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test -q` | 379 passed, 152 skipped |
+| 공개 규칙 | `python3 -m pytest relay_station/tests/test_team11_export.py -q` | 6 passed, 1 skipped (ROS 없음 → 진짜 메서드 시험 skip; 컨테이너에서 7) |
+| 런치 수락 | `hybrid_robot.launch.xml launch_bringup:=False` 뒤 토픽 검사(§4 와 같은 절차) | `/cmd_vel` 발행자 = `drive_command_gate` 하나 · `LaneCommand ESTOP` 뒤 `/cmd_vel` 5표본 0.0 · `source=ESTOP` · RESUME 뒤 0.0(Nav2 없음 → 해제 문 fail-closed, §6 과 같다) |
+| 구조 | `git diff --diff-filter=M --name-only 094e5d7 HEAD` | 팀11 파일 수정은 여전히 `pinky_lane_msgs/CMakeLists.txt` · `pinky_fleet_agent/setup.py` · `package.xml` + `docs/integration/{status,source_versions}.md` 절 추가 — 5개 |

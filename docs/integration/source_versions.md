@@ -14,8 +14,8 @@ PR 제출 전 upstream 최신 변경을 다시 확인해야 합니다.
 
 # 작업 기준 — relay_station · hybrid 로봇 스택 (rkd1rjs2 팀원)
 
-- 최종 저장소(upstream): sakim0128/pinky_pro_team11 · PR 대상: mini_project_2
-- 시작 커밋: 1f505cb88719c44391cc2781dcc3c5f09c9b7795 → 2026-09-28 upstream `5faddf1`(PR #3) 병합
+- 최종 저장소(upstream): sakim0128/pinky_pro_team11 · PR 대상: `mini_project_integration`(09-28 저녁 upstream 이 만든 브랜치, = `main` `094e5d7`; 처음 계획은 mini_project_2)
+- 시작 커밋: 1f505cb88719c44391cc2781dcc3c5f09c9b7795 → 2026-09-28 upstream `5faddf1`(PR #3) 병합 → 같은 날 저녁 `main` `094e5d7`(PR #2 · #4, mini_project_1: `pinky_fleet_sim` · nav2 튠 · 파라미터 감사) 병합 `f2d4e5b`, 충돌 0
 - 원 저장소: rkd1rjs2/robot_mini_project_pinky main `f8fc97d`(relay_station export 기준) · 에이전트 커밋 `6f28c63` `d0352f4` `2750fe0` `46757f9` 반영
 - 가져온 원본: mini_project_2_aerial_view `21ebc31` 의 `PoseFix.msg` · `pose_fuser.py` · `pose_fuser_node.py` · `test_pose_fuser.py`(바이트 동일)
 - 팀11 코드·설정 변경은 `pinky_lane_msgs/CMakeLists.txt` · `pinky_fleet_agent/setup.py` · `pinky_fleet_agent/package.xml` 세 개(각 한두 줄); 문서는 이 파일과 `status.md` 에 절을 덧붙였다
