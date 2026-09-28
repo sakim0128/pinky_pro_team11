@@ -1,6 +1,6 @@
 # relay_station — 중계 관제국 (웹 관제 · 플릿 코디네이터 · 도메인 브리지)
 
-rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 옮긴 것이다(원 저장소 main `f8fc97d`).
+rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 옮긴 것이다(원 저장소 main `f8fc97d` + 제어권 정책 `1eed3f8`, 2026-09-28 저녁).
 **colcon 패키지가 아니다** — `COLCON_IGNORE` 가 있어 `colcon build` 는 이 폴더를 건너뛴다. 순수 Python 과 셸이며,
 실행에는 ROS 2 Jazzy 와 이 레포의 `pinky_fleet_msgs` · `pinky_lane_msgs` 가 필요하다.
 
@@ -11,7 +11,7 @@ rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 
 | `gateway_web/` | 웹 관제 서버 `:8889` (`gateway_web_server.py`) — 로봇 상태·지도·목표 API, 플릿 제어 화면(`static/fleet_control_v2.*`), 영상 중계 |
 | `fleet/` | 플릿 코디네이터 — 도로망(`road_graph`) 위 경로 배정, 구간 예약(`reservation`), `LaneCommand`(START·CLEARANCE·STOP·ESTOP·RESUME) · `Route` 발행 |
 | `domain_bridge/` | 관제 도메인(8) ↔ 로봇 도메인(10·11) 토픽 브리지 설정·생성기·systemd 유닛 |
-| `configs/` | DDS 프로파일(`cyclonedds*.xml`) · 로봇 도메인 표(`fleet_domains.env`) · 영상 소스 · 경기장 · 영상 가림 정책 |
+| `configs/` | DDS 프로파일(`cyclonedds*.xml`) · 로봇 도메인 표(`fleet_domains.env`) · 영상 소스 · 경기장 · 영상 가림 정책 · **제어권 허용 목록(`control_allow.json`)** |
 | `network/` · `scripts/` · `systemd/` | 현장 운용 스크립트(방화벽·SSH 터널·게이트웨이 유닛 설치 등) — **예시**다. 주소·경로는 자기 현장 값으로 바꿔 쓴다 |
 | `tests/` | 시험(아래) |
 
@@ -29,6 +29,9 @@ rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 
   (`198.51.100.x` = 현장 LAN, `203.0.113.x` = 기타 LAN, `100.64.0.x` = tailnet)으로 바꿔 두었다. 자기 현장 값으로 채운다.
 - **`FIELD_NIC`** — 현장 유선 어댑터 이름. 기본값 `enx001122334455` 는 자리표시자이고, `configs/cyclonedds.xml` 의 인터페이스
   이름도 같이 바꾼다(`tests/test_bridge_env.py` · `test_dds_profiles.py` 가 둘이 같은지 본다). 없으면 런처가 offsite 프로파일로 떨어진다.
+- **`configs/control_allow.json`(선택)** — 팀원 노트북에서 움직이는 명령(목표·미션·재개·좌표 전환·플릿 start/resume/assign)을 내게 하려면
+  그 노트북의 LAN 주소를 `enabled: true` 로 넣는다(재기동 없음). 기본 파일은 닫혀 있어 중계 PC 자신만 낸다. 한 번에 한 사람 · 30 s 무응답 만료 ·
+  중계 PC 콘솔 우선 · 멈추는 명령은 누구든. `docs/integration/control_policy.md`.
 - **경로** — 스크립트는 체크아웃을 `$HOME/pinky_pro/src/pinky_pro_team11`, 로봇 워크스페이스를 `$HOME/pinky_pro` 로 가정한다
   (`REPO_ROOT` 로 바꿀 수 있다).
 
@@ -62,6 +65,8 @@ cd <이 레포>/relay_station && python3 -m pytest tests -q        # numpy · op
 `unshare -rn` 2 · socat 1 · tailscale0 1) 18 + 이 레포에 대사 대상이 없어 사유를 적어 둔 4(`test_relay_fleet.py::test_R_A13_*`,
 `test_control_topic_naming.py::test_로봇_온보드는_*`, `test_review_0926_ui2.py::test_OPS10_받는_미션은_*`,
 `test_v2_front_honesty.py::test_데모_마커_ID_*`). 환경을 갖추면 18 은 돌아야 하고, failed 가 1 이라도 있으면 보고한다.
+2026-09-28 저녁 제어권 정책으로 시험 20 이 늘었다(`test_control_policy.py` 12 · `test_control_0928_control_policy_wiring.py` 8 — rclpy 없이 돈다);
+컨테이너 전체 수치는 재측정 전이다.
 
 ## map4 ↔ map5
 

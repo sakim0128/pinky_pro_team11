@@ -164,3 +164,24 @@ Overhead 카드와 P′ 위치를 연결한다.
 
 검증(ROS 2 Jazzy 컨테이너, `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤):
 수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7(병합 전) · §8(`094e5d7` 병합 뒤: 에이전트 319 · 중계 1425/22 · station·lane 188/24). station·lane 시험은 그대로 초록.
+
+## 2026-09-28 저녁 — 제어권 정책: 팀원 노트북도 중계를 거쳐 움직이는 명령을 낸다 (rkd1rjs2 팀원)
+
+완료한 변경(원 저장소 main `1eed3f8` → 이 브랜치 `mini_project_integration`, `relay_station/` 안과 `docs/integration/` 만):
+
+- `relay_station/gateway_web/control_policy.py`(순수 정책) + `gateway_web_server.py` 배선: 움직이는 다섯 경로(목표·미션·로봇 재개·좌표 전환·
+  플릿 start/resume/assign)가 정책을 지난다. 기본은 예전과 같이 **중계 PC 자신만**. `relay_station/configs/control_allow.json` 에 팀원 노트북
+  주소를 `enabled: true` 로 넣으면(재기동 없음) 그 노트북에서도 낸다 — 한 번에 한 사람(409 `CONTROL_HELD`) · 30 s 무응답 만료 · 중계 PC 콘솔 우선 ·
+  멈추는 명령은 정책 밖. `GET /api/control` · `POST /api/control/{acquire,release}` · `/api/status` 에 `control` 블록.
+- V2 화면 헤더에 제어권 알약 + 잡기/놓기. 남이 쥐면 움직이는 버튼을 잠근다(숨기지 않음).
+- 기록: [`control_policy.md`](control_policy.md). 시험: `tests/test_control_policy.py`(순수 12) · `tests/test_control_0928_control_policy_wiring.py`(정적 8).
+
+확인할 사항:
+
+- 허용은 **주소 단위**이고 이름은 표시용이다(같은 Wi-Fi 안의 신뢰를 전제). 인증이 필요해지면 토큰을 따로 둔다.
+- `:18081` 원격 경로는 여전히 보기 전용이다(socat 출처 127.0.0.2 는 허용 목록에 없다).
+- 이 저장소 체크아웃에서의 실기 확인은 아직이다 — 팀원 노트북 한 대를 허용 목록에 넣고 `주행 시작` 이 먹는지, 두 번째 노트북이 409 를 받는지, 중계 PC 가 누르면 제어권이 넘어오는지 세 가지를 본다.
+
+검증(rkd1rjs2 노트북, rclpy 없는 Windows — 정적·순수만): `test_team11_export.py` 7 · `test_no_baked_addresses.py` · `test_control_policy.py` 12 ·
+`test_control_0928_control_policy_wiring.py` 8 · `test_control_0928_webui_p1.py` 11 · `test_v2_front_honesty.py` 6 통과. rclpy 가 필요한 나머지는
+컨테이너 재측정 전이다(README "시험" 절의 1425/22 는 이 변경 **전** 수치).

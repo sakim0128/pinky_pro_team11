@@ -258,6 +258,9 @@ select {
 /* U-1 보기 전용: 움직이는 조작(data-moving)만 숨긴다 — 멈추는 조작은 남는다 */
 body.view-only [data-moving] { display: none !important; }
 .status-pill[hidden] { display: none; }   /* .status-pill 의 display:inline-flex 가 [hidden] 을 이기던 것 */
+/* 관제 2026-09-28 제어권: 허용된 주소인데 남이 쥐고 있으면 움직이는 조작을 잠근다(보이되 못 누름). 제어권 버튼은 예외 */
+body.control-held [data-moving]:not(#control-acquire):not(#control-release) { opacity: .45; pointer-events: none; }
+.btn.small { padding: 4px 10px; font-size: 12px; }
 /* U-2 요약 띠 */
 .summary-band { padding: 14px 16px; display: grid; gap: 10px; margin-bottom: 14px; }
 /* 검토 P2: 문장 길이가 바뀌어도 띠 높이가 바뀌지 않게(아래 정지·비상정지 버튼이 움직이면 누르는 중 클릭이 사라진다 — OPS-4 류).

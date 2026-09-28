@@ -17,6 +17,10 @@
       <div class="top-status">
         <!-- U-1: 원격 보기 경로(:18081 · ?view=1)에서는 움직이는 조작이 숨는다 — 서버(OPS-1)도 거절한다 -->
         <span class="status-pill neutral" id="view-only-pill" hidden>보기 전용 — 제어는 현장 노트북 :8889</span>
+        <!-- 관제 2026-09-28 제어권: 허용된 노트북은 한 번에 한 사람만 움직이는 명령을 낸다. 남이 쥐면 버튼이 잠긴다(숨지 않는다). -->
+        <span class="status-pill neutral" id="control-pill" hidden>제어권 —</span>
+        <button class="btn small" id="control-acquire" data-moving="1" hidden>제어권 잡기</button>
+        <button class="btn small" id="control-release" data-moving="1" hidden>놓기</button>
         <span class="status-pill neutral" id="backend-status">BACKEND 확인 중</span>
         <span class="status-pill neutral" id="mission-status">미션 —</span>
         <span class="clock" id="mission-elapsed" title="화면이 RUNNING 을 처음 본 뒤 지난 시간 — 코디네이터의 시작 시각이 아니다">경과 —</span>

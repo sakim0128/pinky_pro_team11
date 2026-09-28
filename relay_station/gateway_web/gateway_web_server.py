@@ -52,6 +52,7 @@ except Exception:
 
 from stream_ingest import TabletStreamIngest
 import ops_view
+import control_policy            # 관제 2026-09-28: 움직이는 명령의 출처 정책(허용 목록 파일 + 제어권 한 사람)
 from vision_path import (BRIDGE_NODE_PREFIX, classify_receivers,  # noqa: F401
                          downstream_contract as vision_downstream_contract)
 from mjpeg_serving import (STREAM_KEEPALIVE_SEC, should_send_frame,  # noqa: F401
@@ -139,6 +140,22 @@ def _container_gateway_ips():
 
 
 LOCAL_CONTROL_IPS = _BASE_LOCAL_CONTROL_IPS + _container_gateway_ips()
+
+
+# 관제 2026-09-28 (사용자 결정): 팀원 노트북도 **중계를 거쳐** 움직이는 명령을 낼 수 있게 한다 — 단 기본은 닫힘.
+#   허용 주소는 configs/control_allow.json(운영자가 일부러 편집, 재기동 없이 mtime 으로 다시 읽음) · 한 번에 한 사람이 제어권 ·
+#   로컬 콘솔이 언제나 이김 · 멈추는 명령은 정책 밖. 규칙과 시험은 control_policy.py / tests/test_control_policy.py.
+#   LOCAL_CONTROL_IPS 는 그대로 남는다 — 관측·캘리브레이션처럼 "현장 노트북에서만" 인 것은 여전히 그 목록으로 막는다.
+def _control_allow_path():
+    cands = (os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'configs', 'control_allow.json')),         # 팀11 export 배치
+             os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..', 'configs', 'control_allow.json')))   # 원 저장소 배치(레포 루트)
+    for cand in cands:
+        if os.path.exists(cand):
+            return cand
+    return cands[1]
+
+
+CONTROL_POLICY = control_policy.ControlPolicy(LOCAL_CONTROL_IPS, control_policy.AllowList(_control_allow_path()))
 
 # D7 (2026-09-24): 로봇 정지·재개 경로 → 플릿 로봇 이름. `/api/stop`·`/api/nav/stop` 은 예전처럼 1호기다.
 ROBOT_STOP_PATHS = {
@@ -1373,27 +1390,47 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
 
+    def _deny_if_cannot_move(self, what, extra=None):
+        """움직이는 명령의 출처 검사(제어권 정책). 거절이면 403(허용 목록 밖)·409(남이 제어권을 쥠)를 보내고 True.
+        멈추는 명령(stop·estop·로봇 정지)은 이 검사를 부르지 않는다."""
+        ip = self.client_address[0]
+        ok, code, msg = CONTROL_POLICY.may_move(ip)
+        if ok:
+            return False
+        app_log(f"[SECURITY] Blocked {what} from {ip}: {code}")
+        res = {'success': False, 'error': 'Forbidden' if code == 'FORBIDDEN' else 'ControlHeld', 'reason': code, 'message': msg}
+        if extra:
+            res.update(extra)
+        self._send_json(json.dumps(res, ensure_ascii=False).encode('utf-8'), code=CONTROL_POLICY.http_code(code))
+        return True
+
     def do_POST(self):
         parsed = urlparse(self.path)
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length) if content_length > 0 else b'{}'
-        
+
         try:
             req_json = json.loads(post_data.decode('utf-8'))
         except Exception:
             req_json = {}
+        CONTROL_POLICY.touch(self.client_address[0])      # 쥔 쪽의 요청은 제어권을 살린다
+
+        # 0. 제어권 잡기/놓기 (관제 2026-09-28). 잡기는 허용 목록 주소(또는 로컬)만, 놓기는 쥔 쪽(또는 로컬)만.
+        if parsed.path in ('/api/control/acquire', '/api/control/release'):
+            ip = self.client_address[0]
+            if parsed.path.endswith('acquire'):
+                ok, code, msg = CONTROL_POLICY.acquire(ip, name=str(req_json.get('name') or ''))
+            else:
+                ok, code, msg = CONTROL_POLICY.release(ip)
+            res = {'success': ok, 'reason': code, 'message': msg, 'control': CONTROL_POLICY.status(ip)}
+            self._send_json(json.dumps(res, ensure_ascii=False).encode('utf-8'),
+                            code=(200 if ok else CONTROL_POLICY.http_code(code)))
+            return
 
         # 1. 로봇 1호기 & Gazebo 목표 지점 전송 API (/api/robot1/goal, /api/goal)
         if parsed.path in ('/api/robot1/goal', '/api/goal'):
             client_ip = self.client_address[0]
-            if client_ip not in LOCAL_CONTROL_IPS:
-                app_log(f"[SECURITY] Blocked remote goal dispatch from {client_ip}")
-                res = {
-                    'success': False,
-                    'error': 'Forbidden',
-                    'message': '안전 정책: 목표 지정 및 이동 명령은 현장 중계 노트북(로컬)에서만 실행할 수 있습니다.'
-                }
-                self._send_json(json.dumps(res).encode('utf-8'), code=403)
+            if self._deny_if_cannot_move('remote goal dispatch'):
                 return
 
             blocked = motion_block_reason(GLOBAL_FLEET_COORDINATOR, DIRECT_MOTION_PATHS[parsed.path])
@@ -1433,14 +1470,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         # 2. 로봇 1호기 미션 실행 API (/api/robot1/mission)
         elif parsed.path == '/api/robot1/mission':
             client_ip = self.client_address[0]
-            if client_ip not in LOCAL_CONTROL_IPS:
-                app_log(f"[SECURITY] Blocked remote mission trigger from {client_ip}")
-                res = {
-                    'success': False,
-                    'error': 'Forbidden',
-                    'message': '안전 정책: 미션 시작 명령은 현장 중계 노트북(로컬)에서만 실행할 수 있습니다.'
-                }
-                self._send_json(json.dumps(res).encode('utf-8'), code=403)
+            if self._deny_if_cannot_move('remote mission trigger'):
                 return
 
             blocked = motion_block_reason(GLOBAL_FLEET_COORDINATOR, DIRECT_MOTION_PATHS[parsed.path])
@@ -1690,12 +1720,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         # 3-A. 로봇 재개 API — D7. 움직이게 하는 명령이라 로컬에서만 받는다.
         elif parsed.path in ROBOT_RESUME_PATHS:
             robot = ROBOT_RESUME_PATHS[parsed.path]
-            if self.client_address[0] not in LOCAL_CONTROL_IPS:
-                app_log(f"[SECURITY] Blocked remote robot resume from {self.client_address[0]}")
-                self._send_json(json.dumps({
-                    'success': False, 'error': 'Forbidden', 'robot': robot,
-                    'message': '안전 정책: 재개(움직이는 명령)는 현장 중계 노트북(로컬)에서만 실행할 수 있습니다.'
-                }, ensure_ascii=False).encode('utf-8'), code=403)
+            if self._deny_if_cannot_move('remote robot resume', {'robot': robot}):
                 return
             if not GLOBAL_ROBOT_SUB_NODE:
                 self._send_json(json.dumps({
@@ -1846,10 +1871,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         # 3-B2. R-7 좌표 프로파일 전환 · 로봇 지도 · 초기 위치 — 로컬에서만, 움직이는 로봇이 없을 때만
         elif parsed.path in PROFILE_COMMANDS:
             cmd = PROFILE_COMMANDS[parsed.path]
-            if self.client_address[0] not in LOCAL_CONTROL_IPS:
-                self._send_json(json.dumps({'success': False, 'error': 'Forbidden', 'command': cmd,
-                                            'message': '좌표 전환은 현장 중계 노트북(로컬)에서만 한다'},
-                                           ensure_ascii=False).encode('utf-8'), code=403)
+            if self._deny_if_cannot_move('remote profile command ' + cmd, {'command': cmd}):
                 return
             coord = GLOBAL_FLEET_COORDINATOR
             if coord is None or not GLOBAL_ROBOT_SUB_NODE:
@@ -1906,13 +1928,9 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             client_ip = self.client_address[0]
             fleet_cmd_name = parsed.path.split('/')[-1]
             # D7: 멈추는 명령(stop·estop)은 어디서든 받는다 — 태블릿에서 연 V2 화면의 일시정지·비상정지가
-            #     403 이면 그 버튼은 없는 것과 같다. 움직이는 명령(start·resume·assign)만 로컬 전용.
-            if fleet_cmd_name not in FLEET_STOP_COMMANDS and client_ip not in LOCAL_CONTROL_IPS:
-                app_log(f"[SECURITY] Blocked remote fleet command from {client_ip}")
-                self._send_json(json.dumps({
-                    'success': False, 'error': 'Forbidden',
-                    'message': '안전 정책: 플릿 제어 명령은 현장 중계 노트북(로컬)에서만 실행할 수 있습니다.'
-                }, ensure_ascii=False).encode('utf-8'), code=403)
+            #     403 이면 그 버튼은 없는 것과 같다. 움직이는 명령(start·resume·assign)만 제어권 정책(로컬 + 허용 목록 한 사람).
+            if fleet_cmd_name not in FLEET_STOP_COMMANDS and self._deny_if_cannot_move('remote fleet command ' + fleet_cmd_name,
+                                                                                          {'command': fleet_cmd_name}):
                 return
 
             cmd = parsed.path.split('/')[-1]
@@ -2050,6 +2068,13 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+        CONTROL_POLICY.touch(self.client_address[0])      # 쥔 쪽의 화면 폴링이 제어권을 살린다(관제 2026-09-28)
+
+        # 제어권 상태 (GET /api/control) — 관제 2026-09-28
+        if parsed.path == '/api/control':
+            body = json.dumps(CONTROL_POLICY.status(self.client_address[0]), ensure_ascii=False).encode('utf-8')
+            self._send_json(body)
+            return
 
         # MCV-2A-UI 캘리브레이션 상태 (GET /api/calibration).
         # 문구는 내지 않는다 - 상태 코드와 숫자만. 말은 UI 가 소유한다(R-6).
@@ -2458,7 +2483,10 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 # 그린다(V2 는 이 응답을 state.gateway 로 두고 `state.gateway?.view_only` 를 본다 — 최상위). 18081 원격 보기
                 # 경로는 socat 이 127.0.0.2 로 붙어 들어오므로 포트·쿼리와 무관하게 서버가 말한다 — 화면이 숨기는 조작 =
                 # 서버가 403 으로 거절할 조작(같은 판정 집합 LOCAL_CONTROL_IPS).
-                'view_only': self.client_address[0] not in LOCAL_CONTROL_IPS,
+                # 2026-09-28 관제: 판정 집합 = 제어권 정책(로컬 + configs/control_allow.json 허용 주소). 허용 주소인데 남이
+                # 쥐고 있으면 view_only 는 false 이되 control.mine 이 false — 화면이 움직이는 버튼을 잠근다(숨기지 않는다).
+                'view_only': CONTROL_POLICY.status(self.client_address[0])['view_only'],
+                'control': CONTROL_POLICY.status(self.client_address[0]),
             }
             body = json.dumps(status).encode('utf-8')
             self._send_json(body)

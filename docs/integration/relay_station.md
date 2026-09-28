@@ -27,6 +27,7 @@ colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agen
 
 # 1) 값 채우기 — 주소·NIC 는 전부 자리표시자다 (relay_station/README.md "실행 전에 바꿔야 하는 것")
 #    relay_station/configs/{fleet_domains.env,cyclonedds.xml,video_sources.json} · FIELD_NIC
+#    팀원 노트북에서 움직이는 명령을 내리려면 relay_station/configs/control_allow.json 에 그 노트북 주소를 enabled:true 로 (재기동 없음)
 export RELAY_VISION_API_KEY=<공유 키>          # 비전 수신 API 를 쓸 때만. 없으면 그 API 는 전부 401
 
 # 2) 중계 PC (도메인 8)
@@ -39,6 +40,11 @@ ros2 launch pinky_fleet_agent hybrid_robot.launch.xml robot_name:=pinky1 domain_
 
 브라우저: `http://<중계 PC>:8889/fleet_control_v2.html` — 설정 탭에서 **① 중계 좌표 전환(map4) → ② 로봇 지도 전환 → ③ 초기 위치**
 뒤 주행 시작. `http://<중계 PC>:18081` 로 열면 **보기 전용**(움직이는 조작이 숨는다 · `/api/status` 의 `view_only`).
+
+**팀원 노트북에서 움직이는 명령**(2026-09-28 저녁): 기본은 중계 PC 자신만 움직이는 명령(목표·미션·재개·좌표 전환·플릿 start/resume/assign)을
+낸다. `relay_station/configs/control_allow.json` 에 노트북 LAN 주소를 `enabled: true` 로 넣으면 그 노트북의 `:8889` 화면에서도 낼 수 있다 —
+**한 번에 한 사람**(첫 명령이 제어권, 다른 허용 노트북은 409 와 노랑 알약, 30 s 무응답이면 만료) · 중계 PC 콘솔은 언제나 제어권을 가져온다 ·
+멈추는 명령(일시정지·비상정지·로봇 정지)은 누구든. 규칙·접점·시험: [`control_policy.md`](control_policy.md).
 
 ## 영상 공유
 

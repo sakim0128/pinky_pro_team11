@@ -134,6 +134,8 @@
     });
     $("refresh-events")?.addEventListener("click", refresh);
     $("event-filter")?.addEventListener("change", renderEvents);
+    $("control-acquire")?.addEventListener("click", () => controlAction("acquire"));
+    $("control-release")?.addEventListener("click", () => controlAction("release"));
   }
 
   function robotName(key) {
@@ -292,6 +294,53 @@
     document.body.classList.toggle("view-only", on);
     const pill = $("view-only-pill");
     if (pill) pill.hidden = !on;
+    renderControl(on);
+  }
+
+  // 관제 2026-09-28 제어권: 서버(/api/status.control)가 말하는 대로만 그린다 — holder·mine·남은 시간.
+  //   mine 이면 초록 "제어권: 나" · 비어 있으면 회색 "첫 명령이 잡는다" · 남이 쥐면 노랑 + 움직이는 버튼 잠금(body.control-held).
+  //   보기 전용 주소면 제어권 UI 자체를 숨긴다(잡을 수 없는 주소다).
+  function renderControl(viewOnlyOn) {
+    const c = state.gateway?.control || null;
+    const pill = $("control-pill"), acq = $("control-acquire"), rel = $("control-release");
+    if (!pill) return;
+    const known = !!c && !viewOnlyOn && !DEMO;
+    pill.hidden = !known; if (acq) acq.hidden = !known; if (rel) rel.hidden = !known;
+    let held = false;
+    if (known) {
+      if (c.mine) {
+        setPill(pill, `제어권: 나 — ${c.holder} · ${c.holder_ttl_s ?? "—"} s`, "ok");
+      } else if (c.holder) {
+        setPill(pill, `제어권: ${c.holder} — ${c.holder_ttl_s ?? "—"} s 뒤 만료`, "warn");
+        held = true;
+      } else {
+        setPill(pill, "제어권 비어 있음 — 첫 명령이 잡는다", "neutral");
+      }
+      if (acq) acq.disabled = !!c.mine;
+      if (rel) rel.disabled = !c.mine;
+    }
+    document.body.classList.toggle("control-held", held);
+  }
+
+  async function controlAction(cmd) {
+    if (DEMO) return;
+    let payload = {};
+    if (cmd === "acquire") {
+      let name = "";
+      try { name = localStorage.getItem("v2.controller.name") || ""; } catch (_) {}
+      name = window.prompt("이 노트북을 뭐라고 부를까요(팀원 화면에 이 이름이 보입니다)", name) ?? null;
+      if (name === null) return;
+      try { localStorage.setItem("v2.controller.name", name); } catch (_) {}
+      payload = {name};
+    }
+    try {
+      const body = await postJson("/api/control/" + cmd, payload);
+      state.gateway = {...(state.gateway || {}), control: body.control};
+      renderControl(viewOnly());
+    } catch (e) {
+      alert(`⛔ 제어권 ${cmd === "acquire" ? "잡기" : "놓기"} 실패: ` + e.message);
+      refresh();
+    }
   }
 
   // U-2: 경영진용 한 문장 + 신호등 셋(안전·진행·데이터). 순수 함수 — 입력은 /api/fleet/status 에서 나온 값뿐이다.
@@ -924,7 +973,8 @@
   initProfileControls();
   initMedia();
   applyViewOnly();
-  window.__v2 = {buildSummary, robotPhrase, robotProgressTone, clearanceText, driveText, ko, PHRASES, viewOnly};   // 시험이 순수 함수를 직접 부른다
+  window.__v2 = {buildSummary, robotPhrase, robotProgressTone, clearanceText, driveText, ko, PHRASES, viewOnly, renderControl,
+                 _test: {setGateway: (g) => { state.gateway = g; applyViewOnly(); }}};   // 시험이 순수 함수·화면 훅을 직접 부른다
   setInterval(()=>{
     if($("clock")) $("clock").textContent=nowText();
     // 통합 검토 OPS-2 의 연결 판정이 먼저다(검토 P3) — 아래 새 그리기가 던져도 이 줄은 이미 돌았다

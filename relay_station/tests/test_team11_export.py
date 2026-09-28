@@ -36,7 +36,7 @@ def _texts():
                 if os.path.abspath(p) == os.path.abspath(__file__):
                     continue                          # 이 파일은 찾을 모양을 적고 있다
                 with io.open(p, encoding="utf-8", errors="replace") as fh:
-                    yield os.path.relpath(p, RELAY), fh.read()
+                    yield os.path.relpath(p, RELAY).replace(os.sep, "/"), fh.read()   # Windows 체크아웃에서도 ALLOWED 가 맞게
 
 
 def _gateway_src():
