@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!--
+  4단계: 월드 + 핑키 2대. 관제 PC(coordinator + GUI)는 따로 띄운다.
+
+    ros2 launch pinky_fleet_sim gz_fleet.launch.xml
+
+    # 다른 터미널에서 (브리지는 끈다 - 시뮬은 도메인이 하나다)
+    ros2 launch pinky_fleet_station fleet.launch.xml use_bridge:=False \
+        mission:=$(ros2 pkg prefix pinky_fleet_station)/share/pinky_fleet_station/config/mission_sim.yaml
+
+  두 로봇을 아레나 반대편에 마주 보게 놓는다. 각자 상대편 끝을 목표로 받으면 가운데
+  폭 0.5m 통로에서 반드시 마주친다 - 교착 -> 양보 -> 순차 발진을 보려는 배치다.
+
+  월드 좌표: x in [-0.75, 0.75], y in [-1.25, 1.25], 통로는 y=0.
+-->
+<launch>
+    <arg name="world_name" default="fleet_arena.sdf"/>
+    <arg name="gui" default="True"/>
+    <arg name="spawn_delay" default="5.0"
+         description="가제보가 뜨기 전에 스폰하면 조용히 실패한다. 느린 PC 면 늘린다."/>
+
+    <include file="$(find-pkg-share pinky_fleet_sim)/launch/gz_world.launch.xml">
+        <arg name="world_name" value="$(var world_name)"/>
+        <arg name="gui" value="$(var gui)"/>
+    </include>
+
+    <!--
+      가제보 서버가 올라올 시간을 준다. ros_gz_sim 의 create 는 서버가 없으면
+      에러도 없이 그냥 실패한다.
+    -->
+    <timer period="$(var spawn_delay)">
+        <include file="$(find-pkg-share pinky_fleet_sim)/launch/gz_robot.launch.xml">
+            <arg name="namespace" value="pinky1"/>
+            <arg name="domain_id" value="10"/>
+            <arg name="x" value="-0.35"/>
+            <arg name="y" value="1.0"/>
+            <arg name="yaw" value="-1.5708"/>   <!-- 남쪽(통로 쪽)을 본다 -->
+        </include>
+
+        <include file="$(find-pkg-share pinky_fleet_sim)/launch/gz_robot.launch.xml">
+            <arg name="namespace" value="pinky2"/>
+            <arg name="domain_id" value="11"/>
+            <arg name="x" value="0.35"/>
+            <arg name="y" value="-1.0"/>
+            <arg name="yaw" value="1.5708"/>    <!-- 북쪽(통로 쪽)을 본다 -->
+        </include>
+    </timer>
+</launch>

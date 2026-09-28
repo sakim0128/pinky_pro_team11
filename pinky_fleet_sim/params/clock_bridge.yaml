@@ -1,0 +1,11 @@
+# /clock 전용 브리지. 손으로 쓴 파일이다.
+#
+# 로봇 대수와 무관하게 **딱 하나만** 띄운다. rclcpp 의 시간 소스는 네임스페이스와
+# 무관하게 절대 경로 /clock 을 구독하므로, 네임스페이스 안에서 띄우면
+# /pinkyN/clock 이 되어 아무도 못 듣는다.
+
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS

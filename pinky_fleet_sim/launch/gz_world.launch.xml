@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!--
+  1단계: 가제보 + 아레나 월드 + /clock 브리지만 띄운다. 로봇은 없다.
+
+    ros2 launch pinky_fleet_sim gz_world.launch.xml
+
+  먼저 이것만 띄워 창이 뜨고 아레나가 보이는지 확인한 뒤 로봇을 올리는 것이 디버깅에
+  훨씬 편하다. 한 번에 다 띄우면 뭐가 문제인지 알 수 없다.
+
+  /clock 브리지는 로봇 대수와 무관하게 **여기 하나만** 있어야 한다. rclcpp 시간 소스가
+  절대 경로 /clock 을 구독하기 때문이다.
+-->
+<launch>
+    <arg name="world_name" default="fleet_arena.sdf"
+         description="pinky_fleet_sim/worlds 안의 월드 파일. upstream 월드를 쓰려면
+                      world 인자에 전체 경로를 준다."/>
+    <arg name="world" default="$(find-pkg-share pinky_fleet_sim)/worlds/$(var world_name)"/>
+    <arg name="gui" default="True" description="False 면 서버만 (headless)"/>
+    <arg name="clock_bridge_params"
+         default="$(find-pkg-share pinky_fleet_sim)/params/clock_bridge.yaml"/>
+
+    <!--
+      pinky_description 의 메시를 가제보가 찾을 수 있게 한다.
+      upstream launch_sim.launch.xml 과 같은 값이다.
+    -->
+    <set_env name="GZ_SIM_RESOURCE_PATH"
+             value="$(find-pkg-share pinky_description)/../:/$(find-pkg-share pinky_gz_sim)/models:/$(env HOME)/.gazebo/models"/>
+
+    <!-- 서버 -->
+    <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+        <arg name="gz_args" value="-r -s -v4, $(var world)"/>
+        <arg name="on_exit_shutdown" value="true"/>
+    </include>
+
+    <!-- GUI -->
+    <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py"
+             if="$(var gui)">
+        <arg name="gz_args" value="-g -v4 "/>
+    </include>
+
+    <node pkg="ros_gz_bridge" exec="parameter_bridge" name="clock_bridge" output="screen"
+          args="--ros-args -p config_file:=$(var clock_bridge_params)"/>
+</launch>

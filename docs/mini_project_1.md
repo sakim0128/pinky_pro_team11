@@ -79,6 +79,7 @@ flowchart TB
 | `pinky_fleet_msgs` | 로봇 2대 + 관제 PC | `RobotState`, `FleetCommand` |
 | `pinky_fleet_agent` | 로봇 2대 | `agent_node`, `robot.launch.xml`, `nav2_params_fleet.yaml` |
 | `pinky_fleet_station` | 관제 PC | `coordinator_node`, `gui_node`, `fake_state_pub`, launch |
+| `pinky_fleet_sim` | 가제보 PC | 아레나 월드 · 맵 · 멀티로봇용 xacro · 로봇별 Nav2 파라미터 · 시뮬 launch |
 
 `pinky_fleet_msgs` 는 **관제 PC 에도 반드시 빌드·소싱**해야 한다. `domain_bridge` 가
 런타임에 메시지 타입서포트를 로드하기 때문이다.
@@ -349,11 +350,168 @@ ros2 topic echo /fleet/coordinator_status
 `mission.yaml` 의 `state_topic` / `command_topic` 을 노출해 둔 덕분에 coordinator 와
 GUI 는 브리지를 쓰든 가짜 로봇을 쓰든 똑같이 동작한다.
 
-단위 테스트:
+단위 테스트 (ROS · 가제보 없이 돈다):
 
 ```bash
-cd ~/fleet_ws/src/pinky_pro_team11 && python3 -m pytest pinky_fleet_station/test -q
+cd ~/fleet_ws/src/pinky_pro_team11
+QT_QPA_PLATFORM=offscreen python3 -m pytest pinky_fleet_station/test pinky_fleet_agent/test -q
 ```
+
+세 가지를 본다. 순수 로직(맵 좌표 변환, 데드맨 스위치, mission.yaml 파싱), 설정 파일들이
+서로 어긋나지 않는지(타이밍 순서, launch 기본값 대 노드 기본값), 그리고 생성물이 원본과
+같은지(아레나 맵 대 월드, 시뮬 Nav2 파라미터 대 실기 파라미터).
+
+## 가제보 시뮬레이션 (핑키 2대)
+
+실기 없이 관제 시스템 전체를 돌려 본다. `fake_state_pub` 과 달리 **진짜 Nav2 와 진짜
+라이다**가 돌아서, 튜닝값(도착 반경 · 급커브 감속 · 인플레이션)과 교착 회피를 함께 볼 수 있다.
+
+### 실기와 무엇이 다른가
+
+가제보는 프로세스가 **하나**라 `ROS_DOMAIN_ID` 분리를 쓸 수 없다. 시뮬은 도메인 하나에
+**네임스페이스**로 로봇을 가른다.
+
+| | 실기 | 가제보 시뮬 |
+|---|---|---|
+| 로봇 구분 | `ROS_DOMAIN_ID` 10 / 11 | 네임스페이스 `/pinky1` `/pinky2` |
+| 도메인 넘기 | `domain_bridge` | 불필요 (`use_bridge:=False`) |
+| TF 프레임 | 양쪽 다 `base_footprint` (도메인이 격리) | `pinky1/base_footprint` (`frame_prefix`) |
+| 하드웨어 | `pinky_bringup` | `ros_gz_sim` + `ros_gz_bridge` |
+
+**관제 PC 코드(coordinator, GUI)는 한 줄도 안 바뀐다.** 에이전트가 원래부터
+`/pinkyN/state` 처럼 로봇 이름이 붙은 절대 토픽을 쓰기 때문에, 도메인으로 가르든
+네임스페이스로 가르든 관제 쪽에서는 똑같아 보인다.
+
+upstream `pinky_pro` 는 손대지 않는다. `pinky_navigation/gz_bringup_launch.xml` 에
+`push-ros-namespace` 가 있어 Nav2 는 그대로 쓸 수 있다.
+
+**다만 로봇 모델은 그대로 못 쓴다.** `pinky_description` 의 네임스페이스 처리가 링크와
+조인트에 비대칭이기 때문이다.
+
+```
+pinky.urdf.xacro:197     <link  name="rplidar_link"/>                    <- 접두사 없음
+pinky.urdf.xacro:54      <joint name="${namespace}l_wheel_joint">        <- 접두사 있음
+pinky_gz.urdf.xacro:68   <gazebo reference="${namespace}rplidar_link">   <- 접두사 있음
+```
+
+링크를 가리키는 `<gazebo reference>` 6개(`l_wheel`, `r_wheel`, `caster_wheel`,
+`rplidar_link`, `front_camera_link`, `imu_link`)가 존재하지 않는 이름을 가리킨다.
+sdformat 은 매칭 안 되는 블록을 경고 없이 버리므로 **센서와 마찰 설정이 통째로
+사라진다.** 조인트를 참조하는 DiffDrive 는 멀쩡해서, 로봇은 `/cmd_vel` 로 움직이고
+`/odom`·`/tf` 도 나오는데 **`/scan` 만 안 나온다.** Nav2 가 장애물을 전혀 못 본다.
+
+단일 로봇에서는 `namespace` 가 빈 문자열이라 양쪽 다 접두사가 없어 맞는다. upstream
+자신의 `pinky_gz_sim/launch/launch_sim.launch.xml` 은 네임스페이스를 쓰지 않으므로
+정상 동작해 왔고, 네임스페이스를 쓰는 것은 이 저장소가 처음이다.
+
+그래서 `pinky_fleet_sim/urdf/` 에 자체 xacro 두 개를 둔다. upstream 의
+링크·조인트·메시·관성은 그대로 재사용하고(`insert_robot` 을 `is_sim="false"` 로 호출),
+가제보 블록만 우리가 쓴다. 규칙은 **링크를 가리키면 접두사 없음, 그 외(조인트 이름,
+`gz_frame_id`, 토픽)는 접두사 있음** 이고, `test_sim_namespace.py` 가 이 규칙을 고정한다.
+카메라·IMU·램프는 Nav2 가 안 쓰고 브리지에도 없어 기본으로 꺼 두었다 (xacro arg 로 켠다).
+
+### 아레나 월드
+
+`pinky_fleet_sim/worlds/fleet_arena.sdf` 는 **실기 아레나와 같은 1.5 x 2.5m, 벽 높이
+20cm** 다. 그래야 지금 Nav2 튜닝값이 시뮬에서 검증한 것과 같은 조건이 된다.
+`pinky_factory.world` 같은 넓은 월드로는 이 값들을 검증할 수 없다.
+
+가운데 y=0 에 **폭 0.5m 통로**를 하나 둔다. 로봇 하나는 여유롭게 지나가지만
+(footprint 12cm + inflation 10cm = 약 0.32m 필요) 두 대가 나란히 가려면 0.64m 가
+필요해서 반드시 한 대씩 통과해야 한다. 교착 -> 양보 -> 순차 발진을 재현하려고 만든 구조다.
+
+AMCL 맵(`map/fleet_arena.pgm`)은 월드에서 **자동 생성**한다. 손으로 맞추면 반드시 어긋난다.
+
+```bash
+python3 pinky_fleet_sim/scripts/make_arena_map.py        # 월드 -> 맵
+python3 pinky_fleet_sim/scripts/make_sim_nav2_params.py  # 실기 파라미터 -> 로봇별 시뮬 파라미터
+```
+
+두 생성물이 원본과 어긋나면 `pinky_fleet_station/test/test_sim_setup.py` 가 잡는다.
+
+### 설치
+
+```bash
+sudo apt install ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge ros-jazzy-ros-gz-image
+
+cd ~/pinky_ws && colcon build --packages-select \
+    pinky_fleet_msgs pinky_fleet_agent pinky_fleet_station pinky_fleet_sim
+source install/setup.bash
+```
+
+`pinky_description`, `pinky_gz_sim`, `pinky_navigation` (upstream)도 같은 워크스페이스에
+있어야 한다.
+
+### 한 단계씩 올리기
+
+한 번에 다 띄우면 뭐가 문제인지 알 수 없다. 순서대로 올리면서 확인한다.
+
+**0단계는 가제보를 띄우지 않는다.** URDF -> SDF 변환에서 센서가 살아남는지만 보면
+위의 접두사 문제를 2분 안에 판정할 수 있다. 여기서 막히면 뒤는 볼 필요가 없다.
+
+```bash
+XACRO=$(ros2 pkg prefix pinky_fleet_sim)/share/pinky_fleet_sim/urdf/pinky_fleet.urdf.xacro
+
+# 0-a) xacro 가 돌고 URDF 가 유효한가
+xacro $XACRO namespace:=pinky1/ > /tmp/p1.urdf && check_urdf /tmp/p1.urdf
+grep -o 'reference="[^"]*"' /tmp/p1.urdf
+#    기대: 링크(l_wheel, rplidar_link ...)는 접두사 없음, 조인트만 pinky1/ 이 붙는다
+
+# 0-b) ** 핵심 ** SDF 로 변환했을 때 센서와 마찰이 살아 있는가
+gz sdf -p /tmp/p1.urdf > /tmp/p1.sdf 2> /tmp/p1.err
+grep -c '<sensor' /tmp/p1.sdf     # 기대: 1   (0 이면 참조가 안 맞는 것)
+grep -c '<mu1>'   /tmp/p1.sdf     # 기대: 3   (l_wheel, r_wheel, caster_wheel)
+grep -i 'not modeled in sdf' /tmp/p1.err
+#    rplidar_link 가 여기 뜨면 lumping 이 꺼진 것이다. 빈 링크라 SDF 에서 통째로
+#    빠지고 센서도 같이 사라진다 - disableFixedJointLumping 을 넣지 말 것.
+
+# 0-c) 대조군: 네임스페이스가 없을 때와 개수가 같아야 한다
+xacro $XACRO namespace:= | gz sdf -p /dev/stdin | grep -c '<sensor'
+```
+
+```bash
+# 1) 가제보와 아레나만
+ros2 launch pinky_fleet_sim gz_world.launch.xml
+#    확인: 창에 1.5x2.5m 아레나와 가운데 통로가 보인다
+#         ros2 topic hz /clock   ->  값이 찍힌다
+
+# 2) 로봇 1대 스폰 (Nav2 없이)
+ros2 launch pinky_fleet_sim gz_spawn.launch.xml namespace:=pinky1 x:=-0.35 y:=1.0
+#    확인: gz topic -l | grep pinky1     ->  /pinky1/scan /pinky1/cmd_vel /pinky1/odom
+#         ros2 topic hz /pinky1/scan     ->  약 10Hz
+#         ros2 topic echo /pinky1/scan --field header.frame_id --once
+#                                        ->  pinky1/rplidar_link
+#         ros2 run tf2_ros tf2_echo pinky1/base_footprint pinky1/rplidar_link
+#                                        ->  [-0.017, 0, 0.125], yaw = pi
+#         ros2 run tf2_tools view_frames ->  pinky1/odom -> pinky1/base_footprint
+
+# 3) 로봇 1대 전체 (Nav2 + 에이전트)
+ros2 launch pinky_fleet_sim gz_robot.launch.xml namespace:=pinky1 x:=-0.35 y:=1.0
+#    확인: ros2 topic echo /pinky1/state --once   ->  localized: true
+
+# 4) 2대 + 관제
+ros2 launch pinky_fleet_sim gz_fleet.launch.xml
+# 다른 터미널
+ros2 launch pinky_fleet_station fleet.launch.xml use_bridge:=False \
+    mission:=$(ros2 pkg prefix pinky_fleet_station)/share/pinky_fleet_station/config/mission_sim.yaml
+```
+
+GUI 에서 `[불러오기]` -> `[초기위치 일괄]` -> `[동시 출발]` 하면 두 로봇이 가운데 통로에서
+마주친다. `coordinator [YIELD]` 가 뜨고 `domain_id` 가 큰 pinky2 가 양보하면 성공이다.
+
+### 처음 돌릴 때 막히기 쉬운 곳
+
+이 저장소는 ROS 와 가제보가 없는 환경에서 만들어졌다. 파일 사이의 일관성은 테스트로
+확인했지만 **실제 기동은 검증하지 못했다.** 가장 의심스러운 순서대로 적는다.
+
+| 증상 | 확인 |
+|---|---|
+| 로봇이 안 보인다 | 가제보가 뜨기 전에 스폰했다. `gz_fleet.launch.xml` 의 `spawn_delay` 를 늘린다 |
+| `/pinky1/scan` 이 안 나온다 | `gz topic -l \| grep scan` 으로 gz 쪽에 센서가 아예 없는지 본다. 없으면 upstream `robot.urdf.xacro` 로 스폰된 것이다 (위 **실기와 무엇이 다른가** 의 접두사 비대칭). `ros2 param get /pinky1/robot_state_publisher robot_description \| grep 'gazebo reference'` 로 확인 — `pinky1/rplidar_link` 가 나오면 우리 xacro 가 안 쓰인 것이다 |
+| TF 가 `pinky1/odom` 에서 끊긴다 | DiffDrive 플러그인의 `tf_topic` 이 `/tf` 로 고정이라 두 로봇이 같은 gz 토픽을 쓴다. 브리지가 그걸 각 네임스페이스로 나른다 — `ros2 topic hz /pinky1/tf` 확인 |
+| Nav2 가 `bring up` 에서 멈춘다 | 프레임 접두사가 안 맞는 것이다. `ros2 param get /pinky1/controller_server robot_base_frame` 이 `pinky1/base_footprint` 여야 한다 |
+| 시간이 이상하게 흐른다 | `/clock` 브리지가 둘 이상이거나 네임스페이스 안에 있다. 전체에 **하나만** 있어야 한다 |
+| GUI 에 `수신 없음` | 브리지를 켰다. 시뮬은 `use_bridge:=False` 다 |
 
 ## `pinky_fleet_station/config/mission.yaml`
 
@@ -398,7 +556,8 @@ robots:
 | `GridBased.tolerance` | 0.10 m | 목표가 막혔을 때 경로를 끊는 거리 |
 | `inflation_layer.inflation_radius` | 0.10 m | 내접 반경 0.06 보다 커야 한다 |
 | `inflation_layer.cost_scaling_factor` | 5.0 | `FollowPath.inflation_cost_scaling_factor` 와 **같아야 한다** |
-| `obstacle_max_range` / `raytrace_max_range` | 1.5 / 2.0 m | 맵 대각선 약 2.9m |
+| `obstacle_max_range` / `raytrace_max_range` | 1.5 / 2.5 m | 맵 대각선 약 2.9m |
+| `max_obstacle_height` | 0.2 m | 벽이 20cm 하드보드지다. 그 위(사람 다리, 책상)는 안 찍는다 |
 | `local_costmap` 크기 | 2 x 2 m | 맵 전체보다 크면 낭비 |
 | `lookahead_dist` (min/max) | 0.25 (0.15/0.4) | 크면 코너를 잘라 벽에 붙는다 |
 | `use_regulated_linear_velocity_scaling` | true | **급커브 감속.** upstream 은 꺼져 있다 |
@@ -417,7 +576,55 @@ robots:
 
 라이다는 바닥에서 **12.5cm** 높이다 (`base_footprint→base_link` 0.028 +
 `→rplidar_mount` 0.067 + `→rplidar_link` 0.030). 20cm 벽은 여유 있게 스캔되지만,
-그보다 낮은 장애물은 보이지 않는다.
+그보다 낮은 장애물은 보이지 않는다. `max_obstacle_height` 를 라이다 높이보다 낮게
+잡으면(예: 0.02) **스캔이 전부 걸러져 장애물이 하나도 안 찍힌다.** 0.2 아래로는 내리지 말 것.
+
+#### rqt 로 튜닝한 값을 파일에 남기는 법
+
+`rqt` → Dynamic Reconfigure 로 바꾼 값은 **그 프로세스가 살아 있는 동안만** 유효하다.
+다음 launch 에서 다시 파일 값으로 돌아간다. 남기려면 덤프해서 `nav2_params_fleet.yaml` 에
+직접 옮겨 적는다 (Jazzy 의 `ros2 param dump` 는 stdout 으로만 찍는다).
+
+```bash
+for n in controller_server planner_server bt_navigator global_costmap/global_costmap \
+         local_costmap/local_costmap amcl behavior_server smoother_server velocity_smoother; do
+  ros2 param dump /$n > "$(basename $n).yaml"
+done
+```
+
+파일은 **손으로 고쳐도 된다.** 고친 뒤 두 가지를 꼭 한다.
+
+1. 로봇에서 `colcon build --packages-select pinky_fleet_agent` (install 쪽이 낡으면 안 먹는다)
+2. 관제 PC 에서 `python3 pinky_fleet_sim/scripts/make_sim_nav2_params.py`
+   (시뮬 파라미터는 이 파일에서 생성된다. 안 돌리면 `test_sim_setup.py` 가 실패한다)
+
+#### 파라미터가 정말 적용됐는지 확인하기
+
+에이전트는 기동 15초 뒤에 Nav2 노드 몇 개의 파라미터를 **직접 읽어** 파일과 대조하고,
+다르면 에러 로그를 남긴다 (`pinky_fleet_agent/param_audit.py`).
+
+```
+[pinky_fleet_agent] [INFO] Nav2 파라미터 확인: nav2_params_fleet.yaml 과 일치 (6개 대조)
+```
+
+어긋나면 이렇게 나온다.
+
+```
+[pinky_fleet_agent] [ERROR] 실행 중인 Nav2 파라미터가 nav2_params_fleet.yaml 과 다르다:
+  - bt_navigator.robot_base_frame: 파일=base_footprint 실행중=base_link
+  - planner_server.GridBased.tolerance: 파일=0.1 실행중=0.5
+  원인 후보: (1) robot.launch.xml 이 아니라 pinky_navigation 의 bringup_launch.xml 을
+  직접 띄웠다 (2) params_file 로 다른 파일을 넘겼다 (3) colcon build 를 안 해 install
+  쪽 파일이 낡았다 (4) rqt 로 바꾼 뒤 파일에 반영하지 않았다.
+```
+
+**실제로 (1) 이 있었다.** 실기에서 덤프한 값이 upstream `nav2_params.yaml` 기본값과
+글자 하나까지 같았는데 — Nav2 를 따로 띄우고 에이전트만 올리면 관제 화면은 멀쩡해서
+아무도 눈치채지 못한다. 그래서 이 점검을 넣었다.
+
+끄려면 `audit_nav2_params:=False`. 감시 대상은 사람이 rqt 로 만질 일이 거의 없는 값
+6개로 골랐다 (`robot_base_frame`, `max_lookahead_dist`, `xy_goal_tolerance`,
+`GridBased.tolerance`, `footprint_padding`, `local_costmap` 폭).
 
 `conflict_distance` 는 **두 로봇이 실제로 서로 막혀 멈추는 거리보다 커야 한다.**
 작게 잡으면 교착이 감지되지 않는다. footprint 12cm 정사각(외접 반경 0.085) + 조정된
@@ -610,6 +817,8 @@ sequenceDiagram
 | `hold_watchdog` | 20.0 s | 로봇 `agent.launch.xml` / `robot.launch.xml` |
 | `resume_timeout` | 15.0 s | 관제 `mission.yaml` |
 | `heartbeat_rate` | 1.0 Hz | 관제 `coordinator_node` (GUI 는 `HEARTBEAT_PERIOD_MS`) |
+| `audit_nav2_params` | True | 로봇 `agent.launch.xml` (Nav2 파라미터 기동 점검) |
+| `audit_delay` | 15.0 s | 로봇 `agent.launch.xml` (Nav2 configure 를 기다리는 시간) |
 
 `command_timeout` 은 0.2 m/s 기준 **0.6m 의 추가 주행**을 뜻한다. 1.5 x 2.5m 맵에서는
 작지 않지만, 이 창 동안에도 Nav2 와 라이다 회피는 계속 돌고 있다. 감시자가 없을 뿐 눈이
@@ -702,3 +911,6 @@ Nav2 의 `/plan` 을 브리지 설정에서 직접 remap 하지 않고 에이전
 | 재연결 직후 로봇이 혼자 출발함 | RELIABLE QoS 재전송이다. `restore_grace` 가 0 이 아닌지 확인 |
 | 통신은 되는데 `NAV_LINK_LOST` 가 안 풀림 | 새 목표를 받아야 풀린다. 자동 재출발은 의도적으로 없다 |
 | 속도 적용이 안 됨 | 로봇에서 `ros2 param get /controller_server FollowPath.desired_linear_vel`. Nav2 가 아직 activate 되기 전이면 건너뛴다 (로그 확인) |
+| `nav2_params_fleet.yaml` 을 고쳤는데 로봇이 안 변함 | 로봇 로그의 `실행 중인 Nav2 파라미터가 ... 다르다` 를 본다. 그 줄에 원인 후보가 같이 나온다. 가장 흔한 것은 `robot.launch.xml` 이 아니라 `pinky_navigation` 의 `bringup_launch.xml` 을 직접 띄운 경우 — 에이전트만 따로 올라와 있어 관제 화면은 멀쩡해 보인다 |
+| 로그에 `Nav2 파라미터 감사 생략: 파일을 찾을 수 없다` | `colcon build --packages-select pinky_fleet_agent` 를 안 했다 (`params/` 가 install 로 안 갔다) |
+| 라이다가 벽을 전혀 안 찍음 | `max_obstacle_height` 가 라이다 높이 0.125m 보다 낮은지 확인. 0.02 같은 값이면 스캔이 전부 걸러진다 |

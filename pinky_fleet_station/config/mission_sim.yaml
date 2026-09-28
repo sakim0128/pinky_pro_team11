@@ -1,0 +1,48 @@
+# 가제보 시뮬용 미션 파일.
+#
+#   ros2 launch pinky_fleet_station fleet.launch.xml use_bridge:=False \
+#       mission:=<이 파일 경로>
+#
+# mission.yaml 과 다른 점은 딱 세 가지다.
+#   1. map.yaml_path 가 아레나 맵을 가리킨다
+#   2. initial_pose / goal 이 아레나(1.5 x 2.5m) 좌표다
+#   3. 브리지를 안 쓴다 (use_bridge:=False) - 가제보는 도메인이 하나라서
+#
+# state_topic / command_topic 은 **그대로다**. 에이전트가 원래부터 로봇 이름이 붙은
+# 절대 토픽을 쓰기 때문에, 도메인 분리든 네임스페이스든 관제 PC 에서는 똑같아 보인다.
+
+map:
+  yaml_path: "$HOME/pinky_ws/install/pinky_fleet_sim/share/pinky_fleet_sim/map/fleet_arena.yaml"
+
+defaults:
+  max_linear_vel:  0.20
+  max_angular_vel: 1.50
+
+coordinator:
+  # 실기 mission.yaml 과 같은 값을 쓴다. 시뮬로 이 값들을 검증하는 것이 목적이다.
+  conflict_distance: 0.45
+  clear_distance:    0.70
+  stall_speed:       0.03
+  stall_duration:    3.0
+  resume_timeout:   15.0
+  cooldown:          2.0
+  state_timeout:     2.0
+
+robots:
+  # 아레나 북쪽에서 출발해 남쪽 끝으로 간다. 가운데 폭 0.5m 통로에서 pinky2 와 마주친다.
+  - name: pinky1
+    domain_id: 10              # 작을수록 leader (미션 5번). 시뮬에선 실제 도메인이 아니다
+    state_topic:   /pinky1/state
+    command_topic: /pinky1/command
+    color: "#ff5a7a"
+    initial_pose: {x: -0.35, y:  1.00, yaw: -1.5708}
+    goal:         {x:  0.35, y: -1.00, yaw: -1.5708}
+
+  # 남쪽에서 출발해 북쪽 끝으로. pinky1 과 정확히 반대다.
+  - name: pinky2
+    domain_id: 11              # 커서 yielder
+    state_topic:   /pinky2/state
+    command_topic: /pinky2/command
+    color: "#38bdf8"
+    initial_pose: {x:  0.35, y: -1.00, yaw: 1.5708}
+    goal:         {x: -0.35, y:  1.00, yaw: 1.5708}

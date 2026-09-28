@@ -227,10 +227,14 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # [fleet-tune 1.5x2.5m] 3.0 -> 5.0 (비용이 더 가파르게 떨어져 벽 가까이 지날 수 있다)
+        # 실기 rqt 덤프는 0.05 였지만 반영하지 않는다. 0.05 면 감쇠가 거의 평평해져
+        # inflation 이 사실상 균일한 벽이 되고, FollowPath 의
+        # inflation_cost_scaling_factor 와 같아야 한다는 nav2 제약도 깨진다.
         cost_scaling_factor: 5.0
         # [fleet] 상대 로봇을 더 일찍 크게 피하게 하려면 이 값을 올린다 (예: 0.20~0.25).
         #         다만 좁은 통로에서 경로가 막힐 수 있으므로 실기에서 튜닝할 것.
         # [fleet-tune 1.5x2.5m] 0.15 -> 0.10. 내접 반경 0.06 보다는 커야 벽을 안 스친다.
+        # 실기 rqt 덤프는 0.05 였지만 반영하지 않는다 (내접 반경보다 작아 여유가 0 이 된다).
         inflation_radius: 0.10
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
@@ -239,17 +243,21 @@ local_costmap:
         origin_z: 0.0
         z_resolution: 0.05
         z_voxels: 16
-        max_obstacle_height: 2.0
+        # [fleet-tune 1.5x2.5m] 2.0 -> 0.2. 실기 rqt 값. 벽이 20cm 하드보드지라
+        # 그 위(사람 다리, 책상)는 장애물로 안 찍는다.
+        max_obstacle_height: 0.2
         mark_threshold: 0
         observation_sources: scan
         scan:
           topic: /scan
-          max_obstacle_height: 2.0
+          # [fleet-tune 1.5x2.5m] 2.0 -> 0.2 (위 max_obstacle_height 와 같은 이유)
+          max_obstacle_height: 0.2
           clearing: True
           marking: True
           data_type: "LaserScan"
-          # [fleet-tune 1.5x2.5m] 3.0 -> 2.0 / 2.5 -> 1.5. 맵 대각선이 약 2.9m 라 기존 값은 맵 밖까지 본다.
-          raytrace_max_range: 2.0
+          # [fleet-tune 1.5x2.5m] 3.0 -> 2.5 (실기 rqt 값) / 2.5 -> 1.5.
+          # 맵 대각선이 약 2.9m 라 upstream 기본값은 맵 밖까지 본다.
+          raytrace_max_range: 2.5
           raytrace_min_range: 0.0
           obstacle_max_range: 1.5
           obstacle_min_range: 0.0
@@ -278,12 +286,16 @@ global_costmap:
         observation_sources: scan
         scan:
           topic: /scan
-          max_obstacle_height: 2.0
+          # [fleet-tune 1.5x2.5m] 2.0 -> 0.2. 실기 rqt 에서는 0.02(2cm)로 잡혀 있었는데,
+          # 라이다가 바닥에서 12.5cm 라 그 높이로는 스캔이 전부 걸러진다 (오타로 판단).
+          # local_costmap 의 voxel_layer 와 같은 0.2 로 맞춘다.
+          max_obstacle_height: 0.2
           clearing: True
           marking: True
           data_type: "LaserScan"
-          # [fleet-tune 1.5x2.5m] 3.0 -> 2.0 / 2.5 -> 1.5. 맵 대각선이 약 2.9m 라 기존 값은 맵 밖까지 본다.
-          raytrace_max_range: 2.0
+          # [fleet-tune 1.5x2.5m] 3.0 -> 2.5 (실기 rqt 값) / 2.5 -> 1.5.
+          # 맵 대각선이 약 2.9m 라 upstream 기본값은 맵 밖까지 본다.
+          raytrace_max_range: 2.5
           raytrace_min_range: 0.0
           obstacle_max_range: 1.5
           obstacle_min_range: 0.0
@@ -293,10 +305,14 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # [fleet-tune 1.5x2.5m] 3.0 -> 5.0 (비용이 더 가파르게 떨어져 벽 가까이 지날 수 있다)
+        # 실기 rqt 덤프는 0.05 였지만 반영하지 않는다. 0.05 면 감쇠가 거의 평평해져
+        # inflation 이 사실상 균일한 벽이 되고, FollowPath 의
+        # inflation_cost_scaling_factor 와 같아야 한다는 nav2 제약도 깨진다.
         cost_scaling_factor: 5.0
         # [fleet] 상대 로봇을 더 일찍 크게 피하게 하려면 이 값을 올린다 (예: 0.20~0.25).
         #         다만 좁은 통로에서 경로가 막힐 수 있으므로 실기에서 튜닝할 것.
         # [fleet-tune 1.5x2.5m] 0.15 -> 0.10. 내접 반경 0.06 보다는 커야 벽을 안 스친다.
+        # 실기 rqt 덤프는 0.05 였지만 반영하지 않는다 (내접 반경보다 작아 여유가 0 이 된다).
         inflation_radius: 0.10
       always_send_full_costmap: True
 

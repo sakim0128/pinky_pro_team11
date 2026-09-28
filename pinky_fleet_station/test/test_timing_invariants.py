@@ -109,6 +109,22 @@ def test_every_agent_launch_arg_is_passed_as_param():
     assert not missing, f'agent.launch.xml 에서 노드로 안 넘어가는 인자: {sorted(missing)}'
 
 
+def test_agent_audits_the_same_params_file_nav2_gets():
+    """감사는 Nav2 에 실제로 넘어간 파일을 봐야 한다.
+
+    실기에서 Nav2 가 upstream 기본값으로 떠 있었는데 아무도 몰랐다. 그걸 잡으려고
+    에이전트가 기동 시 파라미터를 직접 읽어 대조한다. 여기서 두 경로가 갈리면
+    감사가 엉뚱한 파일과 비교하면서 "일치" 라고 보고한다 - 원래 문제보다 나쁘다.
+    """
+    robot = read(ROBOT_LAUNCH)
+    nav2 = re.search(r'<arg\s+name="params_file"\s+value="\$\(var ([a-z_]+)\)"', robot)
+    audit = re.search(r'<arg\s+name="nav2_params_file"\s+value="\$\(var ([a-z_]+)\)"', robot)
+    assert nav2, 'robot.launch.xml 이 Nav2 로 params_file 을 안 넘긴다'
+    assert audit, 'robot.launch.xml 이 에이전트로 nav2_params_file 을 안 넘긴다'
+    assert nav2.group(1) == audit.group(1), (
+        f'Nav2 는 $(var {nav2.group(1)}), 감사는 $(var {audit.group(1)}) 를 본다')
+
+
 def test_robot_launch_only_forwards_known_agent_args():
     robot = read(ROBOT_LAUNCH)
     agent_args = launch_arg_names(read(AGENT_LAUNCH))

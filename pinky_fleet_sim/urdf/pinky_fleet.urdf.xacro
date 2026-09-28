@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<!--
+  시뮬용 최상위 xacro. upstream 의 pinky_description/urdf/robot.urdf.xacro 를 대신한다.
+
+    xacro pinky_fleet.urdf.xacro namespace:=pinky1/
+
+  namespace 는 **끝에 슬래시를 붙여** 넘긴다. upstream 의 upload_robot.launch.py:19-20 이
+  하던 가공을 여기서는 호출자(gz_spawn.launch.xml)가 한다. 이 문자열이
+  robot_state_publisher 의 frame_prefix 와 **같아야** 조인트 이름과 gz_frame_id 가
+  실제 TF 프레임과 맞는다.
+
+  upstream 의 링크/조인트/메시/관성은 그대로 쓰고, 가제보 블록만 우리 것으로 바꾼다.
+  is_sim="false" 가 그 스위치다 - upstream 의 pinky.urdf.xacro:298-301 이
+  <xacro:if value="${is_sim}"> 로 자기 gz 블록을 감싸 두었기 때문에, false 로 두면
+  가제보 태그가 하나도 없는 깨끗한 URDF 가 나오고 그 위에 우리 블록을 얹을 수 있다.
+  true 로 두면 upstream 블록까지 같이 들어와 센서가 두 번 정의된다.
+
+  왜 upstream 블록을 못 쓰는지는 pinky_gz_fleet.urdf.xacro 의 주석에 적었다.
+-->
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="pinky">
+    <xacro:include filename="$(find pinky_description)/urdf/pinky.urdf.xacro"/>
+    <xacro:include filename="$(find pinky_fleet_sim)/urdf/pinky_gz_fleet.urdf.xacro"/>
+
+    <xacro:arg name="namespace" default=""/>
+    <xacro:arg name="cam_tilt_deg" default="0"/>
+    <xacro:arg name="screen_tilt_deg" default="-25"/>
+    <xacro:arg name="enable_camera" default="false"/>
+    <xacro:arg name="enable_imu" default="false"/>
+    <xacro:arg name="enable_lamp" default="false"/>
+
+    <xacro:insert_robot namespace="$(arg namespace)"
+                        is_sim="false"
+                        cam_tilt_deg="$(arg cam_tilt_deg)"
+                        screen_tilt_deg="$(arg screen_tilt_deg)"/>
+
+    <xacro:insert_gz_fleet namespace="$(arg namespace)"
+                           enable_camera="$(arg enable_camera)"
+                           enable_imu="$(arg enable_imu)"
+                           enable_lamp="$(arg enable_lamp)"/>
+</robot>

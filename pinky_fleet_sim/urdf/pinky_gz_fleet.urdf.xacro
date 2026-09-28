@@ -1,0 +1,203 @@
+<?xml version="1.0"?>
+<!--
+  가제보 블록. upstream 의 pinky_description/urdf/pinky_gz.urdf.xacro 를 멀티로봇용으로
+  고친 것이다. upstream 파일은 손대지 않는다 (별도 저장소다).
+
+  왜 복사했나 - upstream 의 네임스페이스 처리가 링크와 조인트에 비대칭이다.
+
+      pinky.urdf.xacro:197     <link  name="rplidar_link"/>               <- 접두사 없음
+      pinky.urdf.xacro:54      <joint name="${namespace}l_wheel_joint">   <- 접두사 있음
+      pinky_gz.urdf.xacro:68   <gazebo reference="${namespace}rplidar_link">  <- 접두사 있음
+
+  링크를 가리키는 <gazebo reference> 에 접두사가 붙어 있어서, 네임스페이스를 쓰면
+  존재하지 않는 링크를 가리킨다. sdformat 은 매칭 안 되는 reference 블록을 경고 없이
+  버리므로 **센서와 마찰 설정이 통째로 사라진다.** 로봇은 움직이는데 /scan 이 안 나와
+  Nav2 가 장애물을 전혀 못 본다. 단일 로봇(namespace 빈 문자열)에서는 양쪽 다 접두사가
+  없어 맞으므로 upstream 자신의 시뮬은 멀쩡했고, 그래서 아무도 몰랐다.
+
+  규칙은 하나다.
+
+      링크를 가리키면  -> 접두사 없음   (reference="l_wheel")
+      그 외 전부      -> 접두사 있음   (조인트 이름, gz_frame_id, 토픽, 센서 프레임)
+
+  "그 외" 가 접두사를 받는 이유는 각각 다르다. 조인트 이름은 URDF 가 실제로 그렇게 짓고,
+  gz_frame_id 는 robot_state_publisher 의 frame_prefix 가 붙인 TF 프레임을 가리키며,
+  토픽은 로봇마다 갈라야 한다. test_sim_namespace.py 가 이 규칙을 고정한다.
+
+  upstream 과 달라진 것이 두 가지 더 있다 (버그는 아니고 불확실성 제거).
+
+    * <topic> 에 앞 슬래시를 붙였다. 브리지 yaml 이 "/pinky1/scan" 으로 적고 있어서,
+      gz 의 정규화에 기대지 않고 양쪽을 문자 그대로 맞춘다.
+    * <sensor name> 에서 접두사를 뺐다. 이름에 "/" 가 들어가면 gz 의 스코프 구분자와
+      부딪힌다. 센서는 이미 모델(pinky1) 안에 스코프되므로 접두사가 필요 없다.
+
+  카메라 / IMU / 램프는 기본으로 끈다. Nav2 는 라이다만 쓰고, 셋 다 브리지 yaml 에
+  항목이 없어 ROS 로 나오지도 않는다. 카메라는 1280x720@30Hz 라 2대면 렌더 부하가 크고,
+  램프는 pinky_gz_sim 의 커스텀 C++ 플러그인이라 빌드 의존이 생긴다. 필요하면 arg 로 켠다.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:macro name="insert_gz_fleet"
+                 params="namespace enable_camera:=false enable_imu:=false enable_lamp:=false">
+
+        <gazebo>
+            <!--
+              조인트 이름을 참조하므로 접두사를 붙인다 (pinky.urdf.xacro:54 와 같은 규칙).
+              tf_topic 은 /tf 로 고정이라 두 로봇이 같은 gz 토픽에 쓰지만, 프레임 이름에
+              접두사가 붙어 있어 섞여도 충돌하지 않는다. 브리지가 이걸 네임스페이스별로
+              복사한다 (params/pinkyN_bridge.yaml 참고).
+            -->
+            <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+                <left_joint>${namespace}l_wheel_joint</left_joint>
+                <right_joint>${namespace}r_wheel_joint</right_joint>
+                <!--
+                  조인트 간격은 2 x 0.04055 = 0.0811 인데 여기는 0.0961 이다. 콜리전 구가
+                  y = +-0.008 바깥으로 오프셋돼 있어(pinky.urdf.xacro:42) 실제 접지점
+                  간격에 맞춘 값이다. 조인트 간격으로 바꾸면 회전각이 18% 틀어진다.
+                -->
+                <wheel_separation>0.0961</wheel_separation>
+                <wheel_radius>0.028</wheel_radius>
+
+                <min_velocity>-1.0</min_velocity>
+                <max_velocity>1.0</max_velocity>
+
+                <min_acceleration>-2.0</min_acceleration>
+                <max_acceleration>2.0</max_acceleration>
+
+                <topic>/${namespace}cmd_vel</topic>
+
+                <odom_topic>/${namespace}odom</odom_topic>
+                <frame_id>${namespace}odom</frame_id>
+                <child_frame_id>${namespace}base_footprint</child_frame_id>
+                <odom_publisher_frequency>30</odom_publisher_frequency>
+
+                <tf_topic>/tf</tf_topic>
+            </plugin>
+
+            <plugin filename="gz-sim-joint-state-publisher-system"
+                    name="gz::sim::systems::JointStatePublisher">
+                <topic>/${namespace}joint_states</topic>
+                <joint_name>${namespace}l_wheel_joint</joint_name>
+                <joint_name>${namespace}r_wheel_joint</joint_name>
+            </plugin>
+
+            <xacro:if value="${enable_lamp}">
+                <plugin filename="gz-sim-lamp-control-system" name="pinky_gz_sim::LampControlPlugin">
+                    <!-- 링크 이름이므로 접두사 없음. upstream 은 여기에도 붙여 두었다. -->
+                    <link>robot_lamp</link>
+                </plugin>
+            </xacro:if>
+        </gazebo>
+
+        <!--
+          바퀴 마찰. mu 200 은 매우 큰 값인데, 네임스페이스 모드에서는 지금까지 한 번도
+          적용된 적이 없다 (참조가 안 맞아 버려졌다). 고친 뒤 거동이 확 달라질 수 있으니
+          Nav2 튜닝 전에 직진과 제자리 회전부터 확인할 것.
+        -->
+        <gazebo reference="l_wheel">
+            <self_collide>0</self_collide>
+            <mu1>200</mu1>
+            <mu2>200</mu2>
+            <kp>10000000.0</kp>
+            <kd>1.0</kd>
+        </gazebo>
+
+        <gazebo reference="r_wheel">
+            <self_collide>0</self_collide>
+            <mu1>200</mu1>
+            <mu2>200</mu2>
+            <kp>10000000.0</kp>
+            <kd>1.0</kd>
+        </gazebo>
+
+        <!-- 캐스터는 반대로 거의 마찰이 없어야 끌려간다. -->
+        <gazebo reference="caster_wheel">
+            <self_collide>0</self_collide>
+            <mu1>0.1</mu1>
+            <mu2>0.1</mu2>
+            <kp>10000000.0</kp>
+            <kd>1.0</kd>
+        </gazebo>
+
+        <xacro:if value="${enable_lamp}">
+            <!-- 조인트 이름이므로 접두사를 붙인다. 램프 링크가 base_link 로 합쳐지는 것을 막는다. -->
+            <gazebo reference="${namespace}robot_lamp_mount_fixed_joint">
+                <disableFixedJointLumping>true</disableFixedJointLumping>
+            </gazebo>
+        </xacro:if>
+
+        <!--
+          RPLIDAR C1. 지면에서 0.125m (base_footprint->base_link 0.028 + ->rplidar_mount
+          0.067 + ->rplidar_link 0.030) 이고 프레임이 yaw 180도 돌아 있다
+          (pinky.urdf.xacro:201). 아레나 벽이 20cm 라 여유 있게 스캔된다.
+        -->
+        <gazebo reference="rplidar_link">
+            <sensor name="gpu_lidar" type="gpu_lidar">
+                <topic>/${namespace}scan</topic>
+                <update_rate>10</update_rate>
+                <gz_frame_id>${namespace}rplidar_link</gz_frame_id>
+                <lidar>
+                    <scan>
+                        <horizontal>
+                            <samples>640</samples>
+                            <min_angle>${-pi}</min_angle>
+                            <max_angle>${pi}</max_angle>
+                        </horizontal>
+                        <vertical>
+                            <samples>1</samples>
+                            <resolution>0.01</resolution>
+                            <min_angle>0</min_angle>
+                            <max_angle>0</max_angle>
+                        </vertical>
+                    </scan>
+                    <range>
+                        <min>0.05</min>
+                        <max>12.0</max>
+                        <resolution>0.03</resolution>
+                    </range>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.02</stddev>
+                    </noise>
+                </lidar>
+                <visualize>false</visualize>
+            </sensor>
+        </gazebo>
+
+        <xacro:if value="${enable_camera}">
+            <gazebo reference="front_camera_link">
+                <sensor name="camera" type="camera">
+                    <camera>
+                        <horizontal_fov>1.1519</horizontal_fov>
+                        <image>
+                            <width>1280</width>
+                            <height>720</height>
+                        </image>
+                        <clip>
+                            <near>0.1</near>
+                            <far>100</far>
+                        </clip>
+                    </camera>
+                    <always_on>1</always_on>
+                    <update_rate>30</update_rate>
+                    <visualize>true</visualize>
+                    <topic>/${namespace}camera/image_raw</topic>
+                    <gz_frame_id>${namespace}front_camera_link</gz_frame_id>
+                </sensor>
+            </gazebo>
+        </xacro:if>
+
+        <xacro:if value="${enable_imu}">
+            <gazebo reference="imu_link">
+                <sensor name="imu" type="imu">
+                    <always_on>1</always_on>
+                    <update_rate>100</update_rate>
+                    <visualize>true</visualize>
+                    <topic>/${namespace}imu_raw</topic>
+                    <enable_metrics>true</enable_metrics>
+                    <gz_frame_id>${namespace}imu_link</gz_frame_id>
+                </sensor>
+            </gazebo>
+        </xacro:if>
+    </xacro:macro>
+</robot>

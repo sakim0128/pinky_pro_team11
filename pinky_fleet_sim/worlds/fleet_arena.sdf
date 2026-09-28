@@ -1,0 +1,175 @@
+<?xml version="1.0" ?>
+<!--
+  실기 아레나와 같은 규격의 가제보 월드.
+
+    가로(x) 1.5m  x  세로(y) 2.5m,  벽 높이 20cm (하드보드지)
+
+  원점이 아레나 중앙이므로 x in [-0.75, 0.75], y in [-1.25, 1.25] 이다.
+  Nav2 파라미터(nav2_params_fleet.yaml)가 이 크기를 전제로 튜닝돼 있으므로,
+  월드 크기를 바꾸면 그 값들도 다시 봐야 한다.
+
+  가운데 y=0 에 칸막이 두 개를 두어 폭 0.5m 통로를 하나 만든다. 로봇 하나는
+  여유롭게 지나가지만(footprint 12cm + inflation 10cm = 필요 폭 약 0.32m),
+  두 대가 나란히 지나가려면 0.64m 가 필요해서 반드시 한 대씩 통과해야 한다.
+  교착 -> 양보 -> 순차 발진을 재현하려고 일부러 만든 구조다.
+  열린 아레나를 원하면 divider 모델 두 개를 지우면 된다.
+-->
+<sdf version="1.8">
+  <world name="fleet_arena">
+
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!--
+      벽. 두께 2cm, 높이 20cm. 라이다가 바닥에서 12.5cm 이므로 확실히 스캔된다.
+      pose 의 z 는 벽 중심이라 높이의 절반(0.1)이다.
+    -->
+
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 1.25 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.52 0.02 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.52 0.02 0.2</size></box></geometry>
+          <material>
+            <ambient>0.72 0.60 0.44 1</ambient>
+            <diffuse>0.72 0.60 0.44 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -1.25 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.52 0.02 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.52 0.02 0.2</size></box></geometry>
+          <material>
+            <ambient>0.72 0.60 0.44 1</ambient>
+            <diffuse>0.72 0.60 0.44 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-0.75 0 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.02 2.52 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.02 2.52 0.2</size></box></geometry>
+          <material>
+            <ambient>0.72 0.60 0.44 1</ambient>
+            <diffuse>0.72 0.60 0.44 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_east">
+      <static>true</static>
+      <pose>0.75 0 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.02 2.52 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.02 2.52 0.2</size></box></geometry>
+          <material>
+            <ambient>0.72 0.60 0.44 1</ambient>
+            <diffuse>0.72 0.60 0.44 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!--
+      가운데 칸막이. x in [-0.75, -0.25] 와 [0.25, 0.75] 를 막아 폭 0.5m 통로를
+      하나 남긴다. 교착 테스트용이므로, 열린 아레나로 쓰려면 이 둘을 지운다.
+    -->
+
+    <model name="divider_west">
+      <static>true</static>
+      <pose>-0.5 0 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.5 0.02 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.5 0.02 0.2</size></box></geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="divider_east">
+      <static>true</static>
+      <pose>0.5 0 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.5 0.02 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.5 0.02 0.2</size></box></geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
