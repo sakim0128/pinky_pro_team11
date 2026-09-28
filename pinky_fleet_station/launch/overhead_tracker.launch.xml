@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="params" default="$(find-pkg-share pinky_fleet_station)/config/overhead_tracker.yaml"/>
+  <node pkg="pinky_fleet_station" exec="overhead_tracker_node" name="overhead_tracker" output="screen">
+    <param from="$(var params)"/>
+  </node>
+</launch>

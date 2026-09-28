@@ -80,11 +80,20 @@ def test_pipeline_copies_source_stamp_and_never_restamps():
 
 
 def test_detector_yolo_class_map_matches_model_labels():
-    """yolo26n-seg: 0 왼쪽 라인, 1 횡단보도, 2 오른쪽 라인 → lane=[0,2], crosswalk=[1]."""
+    """세그 모델: 0 왼쪽 라인, 1 횡단보도, 2 오른쪽 라인, 3 라바콘, 4 신호등, 5 바리게이트."""
     cfg = yaml.safe_load(read(os.path.join(STATION, 'config', 'detector_yolo.yaml')))
     det = cfg['detector']
     assert det['kind'] == 'ultralytics' and det['device'] == 'cpu'
-    assert sorted(det['class_map']['lane']) == [0, 2] and det['class_map']['crosswalk'] == [1]
+    cm = det['class_map']
+    assert sorted(cm['lane']) == [0, 2] and cm['crosswalk'] == [1]
+    assert cm['cone'] == [3] and cm['traffic_light'] == [4] and cm['barricade'] == [5]
+    ids = sorted(i for v in cm.values() for i in v)
+    assert ids == [0, 1, 2, 3, 4, 5], ids                     # 모든 모델 클래스가 정확히 한 번
+    pipe = cfg['pipeline']
+    assert abs(pipe['mask_top_frac'] - 0.30) < 1e-9 and pipe['mask_fill'] == 0   # 학습 조건과 동일
+    allowed = {'max_rate', 'stale_period', 'stale_max_seconds', 'warmup',
+               'mask_top_frac', 'mask_fill', 'debug_polygons'}
+    assert set(pipe) <= allowed, set(pipe) - allowed
     from pinky_lane_station.lane_target import TargetParams
     for key in cfg['target']:
         assert key in TargetParams.__dataclass_fields__, key

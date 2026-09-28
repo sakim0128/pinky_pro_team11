@@ -22,6 +22,7 @@ from pinky_lane_msgs.msg import LanePath, SceneState
 from .detectors import create_detector
 from .lane_mission import LaneMissionError, load_lane_mission
 from .lane_target import QUALITY_STALE, LaneTargetEstimator, TargetParams
+from .pipeline_image import draw_debug, mask_top
 
 try:
     import cv2
@@ -42,7 +43,8 @@ def load_detector_config(path):
         det['model'] = os.path.expandvars(os.path.expanduser(str(det['model'])))
     target = TargetParams(**{k: v for k, v in (data.get('target') or {}).items()
                              if k in TargetParams.__dataclass_fields__})
-    pipeline = {'max_rate': 10.0, 'stale_period': 0.3, 'stale_max_seconds': 2.0, 'warmup': True}
+    pipeline = {'max_rate': 10.0, 'stale_period': 0.3, 'stale_max_seconds': 2.0, 'warmup': True,
+                'mask_top_frac': 0.0, 'mask_fill': 0, 'debug_polygons': False}
     pipeline.update(data.get('pipeline') or {})
     return det, target, pipeline
 
@@ -75,6 +77,9 @@ class LanePipeline(Node):
         self._stale_max = float(pipe['stale_max_seconds'])
 
         self._stop_row_frac = float(target_params.crosswalk_stop_row_frac)
+        self._mask_frac = float(pipe['mask_top_frac'])          # 모델 학습과 같은 상위 마스킹
+        self._mask_fill = int(pipe['mask_fill'])
+        self._debug_polygons = bool(pipe['debug_polygons'])
         self.detector = create_detector(det_cfg)
         if pipe.get('warmup', True):
             self.detector.warmup()
@@ -100,7 +105,8 @@ class LanePipeline(Node):
         self.create_timer(self._stale_period, self._stale_tick)
         self.get_logger().info(
             f'lane_pipeline 시작: detector={self._det_name} robots={list(self._robots)} '
-            f'max_rate={pipe["max_rate"]} stale={self._stale_period}s/{self._stale_max}s')
+            f'max_rate={pipe["max_rate"]} stale={self._stale_period}s/{self._stale_max}s '
+            f'mask_top={self._mask_frac:.2f}')
 
     def _now(self):
         return self.get_clock().now().nanoseconds * 1e-9
@@ -119,7 +125,9 @@ class LanePipeline(Node):
             self.get_logger().warn(f'{name}: 이미지 디코드 실패')
             return
         H, W = img.shape[:2]
-        instances, infer_ms = self.detector.infer_timed(img)
+        # 추론 입력만 마스킹한다. 오버레이·저장은 원본(img) 그대로
+        masked = mask_top(img, self._mask_frac, self._mask_fill) if self._mask_frac > 0 else img
+        instances, infer_ms = self.detector.infer_timed(masked)
         r = rl.est.update(instances, W, H)
 
         rl.seq += 1
@@ -163,31 +171,8 @@ class LanePipeline(Node):
             self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms)
 
     def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0):
-        dbg = img.copy()
-        overlay = dbg.copy()
-        for inst in instances:
-            pts = np.array(inst.polygon, dtype=np.int32).reshape(-1, 1, 2)
-            color = (0, 200, 255) if inst.cls == 'crosswalk' else (0, 255, 0)
-            cv2.fillPoly(overlay, [pts], color)
-            cv2.polylines(dbg, [pts], True, color, 2)
-            x0, y0 = int(inst.bbox[0]), int(inst.bbox[1])
-            cv2.putText(dbg, f'{inst.cls} {inst.conf:.2f}', (x0, max(14, y0 - 4)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-        cv2.addWeighted(overlay, 0.3, dbg, 0.7, 0, dbg)          # 세그 영역 반투명 채움
-        H, W = dbg.shape[:2]
-        y = int(r.target_y)
-        stop_row = int(self._stop_row_frac * H)
-        cv2.line(dbg, (0, y), (W, y), (255, 255, 0), 1)                 # 샘플 행
-        cv2.line(dbg, (0, stop_row), (W, stop_row), (0, 200, 255), 1)   # 횡단보도 정지 행
-        if r.left_seen:
-            cv2.circle(dbg, (int(r.left_x), y), 5, (0, 255, 0), -1)
-        if r.right_seen:
-            cv2.circle(dbg, (int(r.right_x), y), 5, (0, 255, 0), -1)
-        cv2.circle(dbg, (int(r.target_x), y), 6, (0, 0, 255), -1)
-        cv2.line(dbg, (W // 2, 0), (W // 2, H), (255, 0, 0), 1)
-        cv2.putText(dbg, f'{r.quality_name} e={r.error_x:+.2f} cw={int(r.crosswalk_detected)} '
-                         f'half={r.half_lane_px:.0f}px {infer_ms:.0f}ms',
-                    (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+        dbg = draw_debug(img, instances, r, mask_frac=self._mask_frac, infer_ms=infer_ms,
+                         stop_row_frac=self._stop_row_frac, draw_polygons=self._debug_polygons)
         ok, buf = cv2.imencode('.jpg', dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
         if not ok:
             return

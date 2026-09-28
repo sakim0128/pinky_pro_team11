@@ -128,8 +128,14 @@ YOLO 모델이 나온 뒤 첫 실차 테스트. 시작·목적지 없이 기동 
 횡단보도 3 s 정지·장애물 정지·카메라 끊김 정지는 그대로 동작한다.
 
 **모델**: 가중치는 git 밖, 관제 PC `~/models/lane_26n.pt`. `pinky_lane_station/config/detector_yolo.yaml` 이 가리킨다.
-모델 클래스 0(왼쪽 라인)·2(오른쪽 라인)는 둘 다 `lane` 으로 묶고 좌/우는 화면 위치로 정한다. 1 은 `crosswalk`.
-yolo26 은 `pip install -U ultralytics`(8.4+). 관제 PC 는 CPU 라 `imgsz 416` 부터, p95 > 100 ms 면 320.
+모델 클래스 0(왼쪽 라인)·2(오른쪽 라인)는 둘 다 `lane` 으로 묶고 좌/우는 화면 위치로 정한다. 1 은 `crosswalk`,
+3 라바콘·4 신호등·5 바리게이트는 오버레이 표시용(주행 판단에는 아직 안 쓴다).
+yolo26 은 `pip install -U ultralytics`(8.4+). 학습 입력이 448×320 이라 `imgsz 448`(긴 변). 관제 PC 는 CPU, p95 > 100 ms 면 320 으로.
+
+**상위 30 % 마스킹**: 학습 때 이미지 상위 30 % 를 검정으로 채웠으므로 추론 입력도 똑같이 채운다
+(`pipeline.mask_top_frac: 0.30`, `pipeline_image.mask_top`). 관제 화면(`/pinky1/lane_debug/compressed`)은 **마스킹하지 않은 원본** 위에
+검출 바운딩박스(클래스·conf)·차선 중심점(빨간 원)·좌/우 샘플점(초록)·샘플 행·정지 행을 그린다. 회색 점선이 마스크 경계 —
+그 위쪽에 박스가 하나도 없어야 정상(모델이 그 영역을 못 본다). 세그 폴리곤까지 보려면 `pipeline.debug_polygons: true`.
 
 ```bash
 # 관제 PC — 모델 로드·속도 확인 (ROS 불필요)
@@ -142,8 +148,9 @@ ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:
 # 관제 PC — 브릿지 + 인식 파이프라인만 (coordinator 없음)
 export ROS_DOMAIN_ID=0
 ros2 launch pinky_lane_station lane_station.launch.xml use_coordinator:=False
-ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed     # 카메라 + 세그 + 목표점 실시간
+ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed     # 원본 + bbox + 차선 중심점 실시간
 ros2 topic echo /pinky1/lane_path                                        # quality · error_x_norm · crosswalk_detected
+ros2 topic echo /pinky1/scene_state                                      # infer_ms · fps · lane_count
 
 # 부호 확인: 로봇을 차선 왼쪽에 놓으면 error_x_norm > 0 이어야 한다. 반대면 launch 에 cam_sign:=-1.0
 # 주행
@@ -268,3 +275,9 @@ python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_sta
 - `--snap` 으로 고른 카메라 보정값 (`camera_orient`), 초음파 노드(`ros2 run pinky_sensor_adc main_node`) 동작 여부
 - `cam_sign`: 실차에서 로봇을 차선 왼쪽에 두고 우회전(ω<0) 이 나오는지 한 번 확인
 - 이 저장소의 ROS 노드는 ROS 가 없는 환경에서 작성했다 — ROS-free 코어와 텍스트 불변식만 pytest 로 검증했고, 노드 실행(`fake_lane.launch.xml`)은 관제 PC 에서 처음 돌린다
+
+## Live 웹 상태 조회
+
+주행 명령을 발행하지 않는 웹 모니터를 추가했습니다. 기존 실기 백엔드에 연결해
+위치·측정 속도·차선 주행 상태·미션과 수신 상태를 표시합니다.
+설치 및 실행: [live 웹 안내](docs/integration/live_web.md).

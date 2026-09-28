@@ -1,0 +1,11 @@
+overhead_tracker:
+  ros__parameters:
+    image_topic: /overhead/camera/image/compressed
+    map_frame: map
+    aruco_dictionary: DICT_4X4_50
+    pinky1_marker_id: 1
+    pinky2_marker_id: 2
+    # Install four known map-corner ArUco tags, measure each image pixel corner and
+    # map coordinate, then put the computed row-major 3x3 homography here.
+    # An empty array deliberately prevents pose publication until calibration is complete.
+    image_to_map_homography: []
