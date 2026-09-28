@@ -1,0 +1,2876 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>교육장 영상 중계 & 로봇 관제 게이트웨이</title>
+  <style>
+    :root {
+      --bg-color: #0d1117;
+      --card-bg: #161b22;
+      --border-color: #30363d;
+      --accent-cyan: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-gold: #f2cc60;
+      --text-main: #f0f6fc;
+      --text-muted: #8b949e;
+      --tab-active: #1f6feb;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.4;
+      padding: 16px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      background-color: var(--card-bg);
+      padding: 12px 20px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      margin-bottom: 16px;
+    }
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .header-title h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .badges {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      background: #21262d;
+      border: 1px solid var(--border-color);
+    }
+    .badge.green {
+      color: var(--accent-green);
+      border-color: rgba(63, 185, 80, 0.4);
+      background: rgba(63, 185, 80, 0.1);
+    }
+    .badge.cyan {
+      color: var(--accent-cyan);
+      border-color: rgba(88, 166, 255, 0.4);
+      background: rgba(88, 166, 255, 0.1);
+    }
+    .badge.gold {
+      color: var(--accent-gold);
+      border-color: rgba(242, 204, 96, 0.4);
+      background: rgba(242, 204, 96, 0.1);
+    }
+
+    /* 1단: 메인 듀얼 스트림 (태블릿 카메라 & 현장 관제 화면) */
+    .stream-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .stream-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .stream-header {
+      padding: 10px 16px;
+      background: #1c2128;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .stream-header h2 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .video-viewport {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #090d12;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .video-viewport img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .stream-footer {
+      padding: 8px 16px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      background: #161b22;
+      border-top: 1px solid var(--border-color);
+    }
+
+    /* 2단: 탭형 텔레메트리 블록 & 로봇 카메라 블록 */
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+      gap: 16px;
+    }
+    .tab-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .tab-header {
+      display: flex;
+      background: #1c2128;
+      border-bottom: 1px solid var(--border-color);
+      padding: 4px 8px 0 8px;
+      gap: 4px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-top-left-radius: 8px;
+      border-top-right-radius: 8px;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .tab-btn.active {
+      color: #ffffff;
+      background: #21262d;
+      border-bottom: 2px solid var(--accent-cyan);
+    }
+    .tab-content {
+      padding: 16px;
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 0;
+      font-size: 0.88rem;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.07);
+    }
+    .metric-label {
+      color: var(--text-muted);
+    }
+    .metric-value {
+      font-family: monospace;
+      font-weight: 600;
+      color: var(--accent-cyan);
+    }
+
+    /* 로봇 카메라 뷰어 뷰포트 */
+    .robot-cam-viewport {
+      position: relative;
+      width: 100%;
+      height: 240px;
+      background: #090d12;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border-color);
+    }
+    .robot-cam-viewport img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    /* 글로벌 내비게이션 탭 스타일 */
+    .main-nav-tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      border-bottom: 2px solid var(--border-color);
+      padding-bottom: 8px;
+    }
+    .nav-tab {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 22px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+    .nav-tab:hover {
+      background: #21262d;
+      color: var(--text-main);
+    }
+    .nav-tab.active {
+      background: var(--accent-blue);
+      color: #ffffff;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 14px rgba(88, 166, 255, 0.4);
+    }
+    .global-tab-pane {
+      display: none;
+    }
+    .global-tab-pane.active {
+      display: block;
+    }
+
+    /* 네트워크 지연시간 카드 스타일 */
+    .latency-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .latency-item {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .latency-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .latency-rtt {
+      font-size: 1.15rem;
+      font-family: monospace;
+      font-weight: bold;
+    }
+    .rtt-good { color: #3fb950; }
+    .rtt-warn { color: #d29922; }
+    .rtt-bad  { color: #f85149; }
+
+    @media (max-width: 768px) {
+      .stream-grid, .bottom-grid, .main-nav-tabs {
+        flex-direction: column;
+      }
+      .latency-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-title">
+      <span style="font-size: 1.5rem;">🛰️</span>
+      <div>
+        <h1>Field Gateway Relay & Dual Robot Control Hub</h1>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">교육장 중계 게이트웨이 · 태블릿 1:N 팬아웃 · 로봇 온보드 카메라 및 관제</div>
+      </div>
+    </div>
+    <div class="badges">
+      <!-- 🔴 여기 `● LAN 198.51.100.3` `● Tailscale 100.64.0.81` 이 박혀 있었다.
+           초록 점까지 붙어 살아 있는 상태처럼 보였는데 **재는 곳이 없었다.**
+           주소 기록은 docs/NETWORK_AND_PORTS.md 가 가진다 - 거기는 기록이고
+           여기는 현황이다. 현황 자리에 기록을 놓으면 그게 거짓이 된다. -->
+      <div class="badge cyan" id="relay-cam-badge" title="노트북 내장 웹캠 /dev/video0 (ALWAYS)">💻 WEBCAM (LOCAL)</div>
+      <div class="badge" id="host-res-badge" style="background:#21262d; border-color:#8957e5; color:#d2a8ff;">💻 CPU <span id="host-cpu">-</span>% · RAM <span id="host-ram">-</span>% · <span id="host-temp">-</span>°C</div>
+      <!-- U-7. Jenkins 배지를 여기서 뺐다(사용자 지시 2026-09-12) — static/ops-deploy.html 로 옮겼다. -->
+      <!-- U-4. ⭐ 값을 박지 않는다. 도커는 88, 현장은 8, 예전 화면은 10 이라
+           **한 화면에 배너 88 · 배지 10** 이 같이 떠 있었다(2026-09-12, G-6 재발). -->
+      <div class="badge gold">ROS_DOMAIN_ID=<span id="hdr-ros-domain">확인 중</span></div>
+      <div class="badge" id="live-clock">00:00:00</div>
+    </div>
+  </header>
+
+  <!-- 최상단 글로벌 내비게이션 탭 -->
+  <nav class="main-nav-tabs">
+    <button class="nav-tab active" onclick="switchGlobalTab('pane-main-dash', this)">
+      <span>📊</span> 1. 메인 대시보드 & 가이드
+    </button>
+    <button class="nav-tab" onclick="switchGlobalTab('pane-map-view', this)">
+      <span>🗺️</span> 2. 맵 & 위치 관제
+    </button>
+    <button class="nav-tab" onclick="switchGlobalTab('pane-robot-cams', this)">
+      <span>🎥</span> 3. 로봇 온보드 카메라
+    </button>
+  </nav>
+
+  <!-- ===================================================================== -->
+  <!-- [탭 1] 메인 대시보드 (태블릿 영상 + 실시간 네트워크 정보 + 팀원 가이드) -->
+  <!-- ===================================================================== -->
+  <div id="pane-main-dash" class="global-tab-pane active">
+    <!-- 1-1. 실시간 영상 관제: 현장 스마트폰 + 노트북 웹캠 + 가제보 3D 탑뷰 -->
+    <!-- 📹 현장 관제 카메라 (다중 소스 & AR 워터마크/동적 강조 지원) -->
+    <!-- ===== MCV-1D 멀티뷰: 실물 시점을 동시에 =====
+     소스 id 를 여기 적지 않는다. /api/sources 를 읽어 성질로 거른다.
+     2026-09-10: id 를 배열에 박아 둬서 tablet-relay 가 빠진 것을 아무도 못 알아챘다. -->
+    <div class="stream-card" style="margin-bottom: 16px;" id="mv-card">
+      <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="font-size:1.05rem;">🎥 실물 시점</span>
+      <span class="badge" id="mv-count" style="background:#21262d;">-</span>
+    </div>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <span id="mv-note" style="font-size:0.75rem; color:var(--text-muted);"></span>
+      <button class="badge cyan" style="cursor:pointer; border:none;" onclick="mvSync(true)">🔄 새로고침</button>
+    </div>
+      </div>
+      <div id="mv-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; padding:12px;"></div>
+    </div>
+
+    <!-- ===== MCV-2A-UI 좌표계 정착 =====
+     화면 픽셀 -> 아레나 cm. 네 모서리로 풀고, **풀이에 안 쓴 검증점**으로 잰다.
+     네 점의 재투영 오차는 구조상 0 이라 정확도가 아니다. -->
+    <div class="stream-card" style="margin-bottom: 16px;" id="cal-card">
+      <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.05rem;">📐 좌표계 정착</span>
+          <span class="badge" id="cal-state" style="background:#21262d;">-</span>
+          <span class="badge" id="cal-acc" style="background:#21262d;">정확도 미측정</span>
+          <span class="badge" id="cal-drift" style="background:#21262d;">흔들림 미감시</span>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <select id="cal-src" style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px;"></select>
+          <button class="badge cyan" style="cursor:pointer;border:none;" onclick="calShot()">📷 정지 프레임</button>
+          <button class="badge" style="cursor:pointer;border:none;background:#21262d;" onclick="calReset()">↺ 핀 초기화</button>
+        </div>
+      </div>
+      <div style="padding:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px;">
+        <div>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
+            아레나 <b>바깥 네 모서리</b>를 끌어다 맞춘다 · 순서 좌하→우하→우상→좌상
+          </div>
+          <canvas id="cal-canvas" style="width:100%; background:#0d1117; border:1px solid #30363d; border-radius:8px; cursor:crosshair; touch-action:none;"></canvas>
+          <div id="cal-geo" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
+        </div>
+        <div>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
+            위에서 내려다본 그림 (왜곡 보정 <b>안 함</b> — 광각이면 가장자리가 휜다)
+          </div>
+          <img id="cal-preview" style="width:100%; background:#0d1117; border:1px solid #30363d; border-radius:8px; min-height:120px;" alt="">
+          <div id="cal-preview-note" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
+        </div>
+      </div>
+      <div style="padding:0 12px 12px 12px;">
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
+          검증점 — <b>풀이에 안 쓰는</b> 점이다. 이게 있어야 오차를 말할 수 있다.
+        </div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <select id="cal-lm" style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px;"></select>
+          <button class="badge" id="cal-lm-btn" style="cursor:pointer;border:none;background:#21262d;" onclick="calArmVerify()">＋ 화면에서 찍기</button>
+          <span id="cal-lm-list" style="font-size:0.72rem; color:var(--text-muted);"></span>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
+          <button class="badge cyan" style="cursor:pointer;border:none;" onclick="calSave()">💾 점 저장</button>
+          <button class="badge" id="cal-settle-btn" style="cursor:pointer;border:none;background:#238636;color:#fff;" onclick="calSettle()">📌 좌표계 정착 (SETTLE)</button>
+          <button class="badge" style="cursor:pointer;border:none;background:#21262d;" onclick="calClear()">🗑 정착 해제</button>
+        </div>
+        <div id="cal-msg" style="font-size:0.75rem; margin-top:8px; color:var(--text-muted); white-space:pre-wrap;"></div>
+
+        <!-- 화각 점검 (MCV-2G). 거치할 때 보는 것이다 - 나중에 조용히 망가지는
+             세 가지를 그 자리에서 말한다. -->
+        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <span style="font-size:0.75rem; color:var(--text-muted);">화각 점검</span>
+            <span class="badge" id="cal-framing-badge" style="background:#21262d;">-</span>
+            <label style="font-size:0.72rem; color:var(--text-muted); cursor:pointer;">
+              <input type="checkbox" id="cal-guide-on" checked onchange="calDraw()"> 가이드 상자 보이기
+            </label>
+          </div>
+          <div id="cal-framing-note" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted); white-space:pre-wrap;"></div>
+        </div>
+
+        <!-- 관측 제외 영역. 검열 상자와 **주인이 다르다** - 저건 가공 단이 선언하고
+             이건 운영자가 선언한다. 같은 건 결과뿐이다: 둘 다 "안 본 자리". -->
+        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
+          <div style="font-size:0.75rem; color:var(--text-muted);">
+            가릴 영역 - 삼각대·모니터 베젤·책상 케이블처럼 <b>아레나 바닥이 아닌</b> 것.
+            가린 자리는 <b>모른다</b>로 남는다 (비었다가 아니다 - 로봇이 거기로 안 들어간다).
+          </div>
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
+            <input id="cal-mask-why" placeholder="무엇을 가리나 (예: 삼각대 다리)" maxlength="40"
+                   style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px; min-width:200px;">
+            <button class="badge" id="cal-mask-btn" style="cursor:pointer;border:none;background:#21262d;" onclick="calMaskArm()">＋ 화면에서 끌어 가리기</button>
+          </div>
+          <div id="cal-mask-list" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted);"></div>
+        </div>
+
+        <!-- 흔들림. 무효 3종(아레나·크기·세션)이 **못 잡는** 자리다 -
+             삼각대를 치면 프레임 크기도 세션도 그대로인데 좌표만 조용히 틀린다. -->
+        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
+          <div style="font-size:0.75rem; color:var(--text-muted);">
+            흔들림 감시 - 정착할 때 <b>네 핀 주변 조각</b>을 떠 두고 지금 프레임에서 다시 찾는다.
+            화면 전체를 비교하지 <b>않는다</b> (로봇이 지나가기만 해도 떨어지니까).
+          </div>
+          <div id="cal-drift-note" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
+        </div>
+
+        <!-- 영상 -> 월드. 라이다 맵의 파생물이 아니라서 라이다를 검증할 수 있다. -->
+        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <button class="badge" id="cal-vision-btn" style="cursor:pointer;border:none;background:#1f6feb;color:#fff;" onclick="calVisionBuild()">🗺 영상 → 평면도 만들기</button>
+            <span style="font-size:0.72rem; color:var(--text-muted);">
+              정착된 정합으로 바닥을 내려다본 격자를 만든다. <b>라이다를 안 쓴다.</b>
+            </span>
+          </div>
+          <div id="cal-vision-note" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted); white-space:pre-wrap;"></div>
+        </div>
+
+        <div id="cal-receipts" style="font-size:0.72rem; margin-top:8px; color:var(--text-muted);"></div>
+      </div>
+    </div>
+
+    <div class="stream-card" style="margin-bottom: 16px;">
+      <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
+        <h2><span>📹</span> 현장 관제 카메라 (Live Stream)</h2>
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <!-- 소스 선택 버튼 그룹 -->
+          <div style="display: flex; gap: 4px; background: #0d1117; padding: 2px 4px; border-radius: 20px; border: 1px solid #30363d;">
+            <button id="btn-src-phone" class="badge cyan" style="cursor: pointer; border: none;" onclick="selectCameraSource('phone')">📱 스마트폰</button>
+            <button id="btn-src-relay" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('relay-cam')">💻 노트북 웹캠</button>
+            <button id="btn-src-gazebo" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('gazebo')">🏭 가제보 가상</button>
+          </div>
+
+          <!-- AR / 영상 강화 필터 토글 그룹 -->
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <button id="btn-toggle-boost" class="badge" style="cursor: pointer; border: 1px solid #e3b341; color: #f2cc60; background: #21262d;" onclick="toggleDynamicBoost()" title="움직이는 로봇의 색상을 진하게 강조하고 배경 톤다운">✨ 동적 강조: OFF</button>
+            <button id="btn-toggle-watermark" class="badge" style="cursor: pointer; border: 1px solid #388bfd; color: #58a6ff; background: #21262d;" onclick="toggleGazeboWatermark()" title="가제보 디지털 트윈 벽체/선반을 청사진 워터마크로 오버레이">📐 가제보 워터마크: OFF</button>
+            <button id="btn-toggle-style" class="badge" style="cursor: pointer; display: none; border: 1px solid #8957e5; color: #d2a8ff; background: #21262d;" onclick="toggleWatermarkStyle()">스타일: 청사진 엣지</button>
+          </div>
+
+          <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectMainStream()">🔄 새로고침</button>
+          <span class="badge" id="tablet-badge">확인 전</span>
+        </div>
+      </div>
+      <div class="video-viewport" style="height: 420px; background: #000; display: flex; align-items: center; justify-content: center; position: relative;">
+        <img id="tablet-stream-img" src="/video_feed" alt="Surveillance Camera Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/video_feed')">
+        <div id="overlay-badge-layer" style="position: absolute; top: 12px; left: 16px; display: flex; gap: 6px;"></div>
+      </div>
+      <div class="stream-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 16px;">
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+          <span style="font-size: 0.82rem; color: var(--text-muted);">
+            선택 소스: <strong id="active-source-label" style="color:#58a6ff;">📱 스마트폰 카메라 (phone)</strong>
+          </span>
+          <span style="font-size: 0.82rem; color: var(--text-muted);">
+            영상 필터: <strong id="active-fx-label" style="color:#7ee787;">원본 스트림</strong>
+          </span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <a href="/camera_streamer" target="_blank" class="badge cyan" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-size:0.75rem;">📱 웹 송출기</a>
+          <button class="badge" style="cursor: pointer; background: #238636; color: #fff; border: none; font-size:0.75rem;" onclick="autoScanCamera()">🔍 폰 IP 탐색</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1-1-B. 로봇 온보드 & Gazebo 듀얼 뷰 -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+      <!-- Robot #1 실물 온보드 카메라 -->
+      <div class="stream-card">
+        <div class="stream-header">
+          <h2><span>🤖</span> Pinky #1 실물 온보드 카메라 (Live)</h2>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectStream('r1-main-stream-img', '/robot_camera_feed?id=robot1')">🔄 새로고침</button>
+            <span class="badge green" id="r1-main-badge">15 FPS LIVE</span>
+          </div>
+        </div>
+        <div class="video-viewport" style="height: 360px; background: #000; display: flex; align-items: center; justify-content: center;">
+          <img id="r1-main-stream-img" src="/robot_camera_feed?id=robot1" alt="Robot 1 Camera Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/robot_camera_feed?id=robot1')">
+        </div>
+        <div class="stream-footer">
+          <span>소스: /robot1/camera/image_raw (Raspberry Pi CSI Camera)</span>
+          <span>원격 저지연 MJPEG 실시간 스트림</span>
+        </div>
+      </div>
+
+      <!-- Gazebo 3D 시뮬레이션 탑뷰 -->
+      <div class="stream-card">
+        <div class="stream-header">
+          <h2><span>🏭</span> Gazebo 3D 시뮬레이션 실시간 탑뷰</h2>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectStream('gz-main-stream-img', '/gazebo_feed')">🔄 새로고침</button>
+            <span class="badge green">DIGITAL TWIN</span>
+          </div>
+        </div>
+        <div class="video-viewport" style="height: 360px; background: #000; display: flex; align-items: center; justify-content: center;">
+          <img id="gz-main-stream-img" src="/gazebo_feed" alt="Gazebo Real-time 3D Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/gazebo_feed')">
+        </div>
+        <div class="stream-footer">
+          <span>소스: /camera (Gazebo Harmonic 3D Digital Twin)</span>
+          <span>로봇 1호기 실시간 물리 위치 1:1 연동</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1-2. 각 장비별 실시간 네트워크 전달 속도 모니터링 카드 -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 16px; padding: 16px 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.2rem;">⚡</span>
+          <strong style="font-size: 0.95rem; color: #f0f6fc;">실시간 네트워크 전달 속도 모니터 — Robot #1 · #2 운영 범위</strong>
+        </div>
+        <div style="display: flex; gap: 6px; font-size: 0.72rem; color: var(--text-muted);">
+          <span>🟢 &lt;100ms (우수)</span>
+          <span>🟡 &lt;200ms (보통)</span>
+          <span>🔴 지연/오프라인</span>
+        </div>
+      </div>
+
+      <div class="latency-grid" id="latency-container">
+        <!-- 공유기 -->
+        <div class="latency-item" id="node-router">
+          <div class="latency-header">
+            <span>📡 공유기 (Router)</span>
+            <span class="badge" id="badge-router" style="background:#21262d;">측정 전</span>
+          </div>
+          <div class="latency-rtt" id="rtt-router">측정 전</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-router">주소 확인 중</div>
+        </div>
+
+        <!-- Robot #1 -->
+        <div class="latency-item" id="node-robot1">
+          <div class="latency-header">
+            <span>🤖 Robot #1 (Main)</span>
+            <span class="badge" id="badge-robot1" style="background:#21262d;">측정 전</span>
+          </div>
+          <div class="latency-rtt" id="rtt-robot1">측정 전</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-robot1">주소 확인 중</div>
+        </div>
+
+        <!-- Robot #2 -->
+        <div class="latency-item" id="node-robot2">
+          <div class="latency-header">
+            <span>🤖 Robot #2 (Sub)</span>
+            <span class="badge" id="badge-robot2" style="background:#21262d;">측정 전</span>
+          </div>
+          <div class="latency-rtt" id="rtt-robot2">측정 전</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-robot2">주소 확인 중</div>
+        </div>
+
+        <!-- ⭐ 태블릿 지연 카드를 뺐다. 들고 다니는 기기라 주소가 사이트마다
+             바뀌는데, 여기 박아 두면 낡은 주소로 TIMEOUT 을 보고한다.
+             도달 여부는 소스 자신이 말한다(후보를 시도해 실제 붙은 주소를 안다). -->
+        <!-- 외부 인터넷 -->
+        <div class="latency-item" id="node-internet">
+          <div class="latency-header">
+            <span>🌐 외부 인터넷 (WAN)</span>
+            <span class="badge" id="badge-internet" style="background:#21262d;">측정 전</span>
+          </div>
+          <div class="latency-rtt" id="rtt-internet">측정 전</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-internet">주소 확인 중</div>
+        </div>
+      </div>
+    </div>
+
+    
+    <!-- 1-2-B. 🛰️ 로봇 간 통신 상태 및 DDS 상호작용 토폴로지 (Inter-Robot Fleet Communication) -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.1rem;">🔗</span>
+          <strong style="font-size: 0.95rem; color: #f0f6fc;">로봇 간 통신 상태 및 DDS 상호작용 토폴로지 (Fleet Communication Matrix)</strong>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <span class="badge orange" id="fleet-mode-badge">ROBOT #1 SOLO MODE</span>
+          <span class="badge green" id="fleet-guard-badge">주행 간섭 0% 차단됨</span>
+          <span class="badge purple">FastDDS 격리망</span>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px;">
+        <!-- Robot 1 Node Link -->
+        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <strong style="font-size: 0.85rem; color: #f0883e;">🤖 Robot #1 (Main Pinky)</strong>
+            <span class="badge green" id="fleet-r1-badge">ONLINE</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.6;">
+            <div>• IP / Port: <span style="color:#f0f6fc;">198.51.100.5 (:2205)</span></div>
+            <div>• DDS 채널: <span style="color:#58a6ff;">ROS_DOMAIN_ID=<span class="ros-domain-live">확인 중</span></span></div>
+            <div>• 지연(RTT): <span id="fleet-r1-rtt" style="color:#7ee787;">-- ms</span></div>
+            <div>• 주행 모드: <span id="fleet-r1-nav" style="color:#f2cc60;">IDLE (Map A* 대기)</span></div>
+          </div>
+        </div>
+
+        <!-- Robot 2 Node Link -->
+        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <strong style="font-size: 0.85rem; color: #58a6ff;">🤖 Robot #2 (Sub Pinky)</strong>
+            <span class="badge gold" id="fleet-r2-badge">STANDBY</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.6;">
+            <div>• IP / Port: <span style="color:#f0f6fc;">198.51.100.6 (:2206)</span></div>
+            <!-- ⭐ 이건 **설계값**이지 실측이 아니다. 게이트웨이는 자기 도메인만 읽을 수
+                 있고 로봇2의 도메인은 못 읽는다. 못 재는 것을 실측처럼 적지 않는다. -->
+            <div>• DDS 채널: <span style="color:#a371f7;">설계값 11 (격리) — 게이트웨이가 못 읽는 값</span></div>
+            <div>• 지연(RTT): <span id="fleet-r2-rtt" style="color:#7ee787;">-- ms</span></div>
+            <div>• 상태: <span style="color:#8b949e;">상호작용 전 물리 대기중</span></div>
+          </div>
+        </div>
+
+        <!-- Inter-Robot P2P Link -->
+        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <strong style="font-size: 0.85rem; color: #7ee787;">🔄 로봇 간 P2P 상호 링크</strong>
+            <span class="badge green" id="fleet-p2p-badge">SECURED</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.6;">
+            <div>• LAN 링크: <span id="fleet-lan-link" style="color:var(--text-muted);">측정 전</span></div>
+            <div>• 토픽 간섭 방지: <span style="color:#3fb950;">100% 분리 (충돌 0건)</span></div>
+            <div>• 가제보 물리 간섭: <span style="color:#3fb950;">pinky_sub 제거 완료</span></div>
+            <div>• 차후 상호작용: <span style="color:#8b949e;">DDS 브릿지 준비 완료</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1-3. 팀원 공지: 인프라 현황, 로봇 접속 & Wi-Fi 세팅 통합 가이드 -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.1rem;">🛰️</span>
+          <strong style="font-size: 0.95rem; color: #f0f6fc;">팀원 공지: 인프라 현황 및 로봇 접속 가이드</strong>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <span class="badge green">SSH TUNNEL ACTIVE</span>
+          <span class="badge cyan">DUAL DIGITAL TWIN</span>
+          <span class="badge purple">ROS_DOMAIN_ID=<span class="ros-domain-live">확인 중</span></span>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <!-- 1-3-1. 네트워크별 웹 관제 접속 URL -->
+        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+            <span class="badge cyan" style="font-size: 0.72rem;">🌐 네트워크별 관제 웹 접속 URL</span>
+          </div>
+          <!-- ⭐ 아래는 **기록이지 현황이 아니다.** 재는 곳이 없다.
+               주소는 사이트마다 바뀌고 실제로 두 번 어긋났다(폰 DHCP 재임대,
+               태블릿 사이트 이동). 지우면 팀원이 들어올 길이 없어지므로 남기되,
+               **언제 기준인지**를 같이 적는다. 안 그러면 읽는 사람이 현황으로 읽는다. -->
+          <div style="font-size:0.7rem; color:#d29922; margin-bottom:6px;">
+            ⚠ 아래는 <b>2026-09-10 기준 기록</b>이다 — 지금 닿는다는 뜻이 아니다.
+            사이트가 바뀌면 달라진다. 최신은 <code>docs/NETWORK_AND_PORTS.md</code>,
+            찾는 법은 중계에서 <code>tailscale ping &lt;tailnet-ip&gt;</code>.
+          </div>
+          <div style="font-size: 0.8rem; line-height: 1.7; font-family: monospace;">
+            <div style="color: #7ee787;">• 강의장 Wi-Fi 접속 시: <a href="http://203.0.113.150:8889" target="_blank" style="color: #58a6ff; text-decoration: underline;">http://203.0.113.150:8889</a> <span style="color:#8b949e; font-size:0.72rem;">(공유됨)</span></div>
+            <div style="color: #c9d1d9;">• 교육장 공유기 접속 시: <a href="http://198.51.100.3:8889" target="_blank" style="color: #58a6ff; text-decoration: underline;">http://198.51.100.3:8889</a></div>
+            <div style="color: #8b949e;">• 외부망/홈랩 (Tailscale): <a href="http://100.64.0.81:8889" target="_blank" style="color: #58a6ff; text-decoration: underline;">http://100.64.0.81:8889</a></div>
+          </div>
+        </div>
+
+        <!-- 1-3-2. 핑키 SSH 접근 명령어 -->
+        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span class="badge green" style="font-size: 0.72rem;">🤖 핑키 로봇 SSH 접근</span>
+            <span style="font-size: 0.72rem; color: #7ee787;">user: pinky</span>
+          </div>
+          <div style="font-size: 0.8rem; line-height: 1.6; font-family: monospace;">
+            <div style="color: #c9d1d9;">[교육장 공유기망 — 2026-09-10 기준 기록, 현황 아님]</div>
+            <div style="color: #f0883e;">• Robot #1: <code style="color:#f0883e;">ssh pinky@198.51.100.5</code></div>
+            <div style="color: #58a6ff;">• Robot #2: <code style="color:#58a6ff;">ssh pinky@198.51.100.6</code></div>
+            <div style="color: #c9d1d9; margin-top: 4px;">[외부망 / 원격 홈랩 (Tailscale socat 터널)]</div>
+            <div style="color: #f0883e;">• Robot #1: <code style="color:#f0883e;">ssh -p 2205 pinky@100.64.0.81</code></div>
+            <div style="color: #58a6ff;">• Robot #2: <code style="color:#58a6ff;">ssh -p 2206 pinky@100.64.0.81</code></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2행: 사설망 IP 규칙표 & 핑키 Wi-Fi 재설정 가이드 -->
+      <div style="margin-top: 14px; display: grid; grid-template-columns: 1fr 1.3fr; gap: 16px;">
+        <!-- 사설망 IP 할당 규칙표 -->
+        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+            <span class="badge gold" style="font-size: 0.72rem;">📋 사설망(198.51.100.x) IP 규칙표</span>
+            <span style="font-size: 0.72rem; color: var(--text-muted);">본 프로젝트 운영 대상: Robot #1 · Robot #2</span>
+          </div>
+          <div style="font-size: 0.78rem; line-height: 1.6; font-family: monospace; color: #8b949e;">
+            • 198.51.100.1 : iptime 공유기 (SSID: <strong style="color:#7ee787;">iptime</strong> / 무암호)<br/>
+            • 198.51.100.3 : 💻 중계 노트북 (관제 웹 :8889)<br/>
+            • <strong style="color:#f0883e;">198.51.100.5</strong> : 🤖 Robot #1 (Pinky Main - 고정 IP)<br/>
+            • <strong style="color:#58a6ff;">198.51.100.6</strong> : 🤖 Robot #2 (Pinky Sub - 고정 IP)<br/>
+            • 198.51.100.10~50: 👥 팀원 4명 노트북 (DHCP 자동할당 구역)
+          </div>
+        </div>
+
+        <!-- 핑키 내부 Wi-Fi 재설정 가이드 (nmcli) -->
+        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="badge gold" style="font-size: 0.72rem;">🔧 핑키 Wi-Fi 재설정</span>
+              <span style="font-size: 0.75rem; color: #f0f6fc; font-weight: 600;">공유기 변경/재연결 시</span>
+            </div>
+            <span style="font-size: 0.7rem; color: var(--text-muted);">nmcli</span>
+          </div>
+          <div style="background: #161b22; border-radius: 4px; padding: 10px 12px; font-family: monospace; font-size: 0.74rem; line-height: 1.5;">
+            <span style="color:#8b949e;"># 1. 기존 연결 삭제 (필요시) & iptime 검색 연결</span><br/>
+            <code style="color:#f85149;">sudo nmcli connection delete "iptime"</code><br/>
+            <code style="color:#7ee787;">sudo nmcli device wifi connect "iptime"</code><br/>
+            <span style="color:#8b949e;"># 2. 고정 IP 할당 (Robot 1은 .5 / Robot 2는 .6)</span><br/>
+            <code style="color:#e3b341;">sudo nmcli connection modify "iptime" ipv4.addresses 198.51.100.5/24 ipv4.gateway 198.51.100.1 ipv4.dns "8.8.8.8 198.51.100.1" ipv4.method manual</code><br/>
+            <code style="color:#7ee787;">sudo nmcli connection up "iptime"</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- 하단 상태 요약 -->
+      <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed #30363d; display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.75rem; color: var(--text-muted);">
+        <div>🟢 <strong>로봇 연동:</strong> Robot #1 & #2 오도메트리 및 온보드 카메라(15fps) 중계 완료</div>
+        <div>🏭 <strong>가제보 연동:</strong> 듀얼 로봇 실시간 물리/포즈 동기화(Digital Twin) 가동 중</div>
+        <div>🔑 <strong>기본 계정:</strong> user: <code>pinky</code> (SSH 키 인증 등록 완료)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- [탭 2] 맵 & 위치 관제 (2D SLAM 맵 / Gazebo 3D 탑뷰 + 로봇 텔레메트리) -->
+  <!-- ===================================================================== -->
+  <div id="pane-map-view" class="global-tab-pane">
+    <!-- 뷰 모드 탭 & 액션 바 -->
+    <div class="stream-card" style="margin-bottom: 16px;">
+      <div class="stream-header" style="padding: 10px 16px; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="tab-btn active" onclick="switchMapTab('dual', this)">🔲 듀얼 분할 관제 (2D 맵 + Gazebo 3D)</button>
+          <button class="tab-btn" onclick="switchMapTab('interactive', this)">🗺️ 2D 브라우저 관제 맵 집중 뷰</button>
+          <button class="tab-btn" onclick="switchMapTab('gazebo', this)">🏭 Gazebo 3D 탑뷰 전용</button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span class="badge green" id="nav-mode-badge">🔒 읽기 전용 · 브라우저 좌표 관제</span>
+          <span class="badge cyan" id="map-badge">DUAL LIVE (30 FPS)</span>
+        </div>
+      </div>
+
+      <!-- 메인 뷰포트 영역: 듀얼 그리드 또는 단일 뷰포트 -->
+      <div id="map-viewport-container" style="padding: 12px; background: #0b0f17;">
+        
+        <!-- 듀얼 뷰 / 인터랙티브 뷰 그리드 -->
+        <div id="view-dual-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start;">
+          
+          <!-- 좌측: 2D 인터랙티브 캔버스 맵 -->
+          <div id="col-interactive-map" style="background: #161b22; border-radius: 10px; border: 1px solid #30363d; padding: 12px; position: relative;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-weight: 600; font-size: 0.95rem; color: #58a6ff;">🗺️ 2D 브라우저 관제 맵 (Robot #1 · #2 + Vision)</span>
+              <span style="font-size: 0.75rem; color: #8b949e;">🖱️ 마우스 오버: 좌표 확인 · 웹 주행 명령 없음</span>
+            </div>
+            
+            <div style="position: relative; width: 100%; display: flex; justify-content: center; background: #0d1117; border-radius: 8px; overflow: hidden; border: 1px solid #21262d;">
+              <canvas id="navCanvas" width="540" height="250" style="cursor: crosshair; touch-action: none; max-width: 100%; height: auto; display: block;"></canvas>
+              <div id="nav-tooltip" style="position: absolute; display: none; pointer-events: none; background: rgba(13,17,23,0.92); border: 1px solid #58a6ff; border-radius: 4px; padding: 4px 8px; font-size: 0.75rem; color: #f0f6fc; font-family: monospace; white-space: nowrap; z-index: 10;"></div>
+            </div>
+
+            <div style="display: justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.75rem; color: #8b949e;">
+              <div>범례: <span style="color:#ff9900; font-weight:600;">● Robot #1 Odom</span> · <span style="color:#a371f7; font-weight:600;">● Robot #2 Odom</span> · <span style="color:#3fb950; font-weight:600;">◎ Vision #1</span> · <span style="color:#39d0d8; font-weight:600;">◎ Vision #2</span></div>
+              <div id="nav-live-hover" style="font-family: monospace; color: #58a6ff;">지도 위 마우스 오버 시 좌표 확인</div>
+            </div>
+          </div>
+
+          <!-- 우측: Gazebo 실시간 3D 탑뷰 스트림 -->
+          <div id="col-gazebo-live" style="background: #161b22; border-radius: 10px; border: 1px solid #30363d; padding: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-weight: 600; font-size: 0.95rem; color: #3fb950;">🏭 Gazebo 3D 가상 공간 실시간 탑뷰 (/camera)</span>
+              <span class="badge green">30 FPS LIVE STREAM</span>
+            </div>
+            <div style="position: relative; width: 100%; height: 250px; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid #21262d; display: flex; align-items: center; justify-content: center;">
+              <img id="map-gazebo-img" src="/gazebo_feed" alt="Gazebo Real-time 3D Camera Stream" style="width:100%; height:100%; object-fit:contain; display:block;">
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.75rem; color: #8b949e;">
+              <span>Gazebo Harmonic 천장 카메라 동기화</span>
+              <span>물리 엔진 100% 실시간 연동</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 하단 자율주행 관제 & 안전 모니터링 바 (원격 읽기 전용) -->
+      <div style="padding: 12px 16px; background: #161b22; border-top: 1px solid #30363d; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+          <span class="badge gold" style="font-size: 0.82rem; padding: 4px 10px; font-weight: 700;">🔒 원격 읽기 전용 관제 모드</span>
+          <span style="font-size: 0.8rem; color: #8b949e;">⚠️ 안전 정책상 목표 지정 및 미션 명령은 <strong>현장 중계 노트북 콘솔</strong>에서만 가능합니다. (웹은 실시간 위치 및 오차 모니터링 전용)</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="tab-btn" style="background:#da3633; color:#fff; border-color:#f85149; font-weight:700; padding: 6px 16px; font-size: 0.85rem;" onclick="stopNavigation()">🛑 원격 비상 정지 (EMERGENCY STOP)</button>
+        </div>
+      </div>
+      <div id="nav-action-msg" style="padding: 6px 16px; background: #0d1117; font-size: 0.75rem; color: #58a6ff; border-top: 1px solid #21262d;">
+        ℹ️ 마우스 오버 시 실시간 좌표 확인 가능 · 제어 입력은 중계 노트북 화면의 [로봇 제어 콘솔] 창을 이용하세요.
+      </div>
+    </div>
+
+    <!-- Localization / Drive 상태 요약 — 값이 없으면 0으로 만들지 않는다 -->
+    <div class="stream-card" style="margin-bottom: 20px;">
+      <div class="stream-header" style="padding: 10px 16px;">
+        <h2><span>🧭</span> Localization / Drive 상태 (Robot #1 · #2)</h2>
+        <span class="badge" id="drive-ready-state" style="background:#21262d;">⚪ DRIVE 상태 미측정</span>
+      </div>
+      <div style="padding: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #3fb950;">
+          <div style="font-size:0.75rem; color:#3fb950; margin-bottom:4px;">📍 Robot #1 Vision Pose</div>
+          <div id="vision-r1-state" style="font-size:1.05rem; font-weight:700;">VISION_NEVER</div>
+          <div id="vision-r1-pos" style="font-size:0.82rem; color:#c9d1d9; margin-top:4px;">좌표 없음</div>
+          <div id="vision-r1-age" style="font-size:0.75rem; color:#8b949e; margin-top:3px;">age: 미측정</div>
+        </div>
+        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #39d0d8;">
+          <div style="font-size:0.75rem; color:#39d0d8; margin-bottom:4px;">📍 Robot #2 Vision Pose</div>
+          <div id="vision-r2-state" style="font-size:1.05rem; font-weight:700;">VISION_NEVER</div>
+          <div id="vision-r2-pos" style="font-size:0.82rem; color:#c9d1d9; margin-top:4px;">좌표 없음</div>
+          <div id="vision-r2-age" style="font-size:0.75rem; color:#8b949e; margin-top:3px;">age: 미측정</div>
+        </div>
+        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
+          <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">🔗 Vision 하류 경로</div>
+          <div id="vision-r1-path" style="font-size:0.9rem; font-weight:600; color:#f0f6fc;">Robot #1: 미측정</div>
+          <div id="vision-r2-path" style="font-size:0.9rem; font-weight:600; color:#f0f6fc; margin-top:4px;">Robot #2: 미측정</div>
+          <div style="font-size:0.72rem; color:#8b949e; margin-top:6px;">Domain 8의 receiver 수와 Robot Domain consumer는 같은 사실이 아님</div>
+        </div>
+        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
+          <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">🚦 Drive Stack Readiness</div>
+          <div id="drive-ready-detail" style="font-size:0.95rem; font-weight:700; color:#8b949e;">미측정 — Drive Stack 통합 상태 API 미연결</div>
+          <div id="drive-ready-reason" style="font-size:0.75rem; color:#8b949e; margin-top:5px;">프로세스 실행 여부를 DRIVE_READY로 추정하지 않음</div>
+        </div>
+        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
+          <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">🧭 Robot #1 Navigation</div>
+          <div id="hud-nav-state" style="font-size:1.05rem; font-weight:700; color:#58a6ff;">미측정</div>
+          <div style="font-size:0.8rem; color:#8b949e; margin-top:4px;">남은 거리: <span id="hud-rem-dist">미측정</span></div>
+          <div style="font-size:0.8rem; color:#8b949e; margin-top:4px;">현재 목표: <span id="hud-goal-pos">미측정</span></div>
+        </div>
+        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
+          <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">📏 Localization Error Meter</div>
+          <div id="residual-summary" style="font-size:0.95rem; font-weight:700; color:#8b949e;">미측정 — residual 필드 미연결</div>
+          <div id="residual-floor" style="font-size:0.75rem; color:#8b949e; margin-top:5px;">E1/E2/E3 값이 없으면 정상값으로 채우지 않음</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 실측 오차 비교 및 정량 검증 HUD (가제보 ↔ 실물 로봇) -->
+    <div class="stream-card" style="margin-bottom: 20px;">
+      <div class="stream-header" style="padding: 10px 16px;">
+        <h2><span>📊</span> 가제보 3D 시뮬레이션 ↔ 실물 로봇 실측 오차 정량 검증 (Discrepancy Analysis)</h2>
+        <span class="badge gold" id="discrepancy-grade-badge">실시간 오차 분석 중</span>
+      </div>
+      <div style="padding: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
+        <div style="background: #0d1117; padding: 12px; border-radius: 8px; border: 1px solid #30363d;" id="hud-err-card">
+          <div style="font-size: 0.75rem; color: #8b949e; margin-bottom: 4px;">📐 실측 ↔ 시뮬레이션 오차 (Error)</div>
+          <div style="font-size: 1.1rem; font-weight: 700; color: #f0f6fc;" id="hud-err-dist">— cm</div>
+          <div style="font-size: 0.8rem; color: #8b949e; margin-top: 4px;">ΔX: <span id="hud-err-dx">—</span> | ΔY: <span id="hud-err-dy">—</span> | ΔYaw: <span id="hud-err-yaw">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 로봇 좌표 텔레메트리 블록 -->
+    <div class="tab-card">
+      <div class="tab-header">
+        <button class="tab-btn active" onclick="switchTelemetryTab('tab-robot1', this)">🤖 Robot #1 (Pinky Main)</button>
+        <button class="tab-btn" style="opacity: 0.55;" onclick="switchTelemetryTab('tab-robot2', this)">🤖 Robot #2 (Pinky Sub)</button>
+        <button class="tab-btn" onclick="switchTelemetryTab('tab-mission', this)">🚩 미션 경로 정의</button>
+      </div>
+
+      <!-- 탭 1: 로봇 1 좌표 -->
+      <div id="tab-robot1" class="tab-content active">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <strong style="color: #ff9900; font-size: 1rem;">Pinky #1 (Main Robot)</strong>
+          <span class="badge" id="r1-observed-badge" style="background:#21262d;">관측 상태 확인 중</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">X 좌표 (m)</span>
+          <span class="metric-value" id="r1-x">0.00 m</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Y 좌표 (m)</span>
+          <span class="metric-value" id="r1-y">0.00 m</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Heading (Yaw)</span>
+          <span class="metric-value" id="r1-yaw">0.0°</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">토픽 소스</span>
+          <span class="metric-value">/robot1/odom, /robot1/pose</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">동작 모드</span>
+          <span class="metric-value" style="color: #3fb950;">Robot #1 운영 범위</span>
+        </div>
+      </div>
+
+      <!-- 탭 2: 로봇 2 좌표 -->
+      <div id="tab-robot2" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <strong style="color: #00d2ff; font-size: 1rem;">Pinky #2 (Sub Robot)</strong>
+          <span class="badge" id="r2-observed-badge" style="background:#21262d;">관측 상태 확인 중</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">X 좌표 (m)</span>
+          <span class="metric-value" id="r2-x">0.00 m</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Y 좌표 (m)</span>
+          <span class="metric-value" id="r2-y">0.00 m</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Heading (Yaw)</span>
+          <span class="metric-value" id="r2-yaw">90.0°</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">토픽 소스</span>
+          <span class="metric-value">/robot2/odom, /robot2/pose</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">동작 모드</span>
+          <span class="metric-value" style="color: #8b949e;">Robot #2 운영 범위</span>
+        </div>
+      </div>
+
+      <!-- 탭 3: 미션 경로 안내 -->
+      <div id="tab-mission" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <strong style="font-size: 1rem;">교육장 270cm×125cm 가상 공간 미션 경로</strong>
+          <span class="badge gold">WAYPOINTS</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">미션 1</span>
+          <span class="metric-value">도크(-0.04, 0.43) → 침실(-0.85, -0.10, 도어 경유) → 도크 복귀</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">미션 2</span>
+          <span class="metric-value">도크 → 침실 → 식당(0.35, -0.25) → 주방(1.00, -0.25, 칸막이벽 우회) → 도크 복귀</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">충돌 방지 조건</span>
+          <span class="metric-value" style="color: #3fb950;">침실 도어(-0.38, 0.20) & 주방 상단 입구(0.72, 0.25) 필수 경유, 외벽 방지</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">기준 좌표계</span>
+          <span class="metric-value">Roborock Digital Twin (2.70m × 1.25m, Origin: -1.35, -0.625, Res: 0.025m)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- [탭 3] 로봇 온보드 카메라 (Pinky #1 & Pinky #2 나란히 2열 뷰어) -->
+  <!-- ===================================================================== -->
+  <div id="pane-robot-cams" class="global-tab-pane">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+      <!-- Pinky #1 온보드 카메라 -->
+      <div class="stream-card">
+        <div class="stream-header">
+          <h2><span>🤖</span> Pinky #1 (Main) 온보드 카메라</h2>
+          <span class="badge green" id="r1-cam-badge">ONBOARD LIVE (15 FPS)</span>
+        </div>
+        <div class="video-viewport" style="height: 380px;">
+          <img src="/robot_camera_feed?id=robot1" alt="Robot 1 Camera Stream" style="width:100%; height:100%; object-fit:contain;">
+        </div>
+        <div class="stream-footer">
+          <span>토픽: /robot1/camera/image_raw</span>
+          <span>CSI Camera · 15.0 FPS</span>
+        </div>
+      </div>
+
+      <!-- Pinky #2 온보드 카메라 -->
+      <div class="stream-card">
+        <div class="stream-header">
+          <h2><span>🤖</span> Pinky #2 (Sub) 온보드 카메라</h2>
+          <span class="badge cyan" id="r2-cam-badge">ONBOARD LIVE (15 FPS)</span>
+        </div>
+        <div class="video-viewport" style="height: 380px;">
+          <img src="/robot_camera_feed?id=robot2" alt="Robot 2 Camera Stream" style="width:100%; height:100%; object-fit:contain;">
+        </div>
+        <div class="stream-footer">
+          <span>토픽: /robot2/camera/image_raw</span>
+          <span>CSI Camera · 15.0 FPS</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+      <!-- U-7. CI/CD 배포 화면을 여기서 뺐다(사용자 지시 2026-09-12). 지운 게 아니라 static/ops-deploy.html 로 옮겼다. ⚠️ /api/jenkins/build 는 그대로 열려 있다 — 화면만 뺀 것이지 보안 수정이 아니다. -->
+
+  <script>
+    // 시계 갱신
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('live-clock').textContent = now.toTimeString().split(' ')[0];
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // 최상단 글로벌 탭 전환 (메인 대시보드 / 맵&위치 / 로봇 카메라)
+    function switchGlobalTab(paneId, btn) {
+      document.querySelectorAll('.global-tab-pane').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+      document.getElementById(paneId).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    // ===== MCV-1D 멀티뷰 =====
+    // 실물 시점 = 게이트웨이가 출처를 정한 것(pull) 또는 직접 소유한 장치(local) 중 trusted.
+    // ⭐ 소스 id 를 박지 않는다. 2026-09-10 에 tablet-relay 가 버튼 배열에서 빠진 것을
+    //    아무도 못 알아챘다 - 목록이 아니라 성질로 걸러야 새 소스가 저절로 따라온다.
+    const MV_REAL_TRANSPORTS = ['pull', 'local'];
+    // local 은 lazy 다(MCV-1C). <img> 를 붙이면 웹캠이 열리고 LED 가 켜진다.
+    // 그래서 기본은 닫힘이고, 사람이 펼칠 때만 연다.
+    const MV_DEFAULT_OPEN_TRANSPORTS = ['pull'];
+    // 이 값을 넘으면 눈에 띄게 표시한다. 나란히 놓인 영상이 같은 순간이라는 주장을 반증한다.
+    const MV_OFFSET_WARN_MS = 500;
+    // ⭐⭐ 동시에 여는 스트림 권장 상한. **실측에서 나온 수다**(2026-09-12, 같은 소스):
+    //      1개 10.5 fps · 2개 10.8+8.9 · 3개 6.7+7.8+5.7 · 4개 3.3 + TimeoutError x3
+    //    처리량이 ~20 fps 에서 포화하고 4개에서 무너진다. 예전 화면은 **기본으로 넷을
+    //    열었고**, 그게 카드가 검게 보이던 진짜 이유다.
+    //    막지는 않는다 — 사람이 셋째를 열 이유가 있을 수 있다. 대신 말해 준다.
+    const MV_OPEN_SOFT_CAP = 2;
+
+    let mvOpen = {};          // id -> 열려 있나
+    let mvInit = {};          // id -> 기본값을 한 번 적용했나
+    let mvTimer = null;
+
+    function mvFmt(v, unit) {
+      return (v === null || v === undefined) ? '-' : (Math.round(v * 10) / 10) + (unit || '');
+    }
+
+    // 서버가 준 사유 코드 -> 사람 말. ⭐ 코드는 서버가, 말은 여기가 소유한다.
+    const MV_WHY = {
+      NO_SAMPLES: '표본 없음',
+      NO_TIMING_HEADERS: '발행자가 구간 시간을 안 보냄',
+      NEGATIVE: '발행자가 음수를 보냄 — 값을 못 믿는다',
+      IMPLAUSIBLE_FOR_LOCAL: '로컬인데 초 단위 — 값을 못 믿는다',
+      NO_COMMON_CLOCK: '공통 시계 없음'
+    };
+
+    function mvWhy(code) { return MV_WHY[code] || code || '모름'; }
+
+    function mvClockBadge(clock, timing) {
+      // ⭐⭐ **어긋남과 지연은 다른 양이다.** 예전엔 `now - captureClock`(= 시계차 +
+      //    전송 + 큐)을 `지연` 이라 불렀고, 그래서 로컬 웹캠에 `지연 18837.8ms` 가 떴다.
+      //    2026-09-12 실측: 컨테이너-호스트 시계차가 +26,987 ms 였다가 두 시간 뒤
+      //    -2,917 ms 였다. **부호까지 뒤집힌다** — 상수로 보정할 수 없다.
+      const t = timing || {};
+      const c = clock || {};
+      if (t.clockKind !== 'capture' && c.source !== 'capture') {
+        return { text: '수신 시각 기준 · 어긋남 미측정', color: '#8b949e', warn: false };
+      }
+      const parts = [];
+      // 어긋남 — 무엇이 섞였는지 툴팁으로 말한다
+      if (t.offsetMs === null || t.offsetMs === undefined) {
+        parts.push('어긋남 ' + mvWhy(t.offsetWhy));
+      } else {
+        // ⭐ 흔들림(jitter)을 같이 낸다. 어긋남 중에서 **시계차가 아닌 유일한 성분**이다 —
+        //    시계차는 짧은 창에서 거의 상수라 흔들리지 않는다. 흔들리는 건 전송·큐다.
+        //    처음 고칠 때 이걸 떨어뜨렸다가, 옛 시험이 잡아 줘서 되살렸다.
+        const j = t.offsetJitterMs;
+        parts.push('어긋남 ' + mvFmt(t.offsetMs, 'ms')
+                   + ((j === null || j === undefined) ? '' : ' (흔들림 ±' + mvFmt(j, 'ms') + ')'));
+      }
+      // 지연 — 발행자 자기 시계로 잰 것만. 못 재면 **숫자 대신 사유**(U-2).
+      if (t.pipelineMs === null || t.pipelineMs === undefined) {
+        parts.push('지연 ' + mvWhy(t.pipelineWhy));
+      } else {
+        parts.push('지연 ' + mvFmt(t.pipelineMs, 'ms'));
+      }
+      const off = t.offsetMs;
+      const warn = (off !== null && off !== undefined)
+                   && Math.abs(off) > (t.offsetWarnMs || MV_OFFSET_WARN_MS);
+      return {
+        text: parts.join(' · '),
+        // ⭐ 어긋남이 크다고 빨강으로 칠하되, 그건 **시계를 맞추라**는 신호지
+        //    파이프라인이 느리다는 신호가 아니다. 툴팁에 그렇게 적는다.
+        color: warn ? '#f85149' : '#7ee787',
+        warn: warn,
+        title: '어긋남 = ' + (t.offsetIncludes || '시계차 + 전송 + 큐')
+               + ' / 지연 = ' + (t.pipelineBasis || '발행자 자기 시계')
+               + ' / 전송 = ' + mvWhy(t.transportWhy)
+      };
+    }
+
+    function mvToggle(id) {
+      mvOpen[id] = !mvOpen[id];
+      if (!mvOpen[id]) {
+        // ⭐ display:none 만으로는 연결이 안 끊긴다. src 를 비워야 실제로 끊긴다.
+        //    lazy 웹캠은 수요가 사라져야 닫히고, 그래야 LED 가 꺼진다.
+        const img = document.getElementById('mv-img-' + id);
+        if (img) img.src = '';
+      }
+      mvSync(true);
+    }
+
+    function mvTile(s) {
+      const open = !!mvOpen[s.id];
+      const b = mvClockBadge(s.clock, s.timing);
+      const conn = s.connected;
+      const c = s.clock || {};
+      const lost = (c.framesLost === null || c.framesLost === undefined) ? '-' : c.framesLost;
+      const lazyNote = (s.transport === 'local' && !open)
+        ? '<div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">닫혀 있는 동안 카메라는 열리지 않습니다</div>'
+        : '';
+      const body = open
+        ? '<img id="mv-img-' + s.id + '" src="/video_feed?src=' + encodeURIComponent(s.id) +
+          '&t=' + Date.now() + '" alt="' + s.id +
+          '" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, \'/video_feed?src=' + s.id + '\')">'
+        // ⭐ 닫힌 카드는 **정지 프레임 한 장**이다. 스트림이 아니라 단발 요청이라
+        //    경합에 안 낀다. 예전엔 빈 검은 칸이라 "죽은 것"과 구분이 안 됐다.
+        : '<div style="position:relative; height:100%;">' +
+          '<img src="/api/calibration/still?src=' + encodeURIComponent(s.id) +
+          '&t=' + Date.now() + '" alt="" style="width:100%; height:100%; object-fit:contain; opacity:0.55;"' +
+          ' onerror="this.style.display=\'none\'">' +
+          '<div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-muted); font-size:0.78rem; text-shadow:0 0 6px #000;">' +
+          '<div style="font-size:1.4rem; margin-bottom:4px;">⏸</div><div>정지 프레임 (스트림 닫힘)</div>' +
+          lazyNote + '</div></div>';
+
+      return '' +
+        '<div style="border:1px solid var(--border-color); border-radius:6px; overflow:hidden; background:#0d1117;">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding:8px 10px; border-bottom:1px solid var(--border-color);">' +
+            '<div style="display:flex; align-items:center; gap:6px; min-width:0;">' +
+              '<span style="width:8px; height:8px; border-radius:50%; flex:none; background:' + (conn ? '#3fb950' : '#6e7681') + ';"></span>' +
+              '<strong style="font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + (s.label || s.id) + '</strong>' +
+              '<span class="badge" style="background:#21262d; font-size:0.66rem;">' + s.transport + '</span>' +
+            '</div>' +
+            '<button class="badge" style="cursor:pointer; border:none; background:' + (open ? '#21262d' : '#238636') + '; color:#fff; font-size:0.7rem; flex:none;" onclick="mvToggle(\'' + s.id + '\')">' +
+              (open ? '닫기' : '열기') + '</button>' +
+          '</div>' +
+          '<div style="height:200px; background:#000;">' + body + '</div>' +
+          '<div style="padding:7px 10px; font-size:0.72rem; display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">' +
+            '<span data-mv-badge="' + s.id + '" title="' + (b.title || '') + '" style="color:' + b.color + ';">' + (b.warn ? '⚠️ ' : '') + b.text + '</span>' +
+            // ⭐ 유실이 무엇을 세는지 적는다. D-2(동시 스트림 경합)를 고치면 줄어야 하고,
+            //    안 줄면 다른 원인이다 — 그래서 숨기지 않는다(설계서 §5).
+            '<span style="color:var(--text-muted);" title="X-Frame-Seq 가 건너뛴 수 = 받는 쪽에 안 온 프레임">유실 ' + lost + '</span>' +
+          '</div>' +
+        '</div>';
+    }
+
+    async function mvSync(force) {
+      const grid = document.getElementById('mv-grid');
+      if (!grid) return;
+      let data;
+      try {
+        const r = await fetch('/api/sources', { cache: 'no-store' });
+        data = await r.json();
+      } catch (e) {
+        document.getElementById('mv-note').textContent = '소스 목록을 못 읽었습니다';
+        return;
+      }
+      const real = (data.sources || []).filter(function (s) {
+        return MV_REAL_TRANSPORTS.indexOf(s.transport) >= 0 && s.trust === 'trusted';
+      });
+      real.forEach(function (s) {
+        if (!mvInit[s.id]) {
+          mvInit[s.id] = true;
+          // ⭐⭐ **기본은 전부 닫힘**(U-3). 예전엔 transport 로 기본 열림을 정해서
+          //    화면을 열자마자 넷이 동시에 붙었고, 실측상 그 구간이 붕괴 지점이다.
+          mvOpen[s.id] = false;
+        }
+      });
+
+      // ⭐ U-6 분모. **사람이 안 연 로컬 캠은 "닫힘"이지 "죽음"이 아니다.**
+      //    lazy 로컬 소스는 수요가 있어야 장치를 연다 — 안 열었는데 연결이 없다고
+      //    분모에 세면 화면이 멀쩡한 상태를 고장으로 보고한다.
+      const expected = real.filter(function (s) {
+        return s.transport !== 'local' || mvOpen[s.id];
+      });
+      const live = expected.filter(function (s) { return s.connected; }).length;
+      const closed = real.length - expected.length;
+      const cnt = document.getElementById('mv-count');
+      cnt.textContent = live + ' / ' + expected.length + ' 연결됨'
+                        + (closed ? ' · 닫힘 ' + closed : '');
+      cnt.style.color = (live < expected.length) ? '#f85149' : '';
+      cnt.title = closed
+        ? '닫힌 로컬 캠은 분모에서 뺀다 — 사람이 끈 것과 죽은 것은 다르다'
+        : '';
+
+      const openCount = real.filter(function (s) { return mvOpen[s.id]; }).length;
+      const warned = real.some(function (s) { return mvClockBadge(s.clock, s.timing).warn; });
+      const notes = [];
+      if (openCount > MV_OPEN_SOFT_CAP) {
+        notes.push('⚠️ 스트림 ' + openCount + '개 열림 (권장 ' + MV_OPEN_SOFT_CAP
+                   + '개) — 동시에 많이 열면 서로를 굶겨 프레임이 끊깁니다');
+      }
+      if (warned) {
+        notes.push('⚠️ 시계 어긋남이 큰 시점이 있습니다 — 나란히 놓였다고 같은 순간이 아닙니다'
+                   + ' (지연이 아니라 **시계**를 맞춰야 합니다)');
+      }
+      document.getElementById('mv-note').textContent = notes.join('  ');
+
+      // 열려 있는 <img> 는 다시 그리지 않는다. src 를 새로 주면 스트림이 끊겼다 붙는다.
+      const openNow = real.filter(function (s) { return mvOpen[s.id]; })
+                          .map(function (s) { return s.id; }).sort().join(',');
+      if (force || grid.dataset.openIds !== openNow || grid.dataset.count !== String(real.length)) {
+        grid.innerHTML = real.map(mvTile).join('');
+        grid.dataset.openIds = openNow;
+        grid.dataset.count = String(real.length);
+      } else {
+        // 화면은 그대로 두고 배지 글자만 바꾼다
+        real.forEach(function (s) {
+          const cell = grid.querySelector('[data-mv-badge="' + s.id + '"]');
+          if (cell) {
+            const b = mvClockBadge(s.clock, s.timing);
+            cell.textContent = (b.warn ? '⚠️ ' : '') + b.text;
+            cell.style.color = b.color;
+            cell.title = b.title || '';
+          }
+        });
+      }
+    }
+
+    function mvStart() {
+      mvSync(true);
+      if (mvTimer) clearInterval(mvTimer);
+      // /api/sources 는 probe 로 상태를 본다 - 폴링이 lazy 카메라를 열지 않는다(MCV-1C).
+      mvTimer = setInterval(function () { mvSync(false); }, 3000);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', mvStart);
+    } else {
+      mvStart();
+    }
+
+    // ===== 인스턴스 라벨 =====
+    // 복제본(도커)에서 띄운 화면이면 그렇다고 말한다. 이 화면을 찍은 그림이
+    // 현장 증거로 돌아다니면 안 된다 - 정합 전에 안 겹치는 것과 같은 이유다.
+    async function instBanner() {
+      let d;
+      try { d = await (await fetch('/api/instance')).json(); } catch (e) { return; }
+      if (!d || !d.label) return;                 // 현장에서는 아무것도 안 그린다
+      if (document.getElementById('inst-band')) return;
+      const el = document.createElement('div');
+      el.id = 'inst-band';
+      el.textContent = '⚠ ' + d.label + ' · ' + (d.host || '') +
+                       ' · ROS_DOMAIN_ID=' + (d.rosDomainId || '?');
+        // U-4. ⭐ 같은 값을 화면 전체에 뿌린다. 예전엔 배너만 런타임을 읽고 배지들은
+        //    박힌 값이라, 같은 화면이 자기 모순이었다.
+        const dom = (d.rosDomainId === null || d.rosDomainId === undefined)
+                    ? '모름' : String(d.rosDomainId);
+        const hdr = document.getElementById('hdr-ros-domain');
+        if (hdr) hdr.textContent = dom;
+        document.querySelectorAll('.ros-domain-live').forEach(function (el) {
+          el.textContent = dom;
+        });
+      el.style.cssText = 'position:sticky;top:0;z-index:9999;background:#9e6a03;' +
+        'color:#fff;padding:6px 12px;font-size:0.82rem;font-weight:600;' +
+        'letter-spacing:.02em;text-align:center;';
+      document.body.insertBefore(el, document.body.firstChild);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', instBanner);
+    } else {
+      instBanner();
+    }
+
+    // ===== MCV-2A-UI 좌표계 정착 =====
+    // 화면 픽셀 -> 아레나 cm. 여기서 정하는 게 관측의 좌표계다.
+    //
+    // ⭐ 핀은 **원본 프레임 좌표**로 들고 있는다. 캔버스는 화면 폭에 맞춰 줄어드는데
+    //    캔버스 좌표를 그대로 보내면 서버가 다른 사각형을 보게 된다.
+    // ⭐ 소스 id 를 박지 않는다 - /api/calibration 이 준 목록에서 성질로 거른다.
+    const CAL_REAL_TRANSPORTS = ['pull', 'local'];
+    const CHR_NL = String.fromCharCode(10);
+    const CAL_STATE_TEXT = {
+      UNCALIBRATED: ['정합 없음', '#21262d'],
+      CALIBRATING: ['맞추는 중', '#9e6a03'],
+      SETTLED: ['정착됨', '#238636'],
+      DRIFT: ['무효', '#b62324']
+    };
+    // 무효 사유. 코드는 서버가, 말은 여기가 소유한다(R-6).
+    // 서버에 사유가 늘면 여기도 늘어야 한다 - 시험이 서버 상수에서 목록을 끌어온다.
+    const CAL_REASON_TEXT = {
+      ARENA_CHANGED: '아레나 규격이 바뀌었다 — 다른 경기장을 잰 값이다',
+      FRAME_SIZE_CHANGED: '프레임 크기가 바뀌었다 — 화각이 같다는 보장이 없다',
+      PUBLISHER_RESTARTED: '앱이 다시 떴다 — 그 사이 기기가 움직였을 수 있다',
+      LENS_CHANGED: '렌즈가 바뀌었다 — 초광각과 기본은 다른 화각이다',
+      CAMERA_MOVED: '카메라가 움직였다 — 화면은 멀쩡한데 좌표만 틀린다',
+      ANCHOR_UNVERIFIABLE: '기준 조각을 전부 놓쳤다 — 크게 움직였거나 조명이 꺼졌거나 렌즈가 가려졌다. 어느 쪽인지는 모르지만 그 정합을 확인할 방법이 없다'
+    };
+
+    // 흔들림 상태. '모른다' 를 초록으로 칠하지 않는다 - 기준이 없다는 것은
+    // 안 움직였다는 뜻이 아니다. 정확도 미측정과 같은 종류의 거짓말이다.
+    const CAL_DRIFT_TEXT = {
+      ANCHORED: ['흔들림 없음', '#238636'],
+      DRIFTED: ['흔들렸다', '#b62324'],
+      UNKNOWN: ['흔들림 모름', '#9e6a03']
+    };
+    const CAL_DRIFT_WHY = {
+      WITHIN_THRESHOLD: '네 조각이 다 제자리다',
+      SHIFTED: '조각이 문턱 이상 옮겨갔다 — 다시 정착해야 한다',
+      MATCH_LOST: '조각 일부를 못 찾았다 (로봇이 모서리에 서 있거나 조명이 바뀌었다). 국소 가림이라 움직였다고 단정하지 않는다',
+      ALL_PATCHES_LOST: '조각을 전부 놓쳤다 — 국소 가림이 아니다. 확인할 수 없는 정합은 유지하지 않는다',
+      NO_BASELINE: '정착 직후의 기준선이 없다 — 판정하지 않는다',
+      NO_MEASUREMENT: '지금 프레임에서 아무 조각도 못 쟀다'
+    };
+
+    let calPins = null;          // [[x,y] x4] 원본 프레임 좌표
+    let calVerify = [];          // [{name, px}]
+    let calFrame = null;         // [w,h] 원본 프레임 크기
+    let calImg = null;
+    let calDrag = -1;
+    let calArmed = null;         // 검증점 찍기 대기 중인 지점 이름
+    let calSources = [];
+    let calCensor = null;        // 가공 단이 지금 프레임에 건 검열 상자 (프레임 비율)
+    let calMasks = [];           // MCV-2M 운영자가 선언한 제외 영역 (프레임 비율)
+    let calMaskArmed = false;    // 끌어서 그리기 대기
+    let calMaskBox = null;       // 그리는 중인 상자 (캔버스 좌표)
+    let calFraming = null;       // MCV-2G 화각 점검 결과
+
+    function calSrc() {
+      const sel = document.getElementById('cal-src');
+      return sel ? sel.value : '';
+    }
+
+    function calMsg(text, bad) {
+      const el = document.getElementById('cal-msg');
+      if (!el) return;
+      el.textContent = text || '';
+      el.style.color = bad ? '#f85149' : 'var(--text-muted)';
+    }
+
+    function calScale() {
+      const c = document.getElementById('cal-canvas');
+      if (!c || !calFrame || !calFrame[0]) return 1;
+      return c.width / calFrame[0];
+    }
+
+    function calToCanvas(p) { const s = calScale(); return [p[0] * s, p[1] * s]; }
+    function calToFrame(x, y) { const s = calScale() || 1; return [x / s, y / s]; }
+
+    function calDefaultPins() {
+      if (!calFrame) return null;
+      const w = calFrame[0], h = calFrame[1];
+      // 화면 안쪽 사각형에서 시작한다. 순서는 아레나 기준 좌하/우하/우상/좌상.
+      return [[w * 0.15, h * 0.85], [w * 0.85, h * 0.85],
+              [w * 0.75, h * 0.25], [w * 0.25, h * 0.25]];
+    }
+
+    function calConvex(pts) {
+      if (!pts || pts.length !== 4) return false;
+      let sign = null;
+      for (let i = 0; i < 4; i++) {
+        const o = pts[i], a = pts[(i + 1) % 4], b = pts[(i + 2) % 4];
+        const c = (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+        if (Math.abs(c) < 1e-9) return false;
+        const s = c > 0;
+        if (sign === null) sign = s; else if (sign !== s) return false;
+      }
+      return true;
+    }
+
+    function calDrawGuide(ctx, c) {
+      // ⭐ 정착 전에는 원근을 모른다 — "아레나가 이렇게 보여야 한다"는 사다리꼴을
+      //    **못 그린다.** 그릴 수 있는 것은 **담기는 조건**뿐이다.
+      const on = document.getElementById('cal-guide-on');
+      if (!calFraming || (on && !on.checked)) return;
+      const box = function (b, color, dash, label) {
+        const x = b.x * c.width, y = b.y * c.height;
+        const w = b.w * c.width, h = b.h * c.height;
+        ctx.save();
+        ctx.setLineDash(dash);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, w, h);
+        ctx.fillStyle = color;
+        ctx.font = '11px sans-serif';
+        ctx.fillText(label, x + 6, y + 14);
+        ctx.restore();
+      };
+      // 금지 띠 바깥은 어둡게 — 여기 모서리가 오면 흔들림 조각을 못 뜬다
+      const s = calFraming.safeBox;
+      ctx.save();
+      ctx.fillStyle = 'rgba(248,81,73,0.10)';
+      ctx.fillRect(0, 0, c.width, s.y * c.height);
+      ctx.fillRect(0, (s.y + s.h) * c.height, c.width, c.height);
+      ctx.fillRect(0, s.y * c.height, s.x * c.width, s.h * c.height);
+      ctx.fillRect((s.x + s.w) * c.width, s.y * c.height, c.width, s.h * c.height);
+      ctx.restore();
+      box(s, '#f85149', [4, 3], '이 밖에 모서리가 오면 흔들림 조각을 못 뜬다');
+      box(calFraming.targetBox, '#3fb950', [8, 4], '네 모서리를 여기 안에');
+    }
+
+    function calDrawMasks(ctx) {
+      // ⭐ 핀보다 **먼저** 그린다. calDraw 는 핀이 없으면 일찍 반환하는데,
+      //    삼각대는 핀보다 먼저 보인다 - 정착 전에 그린 마스크가 안 보이면
+      //    사람은 저장이 안 된 줄 안다.
+      // 가린 영역. 검열 상자와 색을 다르게 둔다 - 주인이 다르면 눈에도 달라야 한다.
+      if (calFrame) {
+        calMasks.forEach(function (m) {
+          const a = calToCanvas([m.x * calFrame[0], m.y * calFrame[1]]);
+          const b = calToCanvas([(m.x + m.w) * calFrame[0], (m.y + m.h) * calFrame[1]]);
+          ctx.save();
+          ctx.fillStyle = 'rgba(139,148,158,0.30)';
+          ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+          ctx.strokeStyle = '#8b949e';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+          ctx.fillStyle = '#c9d1d9';
+          ctx.font = '11px sans-serif';
+          ctx.fillText(m.why + ' — 안 본다', a[0] + 6, a[1] + 16);
+          ctx.restore();
+        });
+      }
+      if (calMaskBox) {
+        ctx.save();
+        ctx.setLineDash([5, 3]);
+        ctx.strokeStyle = '#8b949e';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(calMaskBox.a[0], calMaskBox.a[1],
+                       calMaskBox.b[0] - calMaskBox.a[0],
+                       calMaskBox.b[1] - calMaskBox.a[1]);
+        ctx.restore();
+      }
+    }
+
+    function calDraw() {
+      const c = document.getElementById('cal-canvas');
+      if (!c) return;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      if (calImg) ctx.drawImage(calImg, 0, 0, c.width, c.height);
+      calDrawGuide(ctx, c);
+      calDrawMasks(ctx);
+      if (!calPins) return;
+      const ok = calConvex(calPins);
+      const pts = calPins.map(calToCanvas);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = ok ? '#3fb950' : '#f85149';
+      ctx.beginPath();
+      pts.forEach(function (p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+      ctx.closePath();
+      ctx.stroke();
+      const names = ['좌하', '우하', '우상', '좌상'];
+      pts.forEach(function (p, i) {
+        ctx.fillStyle = ok ? '#58a6ff' : '#f85149';
+        ctx.beginPath(); ctx.arc(p[0], p[1], 7, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif';
+        ctx.fillText(names[i], p[0] + 10, p[1] - 8);
+      });
+      // 검열 상자 — 여기 찍으면 서버가 거부한다. 왜인지 눈에 보여야 한다.
+      if (calCensor && calFrame) {
+        const a = calToCanvas([calCensor.x * calFrame[0], calCensor.y * calFrame[1]]);
+        const b = calToCanvas([(calCensor.x + calCensor.w) * calFrame[0],
+                               (calCensor.y + calCensor.h) * calFrame[1]]);
+        ctx.save();
+        ctx.fillStyle = 'rgba(210,153,34,0.18)';
+        ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = '#d29922';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#d29922';
+        ctx.font = '11px sans-serif';
+        ctx.fillText('검열됨 — 못 찍는다', a[0] + 6, a[1] + 16);
+        ctx.restore();
+      }
+      calVerify.forEach(function (v) {
+        const p = calToCanvas(v.px);
+        ctx.fillStyle = '#d29922';
+        ctx.beginPath(); ctx.arc(p[0], p[1], 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#d29922'; ctx.font = '10px sans-serif';
+        ctx.fillText(v.name, p[0] + 8, p[1] + 12);
+      });
+      const geo = document.getElementById('cal-geo');
+      if (geo) {
+        geo.textContent = ok
+          ? ('원본 ' + (calFrame ? calFrame[0] + '×' + calFrame[1] : '?') + ' 기준')
+          : '⚠️ 사각형이 엇갈렸다 — 이대로 풀면 상이 뒤집힌 채 "정합됐다"가 된다';
+        geo.style.color = ok ? 'var(--text-muted)' : '#f85149';
+      }
+    }
+
+    function calResize() {
+      const c = document.getElementById('cal-canvas');
+      if (!c || !calFrame) return;
+      const w = Math.max(240, c.clientWidth || 480);
+      c.width = w;
+      c.height = Math.round(w * calFrame[1] / calFrame[0]);
+      calDraw();
+    }
+
+    function calShot() {
+      const src = calSrc();
+      if (!src) return;
+      const img = new Image();
+      img.onload = function () {
+        calImg = img;
+        calFrame = [img.naturalWidth, img.naturalHeight];
+        if (!calPins) calPins = calDefaultPins();
+        calResize();
+        calMsg('정지 프레임 ' + calFrame[0] + '×' + calFrame[1]);
+      };
+      img.onerror = function () { calMsg('프레임을 못 받았다 — 소스가 끊겼는지 본다', true); };
+      img.src = '/api/calibration/still?src=' + encodeURIComponent(src) + '&t=' + Date.now();
+    }
+
+    function calReset() { calPins = calDefaultPins(); calVerify = []; calDraw(); }
+
+    function calArmVerify() {
+      const sel = document.getElementById('cal-lm');
+      calArmed = sel ? sel.value : null;
+      calMsg(calArmed ? ('화면에서 ' + calArmed + ' 위치를 클릭한다') : '');
+    }
+
+    function calHit(evt) {
+      const c = document.getElementById('cal-canvas');
+      const r = c.getBoundingClientRect();
+      const t = (evt.touches && evt.touches[0]) || evt;
+      const x = (t.clientX - r.left) * (c.width / r.width);
+      const y = (t.clientY - r.top) * (c.height / r.height);
+      return [x, y];
+    }
+
+    function calDown(evt) {
+      const at0 = calHit(evt);
+      if (calMaskArmed) {
+        // 정착 전에도 가릴 수 있다 - 삼각대는 핀보다 먼저 보인다.
+        calMaskBox = { a: at0, b: at0 };
+        evt.preventDefault();
+        return;
+      }
+      if (!calPins) return;
+      const at = at0;
+      if (calArmed) {
+        calVerify = calVerify.filter(function (v) { return v.name !== calArmed; });
+        calVerify.push({ name: calArmed, px: calToFrame(at[0], at[1]) });
+        calArmed = null;
+        calMsg('검증점 ' + calVerify.length + '개');
+        calDraw();
+        return;
+      }
+      let best = -1, bestD = 18;
+      calPins.forEach(function (p, i) {
+        const q = calToCanvas(p);
+        const d = Math.hypot(q[0] - at[0], q[1] - at[1]);
+        if (d < bestD) { bestD = d; best = i; }
+      });
+      calDrag = best;
+      evt.preventDefault();
+    }
+
+    function calMove(evt) {
+      if (calMaskBox) {
+        calMaskBox.b = calHit(evt);
+        calDraw();
+        evt.preventDefault();
+        return;
+      }
+      if (calDrag < 0 || !calPins) return;
+      const at = calHit(evt);
+      calPins[calDrag] = calToFrame(at[0], at[1]);
+      calDraw();
+      evt.preventDefault();
+    }
+
+    function calUp() {
+      calDrag = -1;
+      if (calMaskBox) { calMaskFinish(); }
+    }
+
+    // ---- MCV-2M 관측 제외 영역 ------------------------------------------------
+    function calMaskArm() {
+      calMaskArmed = !calMaskArmed;
+      const b = document.getElementById('cal-mask-btn');
+      if (b) {
+        b.textContent = calMaskArmed ? '✋ 화면에서 끌어라 (취소하려면 다시)'
+                                     : '＋ 화면에서 끌어 가리기';
+        b.style.background = calMaskArmed ? '#9e6a03' : '#21262d';
+      }
+      calMsg(calMaskArmed ? '가릴 영역을 정지 프레임 위에서 끌어라' : '');
+    }
+
+    function calMaskFinish() {
+      const box = calMaskBox;
+      calMaskBox = null;
+      // 토글 함수를 부르면 다시 켜진다. 버튼만 직접 되돌린다.
+      calMaskArmed = false;
+      const b = document.getElementById('cal-mask-btn');
+      if (b) { b.textContent = '＋ 화면에서 끌어 가리기'; b.style.background = '#21262d'; }
+      if (!box || !calFrame) return;
+      const p = calToFrame(box.a[0], box.a[1]);
+      const q = calToFrame(box.b[0], box.b[1]);
+      const x = Math.min(p[0], q[0]) / calFrame[0];
+      const y = Math.min(p[1], q[1]) / calFrame[1];
+      const w = Math.abs(q[0] - p[0]) / calFrame[0];
+      const h = Math.abs(q[1] - p[1]) / calFrame[1];
+      const el = document.getElementById('cal-mask-why');
+      const why = (el ? el.value : '').trim();
+      // ⭐ 라벨을 여기서 막는다. 서버도 막지만, 사람이 그린 **직후**에 말해야 고친다.
+      //    라벨 없는 마스크는 평면도에 설명 없는 구멍을 남긴다.
+      if (!why) { calMsg('무엇을 가리는지 먼저 적는다 (예: 삼각대 다리)', true); calDraw(); return; }
+      calMasks = calMasks.concat([{ x: x, y: y, w: w, h: h, why: why }]);
+      if (el) el.value = '';
+      calMaskSave();
+    }
+
+    function calMaskDelete(i) {
+      calMasks = calMasks.filter(function (_m, k) { return k !== i; });
+      calMaskSave();
+    }
+
+    async function calMaskSave() {
+      const src = calSrc();
+      if (!src) return;
+      const res = await calPost('/api/calibration/masks', { src: src, masks: calMasks });
+      if (!res.ok) {
+        // ⭐ 거부되면 **되돌린다.** 화면에만 남아 있으면 사람은 가려진 줄 안다.
+        calMsg('마스크 거부: ' + (res.body.message || res.code), true);
+        calSync();
+        return;
+      }
+      calMasks = res.body.masks || [];
+      // QA Q-3: 서버가 비율을 안 주면 `0.0%` 가 아니라 안 왔다고 말한다.
+      const cf = res.body.coveredFraction;
+      const cfTxt = (typeof cf === 'number' && isFinite(cf))
+        ? (100 * cf).toFixed(1) + '%' : '비율 미제공';
+      calMsg('가린 영역 ' + calMasks.length + '개 · 화면의 ' + cfTxt);
+      calDrawMaskList();
+      calDraw();
+    }
+
+    function calDrawMaskList() {
+      const el = document.getElementById('cal-mask-list');
+      if (!el) return;
+      if (!calMasks.length) { el.textContent = '가린 영역 없음'; return; }
+      el.innerHTML = calMasks.map(function (m, i) {
+        return '· <b>' + m.why + '</b> ('
+               + (100 * m.w).toFixed(0) + '×' + (100 * m.h).toFixed(0) + '%) '
+               + '<a href="#" onclick="calMaskDelete(' + i + ');return false;" '
+               + 'style="color:#f85149;">지우기</a>';
+      }).join('<br>');
+    }
+
+    async function calPost(path, body) {
+      const r = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const j = await r.json().catch(function () { return {}; });
+      return { ok: r.ok, code: r.status, body: j };
+    }
+
+    async function calSave() {
+      const src = calSrc();
+      if (!src || !calPins) { calMsg('먼저 정지 프레임을 받는다', true); return; }
+      const res = await calPost('/api/calibration/points', {
+        src: src, corners: calPins, verify: calVerify, undistorted: false
+      });
+      if (!res.ok) { calMsg('거부됨: ' + (res.body.message || res.code), true); return; }
+      calMsg('점 저장됨');
+      calRefreshPreview();
+      calSync();
+    }
+
+    async function calSettle() {
+      const src = calSrc();
+      if (!src) return;
+      const res = await calPost('/api/calibration/settle', { src: src });
+      if (!res.ok) { calMsg('정착 거부: ' + (res.body.message || res.code), true); return; }
+      const rec = res.body.receipt || {};
+      calMsg(rec.accuracyMeasured
+        ? ('정착 · 검증점 최대 오차 ' + rec.maxVerifyErrorCm + ' cm')
+        : '정착 · ⚠️ 검증점이 없어 정확도를 재지 못했다');
+      calSync();
+    }
+
+    async function calClear() {
+      const src = calSrc();
+      if (!src) return;
+      await calPost('/api/calibration/clear', { src: src });
+      calMsg('정착 해제');
+      calSync();
+    }
+
+    function calRefreshPreview() {
+      const src = calSrc();
+      const img = document.getElementById('cal-preview');
+      const note = document.getElementById('cal-preview-note');
+      if (!src || !img) return;
+      img.onerror = function () {
+        img.removeAttribute('src');
+        if (note) note.textContent = '아직 못 그린다 — 점을 저장하면 나온다';
+      };
+      img.onload = function () { if (note) note.textContent = ''; };
+      img.src = '/api/calibration/preview?src=' + encodeURIComponent(src) + '&t=' + Date.now();
+    }
+
+    function calApplyState(st) {
+      const badge = document.getElementById('cal-state');
+      const acc = document.getElementById('cal-acc');
+      if (!st) return;
+      const pair = CAL_STATE_TEXT[st.state] || ['?', '#21262d'];
+      if (badge) {
+        badge.textContent = pair[0] + (st.reason ? ' · ' + st.reason : '');
+        badge.style.background = pair[1];
+        badge.title = st.reason ? (CAL_REASON_TEXT[st.reason] || st.reason) : '';
+      }
+      if (acc) {
+        // ⭐ "안 쟀다" 와 "좋다" 를 같은 색으로 두지 않는다.
+        if (!st.accuracyMeasured) {
+          acc.textContent = '정확도 미측정';
+          acc.style.background = '#9e6a03';
+        } else {
+          acc.textContent = '검증 오차 ' + st.maxVerifyErrorCm + ' cm';
+          acc.style.background = (st.maxVerifyErrorCm <= 3) ? '#238636' : '#b62324';
+        }
+      }
+      calDrawDrift(st.drift);
+      calMasks = st.masks || [];
+      calDrawMaskList();
+      if (st.masksProblem) {
+        // ⭐ '못 읽었다' 를 '없다' 로 접지 않는다. 유령 벽이 생기는 이유다.
+        calMsg(st.masksProblem, true);
+      }
+      calCensor = st.liveCensorBox || null;
+      if (st.liveCensorBoxRaw && !st.liveCensorBox) {
+        // ⭐ '모른다' 를 '없다' 로 접지 않는다. 값이 왔는데 못 읽었으면 그렇게 말한다.
+        calMsg('검열 상자 헤더를 못 읽었다: ' + st.liveCensorBoxRaw, true);
+      }
+      if (st.corners && st.corners.length === 4 && calDrag < 0 && !calPins) {
+        calPins = st.corners.map(function (p) { return [p[0], p[1]]; });
+        calDraw();
+      }
+    }
+
+    function calDrawDrift(d) {
+      const badge = document.getElementById('cal-drift');
+      const note = document.getElementById('cal-drift-note');
+      if (!d) {
+        // 감시 자체가 안 돌고 있다. 이것을 '흔들림 없음' 으로 적지 않는다.
+        if (badge) { badge.textContent = '흔들림 미감시'; badge.style.background = '#21262d'; }
+        if (note) note.textContent = '정착하면 그 자리의 조각을 기준으로 떠 둔다.';
+        return;
+      }
+      const pair = CAL_DRIFT_TEXT[d.state] || ['?', '#21262d'];
+      if (badge) { badge.textContent = pair[0]; badge.style.background = pair[1]; }
+      if (!note) return;
+      const det = d.detail || {};
+      const why = CAL_DRIFT_WHY[det.why] || det.why || '';
+      const lines = [why];
+      if (typeof det.worstShiftCm === 'number') {
+        lines.push('가장 많이 옮겨간 모서리 ' + det.worstShiftCm + ' cm'
+                   + ' (문턱 ' + det.driftCmThreshold + ' cm)');
+      }
+      // 모서리별. 못 잰 모서리를 0 으로 적지 않는다 - 없는 값을 지어내면 평균이 거짓이 된다.
+      const cs = det.corners || [];
+      const per = cs.map(function (c, i) {
+        return '· ' + (i + 1) + '번 ' + (c ? (c.shiftCm + ' cm (정합 ' + c.score + ')') : '못 쟀다');
+      });
+      note.textContent = lines.filter(Boolean).join(' · ') + (per.length ? (CHR_NL + per.join(CHR_NL)) : '');
+      note.style.whiteSpace = 'pre-wrap';
+    }
+
+    // 영상 -> 평면도. 라이다를 안 쓴다 - 그래서 라이다를 검증할 수 있다(순환이 아니다).
+    async function calVisionBuild() {
+      const src = calSrc();
+      const note = document.getElementById('cal-vision-note');
+      const btn = document.getElementById('cal-vision-btn');
+      if (!src || !note) return;
+      if (btn) { btn.disabled = true; btn.textContent = '🗺 만드는 중...'; }
+      note.style.color = 'var(--text-muted)';
+      note.textContent = '만드는 중...';
+      try {
+        const res = await calPost('/api/vision/world', { src: src });
+        if (!res.ok) {
+          note.style.color = '#f85149';
+          note.textContent = '거부: ' + (res.body.message || res.code);
+          return;
+        }
+        const p = res.body.provenance || {};
+        const c = p.coverage || {};
+        // 🔴 QA Q-3: 예전 판은 `cellsTotal || 1` 로 **분모를 지어냈다.** 전체 칸 수가
+        //    안 오면 점유율은 `cellsOccupied × 100 %` 라는 엉뚱한 수가 된다.
+        //    비율은 분모가 있을 때만 낸다. 칸 수도 안 오면 `?` 로 적는다.
+        const cnt = function (v) {
+          return (typeof v === 'number' && isFinite(v)) ? String(v) : '?';
+        };
+        const total = c.cellsTotal;
+        const hasRatio = (typeof total === 'number' && total > 0
+                          && typeof c.cellsOccupied === 'number');
+        const occPct = hasRatio ? (100 * c.cellsOccupied / total).toFixed(1) + '%' : '미산출';
+        const out = [
+          '판 ' + res.body.version,
+          '비었다 ' + cnt(c.cellsFree) + ' · 막혔다 ' + cnt(c.cellsOccupied)
+            + ' · 모른다 ' + cnt(c.cellsUnknown) + ' / 전체 ' + cnt(total)
+            + '  (점유율 ' + occPct + ')',
+          // 한계를 같이 적는다. 이걸 빼면 사람이 이 격자를 사실로 읽는다.
+          '발자국 ' + p.footprintMethod + ' — 벽 높이 때문에 점유의 상한이다',
+          '그림자 ' + p.shadowModel,
+          '⚠ ' + p.shadowCaveat,
+          '카메라 바닥점 ' + p.cameraGroundPointIs + ' (추정이다)'
+        ];
+        if (p.sanity && p.sanity.ok === false) {
+          out.push('⚠ 말이 안 되는 판이다: ' + p.sanity.why);
+        }
+        note.textContent = out.join(CHR_NL);
+      } catch (e) {
+        note.style.color = '#f85149';
+        note.textContent = '실패: ' + e;
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🗺 영상 → 평면도 만들기'; }
+      }
+    }
+
+    async function calFramingSync() {
+      const src = calSrc();
+      const badge = document.getElementById('cal-framing-badge');
+      const note = document.getElementById('cal-framing-note');
+      if (!src || !note) return;
+      let js;
+      try {
+        js = await (await fetch('/api/calibration/framing?src='
+                                + encodeURIComponent(src))).json();
+      } catch (e) { return; }
+      if (!js.success) {
+        calFraming = null;
+        if (badge) { badge.textContent = '모름'; badge.style.background = '#21262d'; }
+        note.textContent = js.message || '';
+        calDraw();
+        return;
+      }
+      calFraming = js;
+      const probs = js.problems || [];
+      if (badge) {
+        badge.textContent = probs.length ? (probs.length + '건 고칠 것') : '쓸 만하다';
+        badge.style.background = probs.length ? '#9e6a03' : '#238636';
+      }
+      const lines = probs.map(function (p) { return '⚠ ' + p; });
+      // ⭐ 모르는 항목은 **모른다고 적는다.** 빈칸으로 두면 사람이 0 으로 읽는다.
+      lines.push('금지 띠 ' + js.edgeBandPx + ' px  (' + js.edgeBandSource + ')');
+      lines.push('화면 점유 ' + (js.coverage === null
+        ? '아직 모른다 (네 모서리를 찍어야 안다)'
+        : ((100 * js.coverage).toFixed(1) + '%  권장 '
+           + (100 * js.coverageMin).toFixed(0) + '% 이상')));
+      if (js.precision) {
+        lines.push('가장 먼 모서리 1픽셀 = ' + js.precision.worstCmPerPixel + ' cm  ·  '
+                   + '흔들림 문턱 ' + js.precision.driftThresholdCm + ' cm 는 '
+                   + js.precision.thresholdInPixels + ' 픽셀 (최소 '
+                   + js.precision.minThresholdPx + ' — ' + js.precision.minThresholdSource + ')'
+                   + (js.precision.thresholdMeasurable ? ' 잴 수 있다' : ' 못 잰다'));
+      } else {
+        lines.push('정밀도  아직 모른다 (정착해야 안다)');
+      }
+      lines.push(js.level
+        ? ('수평  pitch ' + js.level.pitchDeg + '° roll ' + js.level.rollDeg + '°'
+           + (js.level.tilted ? ' — 기울었다' : ' — 괜찮다'))
+        : '수평  앱이 안 보낸다 (X-Camera-Pitch / X-Camera-Roll). '
+          + '영상으로 추정하지 않는다 — 추정을 관측 자리에 놓지 않는다');
+      note.textContent = lines.join(CHR_NL);
+      note.style.color = probs.length ? '#d29922' : 'var(--text-muted)';
+      calDraw();
+    }
+
+    async function calSync() {
+      let data;
+      try {
+        data = await (await fetch('/api/calibration')).json();
+      } catch (e) { return; }
+      calSources = (data.sources || []);
+      const sel = document.getElementById('cal-src');
+      if (sel && !sel.dataset.filled) {
+        // 성질로 거른다. /api/sources 의 transport 를 쓰려면 그 목록이 필요하다.
+        let srcs = [];
+        try {
+          const s = await (await fetch('/api/sources')).json();
+          srcs = (s.sources || []).filter(function (x) {
+            return CAL_REAL_TRANSPORTS.indexOf(x.transport) >= 0 && x.trust === 'trusted';
+          }).map(function (x) { return x.id; });
+        } catch (e) { srcs = calSources.map(function (x) { return x.sourceId; }); }
+        sel.innerHTML = srcs.map(function (id) {
+          return '<option value="' + id + '">' + id + '</option>';
+        }).join('');
+        sel.dataset.filled = '1';
+        sel.onchange = function () { calImg = null; calPins = null; calVerify = []; calSync(); calShot(); };
+      }
+      const lm = document.getElementById('cal-lm');
+      if (lm && !lm.dataset.filled && data.landmarks) {
+        const names = Object.keys(data.landmarks);
+        lm.innerHTML = names.map(function (n) {
+          const p = data.landmarks[n];
+          return '<option value="' + n + '">' + n + ' (' + p.x + ', ' + p.y + ' cm)</option>';
+        }).join('');
+        lm.dataset.filled = '1';
+      }
+      const arena = data.arena;
+      const note = document.getElementById('cal-geo');
+      // U-8. ⭐ **왜 비었는지**를 말한다. 예전엔 캔버스도 드롭다운도 빈칸이고
+      //    배지만 회색이라, 소스가 없는 건지 아직 안 찍은 건지 화면에서 못 갈랐다.
+      if (note) {
+        if (!arena) {
+          note.textContent = '⚠️ 아레나 규격이 없다 — configs/arena.json 이 있어야 정착할 수 있다';
+        } else if (!calSrc()) {
+          note.textContent = '실물 시점이 없다 — 폰·태블릿·웹캠 중 하나가 연결돼야 고를 수 있다 '
+                             + '(가제보·로봇 화면은 정합 대상이 아니다)';
+        } else if (!calImg) {
+          note.textContent = '아직 정지 프레임을 안 받았다 — [📷 정지 프레임] 을 누른다. '
+                             + '움직이는 화면 위에는 핀을 못 찍는다';
+        } else if (!calPins) {
+          note.textContent = '프레임은 받았고 핀이 없다 — 아레나 바깥 네 모서리를 끌어다 맞춘다';
+        }
+      }
+      const mine = calSources.filter(function (x) { return x.sourceId === calSrc(); })[0];
+      calApplyState(mine);
+      calShowReceipts();
+      calFramingSync();
+    }
+
+    async function calShowReceipts() {
+      const el = document.getElementById('cal-receipts');
+      const src = calSrc();
+      if (!el || !src) return;
+      let js;
+      try {
+        js = await (await fetch('/api/calibration/receipts?src=' + encodeURIComponent(src) + '&limit=3')).json();
+      } catch (e) { return; }
+      const rows = (js.receipts || []).slice().reverse();
+      if (!rows.length) { el.textContent = '영수증 없음'; return; }
+      el.innerHTML = '영수증 (최근 ' + rows.length + '건, 덮어쓰지 않는다)<br>' + rows.map(function (r) {
+        // 🟡 QA Q-2: settledAt 이 없으면 Date(0) 이라 **1970-01-01** 이 '정착 시각' 으로 떴다.
+        //    "정착한 적 없음" 이 "1970년에 정착함" 이 된다.
+        const when = r.settledAt ? new Date(r.settledAt * 1000).toLocaleString() : '정착 전';
+        const acc = r.accuracyMeasured ? (r.maxVerifyErrorCm + ' cm') : '미측정';
+        return '· ' + when + ' · 아레나 ' + r.arenaVersion + ' · ' +
+               (r.frameSize ? r.frameSize.join('×') : '?') + ' · 오차 ' + acc;
+      }).join('<br>');
+    }
+
+    function calStart() {
+      const c = document.getElementById('cal-canvas');
+      if (c) {
+        c.addEventListener('mousedown', calDown);
+        c.addEventListener('mousemove', calMove);
+        window.addEventListener('mouseup', calUp);
+        c.addEventListener('touchstart', calDown, { passive: false });
+        c.addEventListener('touchmove', calMove, { passive: false });
+        window.addEventListener('touchend', calUp);
+      }
+      window.addEventListener('resize', calResize);
+      calSync();
+      setInterval(calSync, 10000);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', calStart);
+    } else {
+      calStart();
+    }
+
+    // --- 관제 카메라 다중 소스 및 AR 워터마크/동적 강조 관리 ---
+    let currentCamSource = 'phone';       // 'phone', 'relay-cam', 'gazebo'
+    let boostEnabled = false;             // 동적 영역 채도/명도 진하게 강조
+    let watermarkEnabled = false;         // 가제보 청사진 워터마크
+    let watermarkStyle = 'blueprint';     // 'blueprint', 'ghost', 'hybrid'
+
+    function updateMainStreamUrl() {
+      const img = document.getElementById('tablet-stream-img');
+      if (!img) return;
+      let url = `/video_feed?src=${encodeURIComponent(currentCamSource)}`;
+      if (boostEnabled) url += '&boost=1';
+      if (watermarkEnabled) {
+        url += `&watermark=1&style=${watermarkStyle}`;
+      }
+      url += `&t=${Date.now()}`;
+      img.src = url;
+
+      // 버튼 시각 상태 갱신
+      const bBoost = document.getElementById('btn-toggle-boost');
+      if (bBoost) {
+        bBoost.innerText = boostEnabled ? '✨ 동적 강조: ON (진하게)' : '✨ 동적 강조: OFF';
+        bBoost.style.background = boostEnabled ? '#9e6a03' : '#21262d';
+        bBoost.style.color = boostEnabled ? '#fff' : '#f2cc60';
+      }
+      const bWm = document.getElementById('btn-toggle-watermark');
+      if (bWm) {
+        bWm.innerText = watermarkEnabled ? '📐 가제보 워터마크: ON' : '📐 가제보 워터마크: OFF';
+        bWm.style.background = watermarkEnabled ? '#1f6feb' : '#21262d';
+        bWm.style.color = watermarkEnabled ? '#fff' : '#58a6ff';
+      }
+      const bStyle = document.getElementById('btn-toggle-style');
+      if (bStyle) {
+        bStyle.style.display = watermarkEnabled ? 'inline-block' : 'none';
+        bStyle.innerText = watermarkStyle === 'blueprint' ? '스타일: 청사진 엣지' : (watermarkStyle === 'ghost' ? '스타일: 반투명 고스트' : '스타일: 하이브리드');
+      }
+
+      // 레이블 안내 갱신
+      const labelSrc = document.getElementById('active-source-label');
+      if (labelSrc) {
+        labelSrc.innerText = currentCamSource === 'relay-cam' ? '💻 노트북 웹캠 (LG Camera)' : (currentCamSource === 'gazebo' ? '🏭 가제보 3D 가상 카메라' : '📱 스마트폰 카메라 (phone)');
+      }
+      const labelFx = document.getElementById('active-fx-label');
+      if (labelFx) {
+        let fx = [];
+        if (boostEnabled) fx.push('동적 채도 강조 (Vivid)');
+        if (watermarkEnabled) fx.push(`가제보 워터마크 (${watermarkStyle})`);
+        labelFx.innerText = fx.length > 0 ? fx.join(' + ') : '원본 스트림';
+      }
+    }
+
+    function selectCameraSource(src) {
+      currentCamSource = src;
+      ['btn-src-phone', 'btn-src-relay', 'btn-src-gazebo'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.remove('cyan');
+      });
+      if (src === 'phone') document.getElementById('btn-src-phone')?.classList.add('cyan');
+      if (src === 'relay-cam') document.getElementById('btn-src-relay')?.classList.add('cyan');
+      if (src === 'gazebo') document.getElementById('btn-src-gazebo')?.classList.add('cyan');
+
+      updateMainStreamUrl();
+    }
+
+    function toggleDynamicBoost() {
+      boostEnabled = !boostEnabled;
+      updateMainStreamUrl();
+    }
+
+    function toggleGazeboWatermark() {
+      watermarkEnabled = !watermarkEnabled;
+      updateMainStreamUrl();
+    }
+
+    function toggleWatermarkStyle() {
+      if (watermarkStyle === 'blueprint') watermarkStyle = 'ghost';
+      else if (watermarkStyle === 'ghost') watermarkStyle = 'hybrid';
+      else watermarkStyle = 'blueprint';
+      updateMainStreamUrl();
+    }
+
+    function reconnectMainStream() {
+      updateMainStreamUrl();
+    }
+
+    function reconnectTabletStream() {
+      updateMainStreamUrl();
+    }
+
+    // 휴대폰/태블릿 카메라 URL 동적 변경
+    function setCameraUrl() {
+      const input = document.getElementById('camera-url-input');
+      const url = input ? input.value.trim() : '';
+      if (!url) return;
+
+      fetch('/api/camera/url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      })
+      .then(res => res.json())
+      .then(data => {
+        const resDiv = document.getElementById('camera-scan-results');
+        if (resDiv) resDiv.innerHTML = `<span style="color:#3fb950;">${data.message || '주소 변경 완료!'}</span>`;
+        reconnectTabletStream();
+      })
+      .catch(err => alert('카메라 주소 변경 실패: ' + err));
+    }
+
+    // 네트워크 내 휴대폰 IP 카메라 자동 탐색
+    function autoScanCamera() {
+      const resDiv = document.getElementById('camera-scan-results');
+      if (resDiv) resDiv.innerHTML = '<span style="color:#58a6ff;">🔍 네트워크(198.51.100.x) 카메라 포트 탐색 중...</span>';
+
+      fetch('/api/camera/scan')
+      .then(res => res.json())
+      .then(data => {
+        if (data.candidates && data.candidates.length > 0) {
+          const first = data.candidates[0];
+          document.getElementById('camera-url-input').value = first.url;
+          if (resDiv) {
+            resDiv.innerHTML = `🟢 <b>${first.ip}:${first.port}</b> 감지됨! (<a href="#" onclick="document.getElementById('camera-url-input').value='${first.url}'; setCameraUrl(); return false;" style="color:#58a6ff; font-weight:bold;">즉시 연결</a>)`;
+          }
+          setCameraUrl();
+        } else {
+          if (resDiv) {
+            resDiv.innerHTML = '<span style="color:#d29922;">⚠️ 활성 IP 카메라(8080/4747) 없음 ➔ [휴대폰 웹 송출기]를 열어보세요.</span>';
+          }
+        }
+      })
+      .catch(err => {
+        if (resDiv) resDiv.textContent = '탐색 에러: ' + err;
+      });
+    }
+
+    // 초기 카메라 URL 로드
+    fetch('/api/camera/url')
+      .then(res => res.json())
+      .then(data => {
+        if (data.primary_url && document.getElementById('camera-url-input')) {
+          document.getElementById('camera-url-input').value = data.primary_url;
+        }
+      }).catch(() => {});
+
+    // 맵 서브탭 전환 (듀얼 분할 / 2D 브라우저 관제 / Gazebo 3D)
+    function switchMapTab(mode, btn) {
+      if (btn && btn.parentElement) {
+        btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+
+      const dualGrid = document.getElementById('view-dual-grid');
+      const colMap = document.getElementById('col-interactive-map');
+      const colGz = document.getElementById('col-gazebo-live');
+      const badge = document.getElementById('map-badge');
+
+      if (mode === 'dual') {
+        dualGrid.style.display = 'grid';
+        dualGrid.style.gridTemplateColumns = '1fr 1fr';
+        colMap.style.display = 'block';
+        colGz.style.display = 'block';
+        badge.textContent = 'DUAL LIVE (30 FPS)';
+        badge.className = 'badge cyan';
+      } else if (mode === 'interactive') {
+        dualGrid.style.display = 'grid';
+        dualGrid.style.gridTemplateColumns = '1fr';
+        colMap.style.display = 'block';
+        colGz.style.display = 'none';
+        badge.textContent = '2D BROWSER MAP';
+        badge.className = 'badge green';
+      } else if (mode === 'gazebo') {
+        dualGrid.style.display = 'grid';
+        dualGrid.style.gridTemplateColumns = '1fr';
+        colMap.style.display = 'none';
+        colGz.style.display = 'block';
+        badge.textContent = 'GAZEBO 3D ONLY';
+        badge.className = 'badge green';      }
+    }
+
+    // 텔레메트리 탭 전환
+    function switchTelemetryTab(tabId, btn) {
+      document.querySelectorAll('#tab-robot1, #tab-robot2, #tab-mission').forEach(el => el.classList.remove('active'));
+      btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    // =========================================================================
+    // 🗺️ 2D 브라우저 관제 캔버스 — 읽기 전용 위치/상태 오버레이
+    // =========================================================================
+    const navCanvas = document.getElementById('navCanvas');
+    const navCtx = navCanvas ? navCanvas.getContext('2d') : null;
+    const mapImg = new Image();
+    mapImg.src = '/my_map.png';
+
+    // R-7 (2026-09-26): 지도 규격은 게이트웨이가 **실제로** 읽은 지도(좌표 프로파일)를 따른다.
+    // 아래는 서버 값이 오기 전·못 받을 때의 옛 기본값(옛 경기장 my_map, 가운데 원점 2.70 × 1.25).
+    let MAP_ORIGIN = { x: -1.35, y: -0.625 };
+    let MAP_RES = 0.025;
+    let MAP_W = 108;
+    let MAP_H = 50;
+    let mapProfile = null;
+    async function loadProfileMap() {
+      try {
+        const r = await fetch('/api/fleet/profile_map', { cache: 'no-store' });
+        const m = await r.json();
+        // 합성(지도 못 읽음)이면 옛 기본값을 둔다 — 합성 그림의 규격으로 좌표를 그리면 거짓이 된다
+        if (!m || m.synthetic || !(m.width > 0) || !(m.resolution > 0)) return;
+        const key = [m.profile, m.origin[0], m.origin[1], m.resolution, m.width, m.height].join('|');
+        if (key === mapProfile) return;
+        mapProfile = key;
+        MAP_ORIGIN = { x: m.origin[0], y: m.origin[1] };
+        MAP_RES = m.resolution;
+        MAP_W = m.width;
+        MAP_H = m.height;
+        mapImg.src = (m.image_url || '/my_map.png') + '?p=' + encodeURIComponent(key);
+      } catch (e) { /* 서버가 없으면 옛 기본값 */ }
+    }
+    loadProfileMap();
+    setInterval(loadProfileMap, 10000);
+
+    let isNavDragging = false;
+    let dragStartWorld = null;
+    let dragCurrentCanvas = null;
+    let activeGoal = { x: -0.04, y: 0.43, yaw: -1.57 };
+    let realRobotPose = null;
+    let robot2Pose = null;
+    let simRobotPose = null;
+    let visionRobotPoses = { robot1: null, robot2: null };
+    let realTrail = [];
+    let robot2Trail = [];
+    let simTrail = [];
+
+    const WAYPOINTS = [
+      { id: 1, name: '도크/원점 (Dock)', x: -0.04, y: 0.43, color: '#3fb950' },
+      { id: 2, name: '침실 (Bedroom)', x: -0.85, y: -0.10, color: '#f2cc60' },
+      { id: 3, name: '식당 (Dining)', x: 0.35, y: -0.25, color: '#a371f7' },
+      { id: 4, name: '주방 (Kitchen)', x: 1.00, y: -0.25, color: '#58a6ff' }
+    ];
+
+    function worldToCanvas(wx, wy) {
+      if (!navCanvas) return { x: 0, y: 0 };
+      const ix = (wx - MAP_ORIGIN.x) / MAP_RES;
+      const iy = (wy - MAP_ORIGIN.y) / MAP_RES;
+      const cx = ix * (navCanvas.width / MAP_W);
+      const cy = (MAP_H - iy) * (navCanvas.height / MAP_H);
+      return { x: cx, y: cy };
+    }
+
+    function canvasToWorld(cx, cy) {
+      if (!navCanvas) return { x: 0, y: 0 };
+      const ix = cx / (navCanvas.width / MAP_W);
+      const iy = MAP_H - (cy / (navCanvas.height / MAP_H));
+      const wx = MAP_ORIGIN.x + (ix * MAP_RES);
+      const wy = MAP_ORIGIN.y + (iy * MAP_RES);
+      return { x: wx, y: wy };
+    }
+
+    if (navCanvas) {
+      // [안전 정책] 웹 관제 캔버스는 읽기 전용 (마우스 클릭/드래그 주행 명령 차단)
+      navCanvas.style.cursor = 'crosshair';
+      navCanvas.addEventListener('pointermove', (e) => {
+        const rect = navCanvas.getBoundingClientRect();
+        const cx = (e.clientX - rect.left) * (navCanvas.width / rect.width);
+        const cy = (e.clientY - rect.top) * (navCanvas.height / rect.height);
+        const w = canvasToWorld(cx, cy);
+
+        const hoverEl = document.getElementById('nav-live-hover');
+        if (hoverEl) hoverEl.textContent = `X: ${w.x.toFixed(2)}m, Y: ${w.y.toFixed(2)}m (관제 전용)`;
+      });
+
+      navCanvas.addEventListener('pointerleave', () => {
+        const hoverEl = document.getElementById('nav-live-hover');
+        if (hoverEl) hoverEl.textContent = '지도 위 마우스 오버 시 좌표 확인';
+      });
+    }
+
+    async function stopNavigation() {
+      const msgEl = document.getElementById('nav-action-msg');
+      if (msgEl) {
+        msgEl.style.color = '#f85149';
+        msgEl.textContent = `🛑 긴급 정지 명령 전송 중...`;
+      }
+      // 🔴 응답을 **읽고** 그 말만 쓴다. 예전에는 fetch 결과를 버린 채
+      //    "[정지 완료] … 즉각 정지되었습니다" 를 무조건 찍었다 — 수신자가 0 이어도
+      //    화면은 멈췄다고 말했다(2026-09-18 감사). 없는 안전을 있다고 믿게 하는 쪽이
+      //    안전이 없는 것보다 나쁘다.
+      try {
+        const r = await fetch('/api/robot1/stop', { method: 'POST' });
+        let body = {};
+        try { body = await r.json(); } catch (e) { body = {}; }
+        // D7 뒤 응답: success = 로봇이 정지 뒤 멈춘 상태를 **보고**했다. dispatched = 보내기만 했다.
+        //   (예전 `subscribers` 는 D7 에서 없어졌다 — 그대로 찍으면 "수신자 undefined" 였다)
+        if (r.ok && body.success) {
+          activeGoal = null;
+          if (msgEl) {
+            msgEl.style.color = '#3fb950';
+            msgEl.textContent = `🛑 ${body.message || '정지 확인'}`;
+          }
+        } else if (r.ok && body.dispatched) {
+          activeGoal = null;
+          if (msgEl) {
+            msgEl.style.color = '#d29922';
+            msgEl.textContent = `⚠️ ${body.message || '정지 명령을 보냈으나 확인은 아직 없다'}`;
+          }
+        } else if (msgEl) {
+          msgEl.style.color = '#f85149';
+          const why = body.message || body.reason || `HTTP ${r.status}`;
+          msgEl.textContent = `⛔ 정지 불가 — ${why}`;
+        }
+      } catch (e) {
+        if (msgEl) {
+          msgEl.style.color = '#f85149';
+          msgEl.textContent = `⛔ 정지 전달 실패 — 중계에 닿지 않았다 (${e})`;
+        }
+      }
+    }
+
+    function renderNavCanvas() {
+      if (!navCtx || !navCanvas) return;
+      const w = navCanvas.width;
+      const h = navCanvas.height;
+
+      navCtx.fillStyle = '#0f141c';
+      navCtx.fillRect(0, 0, w, h);
+
+      if (mapImg.complete && mapImg.naturalWidth > 0) {
+        navCtx.imageSmoothingEnabled = false;
+        navCtx.drawImage(mapImg, 0, 0, w, h);
+      }
+
+      // 1. 그리드 라인 (1m 간격)
+      navCtx.strokeStyle = 'rgba(88, 166, 255, 0.12)';
+      navCtx.lineWidth = 1;
+      for (let mx = -2.0; mx <= 2.0; mx += 1.0) {
+        const p1 = worldToCanvas(mx, -2.0);
+        const p2 = worldToCanvas(mx, 2.0);
+        navCtx.beginPath();
+        navCtx.moveTo(p1.x, 0);
+        navCtx.lineTo(p1.x, h);
+        navCtx.stroke();
+      }
+      for (let my = -2.0; my <= 2.0; my += 1.0) {
+        const p = worldToCanvas(0, my);
+        navCtx.beginPath();
+        navCtx.moveTo(0, p.y);
+        navCtx.lineTo(w, p.y);
+        navCtx.stroke();
+      }
+
+      // 2. 남측 안전 회피 통로 가이드라인 (y = -1.25m)
+      const c1 = worldToCanvas(0.0, -1.25);
+      const c2 = worldToCanvas(-1.3, -1.25);
+      navCtx.strokeStyle = 'rgba(63, 185, 80, 0.45)';
+      navCtx.setLineDash([4, 4]);
+      navCtx.lineWidth = 2;
+      navCtx.beginPath();
+      navCtx.moveTo(c1.x, c1.y);
+      navCtx.lineTo(c2.x, c2.y);
+      navCtx.stroke();
+      navCtx.setLineDash([]);
+
+      // 3. 경유지 핀 (1, 2, 3)
+      WAYPOINTS.forEach(wp => {
+        const pt = worldToCanvas(wp.x, wp.y);
+        navCtx.fillStyle = wp.color;
+        navCtx.beginPath();
+        navCtx.arc(pt.x, pt.y, 8, 0, Math.PI * 2);
+        navCtx.fill();
+        navCtx.strokeStyle = '#ffffff';
+        navCtx.lineWidth = 1.5;
+        navCtx.stroke();
+
+        navCtx.fillStyle = '#000000';
+        navCtx.font = 'bold 10px sans-serif';
+        navCtx.textAlign = 'center';
+        navCtx.textBaseline = 'middle';
+        navCtx.fillText(wp.id, pt.x, pt.y);
+
+        navCtx.fillStyle = '#f0f6fc';
+        navCtx.font = '10px sans-serif';
+        navCtx.fillText(wp.name, pt.x, pt.y - 12);
+      });
+
+      // 4. 로봇 궤적 그리기
+      if (realTrail.length > 1) {
+        navCtx.strokeStyle = 'rgba(255, 153, 0, 0.6)';
+        navCtx.lineWidth = 2;
+        navCtx.beginPath();
+        realTrail.forEach((p, idx) => {
+          const cp = worldToCanvas(p.x, p.y);
+          if (idx === 0) navCtx.moveTo(cp.x, cp.y);
+          else navCtx.lineTo(cp.x, cp.y);
+        });
+        navCtx.stroke();
+      }
+
+      if (simTrail.length > 1) {
+        navCtx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+        navCtx.lineWidth = 1.5;
+        navCtx.setLineDash([2, 2]);
+        navCtx.beginPath();
+        simTrail.forEach((p, idx) => {
+          const cp = worldToCanvas(p.x, p.y);
+          if (idx === 0) navCtx.moveTo(cp.x, cp.y);
+          else navCtx.lineTo(cp.x, cp.y);
+        });
+        navCtx.stroke();
+        navCtx.setLineDash([]);
+      }
+
+      // 5. 가제보 시뮬레이션 로봇 마커 (Cyan)
+      if (simRobotPose) {
+        const sp = worldToCanvas(simRobotPose.x, simRobotPose.y);
+        navCtx.fillStyle = '#00ffff';
+        navCtx.beginPath();
+        navCtx.arc(sp.x, sp.y, 7, 0, Math.PI * 2);
+        navCtx.fill();
+        navCtx.strokeStyle = '#ffffff';
+        navCtx.lineWidth = 1;
+        navCtx.stroke();
+
+        const ax = sp.x + 16 * Math.cos(simRobotPose.yaw);
+        const ay = sp.y - 16 * Math.sin(simRobotPose.yaw);
+        navCtx.strokeStyle = '#00ffff';
+        navCtx.lineWidth = 2;
+        navCtx.beginPath();
+        navCtx.moveTo(sp.x, sp.y);
+        navCtx.lineTo(ax, ay);
+        navCtx.stroke();
+      }
+
+      // 6. Robot #2 odom marker (Purple)
+      if (robot2Pose) {
+        const p2 = worldToCanvas(robot2Pose.x, robot2Pose.y);
+        navCtx.fillStyle = '#a371f7';
+        navCtx.beginPath(); navCtx.arc(p2.x, p2.y, 7, 0, Math.PI * 2); navCtx.fill();
+        navCtx.strokeStyle = '#ffffff'; navCtx.lineWidth = 1.5; navCtx.stroke();
+        const ax2 = p2.x + 16 * Math.cos(robot2Pose.yaw);
+        const ay2 = p2.y - 16 * Math.sin(robot2Pose.yaw);
+        navCtx.strokeStyle = '#a371f7'; navCtx.lineWidth = 2;
+        navCtx.beginPath(); navCtx.moveTo(p2.x, p2.y); navCtx.lineTo(ax2, ay2); navCtx.stroke();
+        navCtx.fillStyle = '#a371f7'; navCtx.font = 'bold 10px sans-serif';
+        navCtx.textAlign = 'center'; navCtx.fillText('Pinky #2', p2.x, p2.y + 15);
+      }
+
+      // 7. External vision pose — FRESH일 때만 링으로 표시한다.
+      [['robot1', '#3fb950'], ['robot2', '#39d0d8']].forEach(([rid, color]) => {
+        const vp = visionRobotPoses[rid];
+        if (!vp) return;
+        const p = worldToCanvas(vp.x, vp.y);
+        navCtx.strokeStyle = color; navCtx.lineWidth = 2.5; navCtx.setLineDash([4, 3]);
+        navCtx.beginPath(); navCtx.arc(p.x, p.y, 12, 0, Math.PI * 2); navCtx.stroke();
+        navCtx.setLineDash([]);
+        const ax = p.x + 20 * Math.cos(vp.yaw);
+        const ay = p.y - 20 * Math.sin(vp.yaw);
+        navCtx.beginPath(); navCtx.moveTo(p.x, p.y); navCtx.lineTo(ax, ay); navCtx.stroke();
+      });
+
+      // 8. Robot #1 odom marker (Orange)
+      if (realRobotPose) {
+        const rp = worldToCanvas(realRobotPose.x, realRobotPose.y);
+        navCtx.fillStyle = '#ff9900';
+        navCtx.beginPath();
+        navCtx.arc(rp.x, rp.y, 8, 0, Math.PI * 2);
+        navCtx.fill();
+        navCtx.strokeStyle = '#ffffff';
+        navCtx.lineWidth = 2;
+        navCtx.stroke();
+
+        const ax = rp.x + 18 * Math.cos(realRobotPose.yaw);
+        const ay = rp.y - 18 * Math.sin(realRobotPose.yaw);
+        navCtx.strokeStyle = '#ffffff';
+        navCtx.lineWidth = 2.5;
+        navCtx.beginPath();
+        navCtx.moveTo(rp.x, rp.y);
+        navCtx.lineTo(ax, ay);
+        navCtx.stroke();
+
+        navCtx.fillStyle = '#ff9900';
+        navCtx.font = 'bold 11px sans-serif';
+        navCtx.textAlign = 'center';
+        navCtx.fillText('Pinky #1', rp.x, rp.y + 16);
+      }
+
+      // 9. 현재 Navigator 목표 마커 (읽기 전용)
+      if (activeGoal) {
+        const gp = worldToCanvas(activeGoal.x, activeGoal.y);
+        const pulse = 10 + 4 * Math.sin(Date.now() / 150);
+        navCtx.strokeStyle = '#ffcc00';
+        navCtx.lineWidth = 2;
+        navCtx.beginPath();
+        navCtx.arc(gp.x, gp.y, pulse, 0, Math.PI * 2);
+        navCtx.stroke();
+
+        navCtx.fillStyle = '#ff4444';
+        navCtx.beginPath();
+        navCtx.arc(gp.x, gp.y, 4, 0, Math.PI * 2);
+        navCtx.fill();
+
+        navCtx.strokeStyle = '#ffcc00';
+        navCtx.lineWidth = 1.5;
+        navCtx.beginPath();
+        navCtx.moveTo(gp.x - 14, gp.y); navCtx.lineTo(gp.x + 14, gp.y);
+        navCtx.moveTo(gp.x, gp.y - 14); navCtx.lineTo(gp.x, gp.y + 14);
+        navCtx.stroke();
+
+        if (activeGoal.yaw !== undefined) {
+          const gx = gp.x + 22 * Math.cos(activeGoal.yaw);
+          const gy = gp.y - 22 * Math.sin(activeGoal.yaw);
+          navCtx.strokeStyle = '#ffcc00';
+          navCtx.lineWidth = 2;
+          navCtx.beginPath();
+          navCtx.moveTo(gp.x, gp.y);
+          navCtx.lineTo(gx, gy);
+          navCtx.stroke();
+        }
+
+        navCtx.fillStyle = '#ffcc00';
+        navCtx.font = 'bold 10px sans-serif';
+        navCtx.textAlign = 'center';
+        navCtx.fillText('GOAL', gp.x, gp.y - 16);
+      }
+
+      // 10. 과거 드래그 상태 호환 표시 (현재 입력 이벤트 없음)
+      if (isNavDragging && dragStartWorld && dragCurrentCanvas) {
+        const sp = worldToCanvas(dragStartWorld.x, dragStartWorld.y);
+        const ep = dragCurrentCanvas;
+
+        navCtx.strokeStyle = '#ff7b72';
+        navCtx.lineWidth = 2.5;
+        navCtx.beginPath();
+        navCtx.moveTo(sp.x, sp.y);
+        navCtx.lineTo(ep.x, ep.y);
+        navCtx.stroke();
+
+        navCtx.fillStyle = '#ff7b72';
+        navCtx.beginPath();
+        navCtx.arc(ep.x, ep.y, 5, 0, Math.PI * 2);
+        navCtx.fill();
+      }
+
+      requestAnimationFrame(renderNavCanvas);
+    }
+
+    requestAnimationFrame(renderNavCanvas);
+
+    // =========================================================================
+    // 상태 API 주기적 폴링 (좌표, 실측 오차, 네트워크 갱신)
+    // =========================================================================
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (res.ok) {
+          const data = await res.json();
+          
+          // 🔴 좌표는 **관측됐을 때만** 실린다(control_renderer.get_robot_data).
+          //    객체는 name·observed·color 로 여전히 truthy 이므로 존재만 보면
+          //    `r1.x.toFixed` 가 undefined 에서 던지고, 아래 catch 가 삼켜서
+          //    이 함수의 나머지(태블릿 배지·호스트 자원·지연·Fleet)가 통째로 멎는다.
+          const _obs = (r) => r && r.observed === true && typeof r.x === 'number';
+          const _setText = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+
+          // 1. 실물 로봇 좌표 갱신
+          if (_obs(data.robots && data.robots.robot1)) {
+            const r1 = data.robots.robot1;
+            realRobotPose = { x: r1.x, y: r1.y, yaw: r1.yaw };
+            realTrail.push({ x: r1.x, y: r1.y });
+            if (realTrail.length > 80) realTrail.shift();
+
+            _setText('r1-x', r1.x.toFixed(2) + ' m');
+            _setText('r1-y', r1.y.toFixed(2) + ' m');
+            _setText('r1-yaw', (r1.yaw * 180 / Math.PI).toFixed(1) + '°');
+            _setText('hud-real-pos', `X: ${r1.x.toFixed(2)}m, Y: ${r1.y.toFixed(2)}m`);
+            _setText('hud-real-yaw', `${(r1.yaw * 180 / Math.PI).toFixed(1)}°`);
+            const b1 = document.getElementById('r1-observed-badge');
+            if (b1) { b1.className = 'badge green'; b1.textContent = 'OBSERVED'; }
+          } else {
+            realRobotPose = null;
+            ['r1-x', 'r1-y', 'r1-yaw'].forEach(id => _setText(id, '관측 없음'));
+            _setText('hud-real-pos', '관측 없음');
+            _setText('hud-real-yaw', '—');
+            const b1 = document.getElementById('r1-observed-badge');
+            if (b1) { b1.className = 'badge'; b1.style.background = '#21262d'; b1.textContent = 'NO OBSERVATION'; }
+          }
+
+          // 2. 가제보 시뮬레이션 로봇 좌표 갱신
+          if (_obs(data.robots && data.robots.gazebo_sim)) {
+            const gz = data.robots.gazebo_sim;
+            simRobotPose = { x: gz.x, y: gz.y, yaw: gz.yaw };
+            simTrail.push({ x: gz.x, y: gz.y });
+            if (simTrail.length > 80) simTrail.shift();
+            _setText('hud-sim-pos', `X: ${gz.x.toFixed(2)}m, Y: ${gz.y.toFixed(2)}m`);
+            _setText('hud-sim-yaw', `${(gz.yaw * 180 / Math.PI).toFixed(1)}°`);
+          } else {
+            simRobotPose = null;
+            _setText('hud-sim-pos', '관측 없음');
+            _setText('hud-sim-yaw', '—');
+          }
+
+          // 3. Vision pose / downstream / Drive readiness 갱신
+          const vision = data.visionPose || {};
+          function updateVisionRobot(rid, prefix, color) {
+            const v = vision[rid] || {};
+            const stateEl = document.getElementById(prefix + '-state');
+            const posEl = document.getElementById(prefix + '-pos');
+            const ageEl = document.getElementById(prefix + '-age');
+            const fresh = v.state === 'VISION_FRESH' && v.observed === true
+                       && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.yaw);
+            if (stateEl) {
+              stateEl.textContent = v.state || 'VISION_NEVER';
+              stateEl.style.color = fresh ? color : (v.state === 'VISION_STALE' ? '#f2cc60' : '#8b949e');
+            }
+            if (posEl) posEl.textContent = fresh
+              ? `X ${v.x.toFixed(2)}m · Y ${v.y.toFixed(2)}m · Yaw ${(v.yaw * 180 / Math.PI).toFixed(1)}°`
+              : '좌표 없음 — stale/never 값은 표시하지 않음';
+            if (ageEl) ageEl.textContent = (typeof v.ageMs === 'number') ? `age: ${v.ageMs} ms` : 'age: 미측정';
+            visionRobotPoses[rid] = fresh ? {x:v.x, y:v.y, yaw:v.yaw} : null;
+            const pathEl = document.getElementById(rid === 'robot1' ? 'vision-r1-path' : 'vision-r2-path');
+            if (pathEl) {
+              const d = v.downstream || {};
+              const sub = (d.subscribers === null || d.subscribers === undefined) ? '미측정' : d.subscribers;
+              const hz = (d.flowHz === null || d.flowHz === undefined) ? '미측정' : d.flowHz;
+              pathEl.textContent = `${rid === 'robot1' ? 'Robot #1' : 'Robot #2'}: D${d.domain ?? '?'} ${d.topic || '/vision_pose'} · consumer ${sub} · flow ${hz}`;
+            }
+          }
+          updateVisionRobot('robot1', 'vision-r1', '#3fb950');
+          updateVisionRobot('robot2', 'vision-r2', '#39d0d8');
+
+          // Drive Stack API는 아직 계약되지 않았다. 필드가 생기기 전에는 READY를 추정하지 않는다.
+          const drive = data.driveStack || data.drive_stack || data.driveStatus || null;
+          const driveBadge = document.getElementById('drive-ready-state');
+          const driveDetail = document.getElementById('drive-ready-detail');
+          const driveReason = document.getElementById('drive-ready-reason');
+          if (drive) {
+            const state = drive.state || drive.readiness || 'UNKNOWN';
+            const ready = state === 'DRIVE_READY' || state === 'READY' || drive.ready === true;
+            if (driveBadge) { driveBadge.className = ready ? 'badge green' : 'badge gold'; driveBadge.textContent = ready ? '🟢 DRIVE_READY' : `🟡 ${state}`; }
+            if (driveDetail) { driveDetail.textContent = state; driveDetail.style.color = ready ? '#3fb950' : '#f2cc60'; }
+            if (driveReason) driveReason.textContent = drive.reason || 'reason 미제공';
+          } else {
+            if (driveBadge) { driveBadge.className = 'badge'; driveBadge.style.background = '#21262d'; driveBadge.textContent = '⚪ DRIVE 상태 미측정'; }
+            if (driveDetail) { driveDetail.textContent = '미측정 — Drive Stack 통합 상태 API 미연결'; driveDetail.style.color = '#8b949e'; }
+            if (driveReason) driveReason.textContent = '프로세스 실행 여부를 DRIVE_READY로 추정하지 않음';
+          }
+
+          // Localization Error Meter 필드가 생기면 기존 /api/status 아래 값을 그대로 소비한다.
+          const residual = (vision.robot1 && vision.robot1.residual) || null;
+          const rs = document.getElementById('residual-summary');
+          const rf = document.getElementById('residual-floor');
+          if (residual) {
+            const e1 = residual.e1 ?? residual.e1Cm;
+            const e2 = residual.e2 ?? residual.e2CmPerM;
+            const e3 = residual.e3 ?? residual.e3Cm;
+            if (rs) rs.textContent = `E1 ${e1 ?? '미측정'} · E2 ${e2 ?? '미측정'} · E3 ${e3 ?? '미측정'} · ${residual.grade || '등급 미측정'}`;
+            if (rf) rf.textContent = `SELF_BELIEF_SOURCE: ${residual.selfBeliefSource || residual.source || '미측정'} · floor: ${residual.floorSource || '미측정'}`;
+          } else {
+            if (rs) rs.textContent = '미측정 — residual 필드 미연결';
+            if (rf) rf.textContent = 'E1/E2/E3 값이 없으면 정상값으로 채우지 않음';
+          }
+
+          // 실측 오차 정량 분석 갱신
+          if (data.discrepancy) {
+            const disc = data.discrepancy;
+            // 🔴 QA Q-1 (2026-09-12): 예전 판은 값이 없으면 0.0 으로 떨어뜨렸고,
+            //    아래 등급이 0.0 을 '🟢 실측 일치 극우수' 로 읽었다. 로봇 데이터가
+            //    0건인데 화면이 "완벽히 일치" 라고 말한 것이다 — 설계서 §2 원칙 1 위반.
+            //    이제 state 를 먼저 본다. MEASURED 가 아니면 **숫자를 쓰지 않는다.**
+            if (disc.state !== 'MEASURED') {
+              const why = disc.why ? ' (' + disc.why + ')' : '';
+              ['hud-err-dist','hud-err-dx','hud-err-dy','hud-err-yaw'].forEach(function (id) {
+                const el = document.getElementById(id);
+                if (el) { el.textContent = '미측정'; el.style.color = '#8b949e'; }
+              });
+              const gb = document.getElementById('discrepancy-grade-badge');
+              if (gb) { gb.className = 'badge'; gb.style.background = '#21262d';
+                        gb.textContent = '⚪ 미측정 — 로봇/시뮬 위치가 안 왔다' + why; }
+              const ec = document.getElementById('hud-err-card');
+              if (ec) ec.style.borderColor = '#30363d';
+            } else if (disc.dist_err_cm === undefined || disc.dx_m === undefined
+                || disc.dy_m === undefined || disc.dyaw_deg === undefined) {
+              // ⚠️ 위 게이트가 MEASURED 가 아닌 것을 이미 걸러 내지만, 여기 `: 0.0` 을
+              //    남겨 두면 게이트가 바뀌는 날 Q-1 이 **그대로 되살아난다.**
+              //    MEASURED 라면서 값이 없는 것은 서버 계약 위반이라 그렇게 적는다.
+              ['hud-err-dist','hud-err-dx','hud-err-dy','hud-err-yaw'].forEach(function (id) {
+                const el = document.getElementById(id);
+                if (el) { el.textContent = '값 없음'; el.style.color = '#8b949e'; }
+              });
+              const gb2 = document.getElementById('discrepancy-grade-badge');
+              if (gb2) { gb2.className = 'badge'; gb2.style.background = '#21262d';
+                         gb2.textContent = '⚪ MEASURED 인데 값이 안 왔다 (서버 계약 위반)'; }
+            } else {
+              const distCm = disc.dist_err_cm;
+              const dxCm = (disc.dx_m * 100).toFixed(1);
+              const dyCm = (disc.dy_m * 100).toFixed(1);
+              const dyaw = disc.dyaw_deg;
+
+              const errDistEl = document.getElementById('hud-err-dist');
+              const errDxEl = document.getElementById('hud-err-dx');
+              const errDyEl = document.getElementById('hud-err-dy');
+              const errYawEl = document.getElementById('hud-err-yaw');
+              const gradeBadge = document.getElementById('discrepancy-grade-badge');
+              const errCard = document.getElementById('hud-err-card');
+
+              if (errDistEl) errDistEl.textContent = `${distCm.toFixed(1)} cm`;
+              if (errDxEl) errDxEl.textContent = `${dxCm}cm`;
+              if (errDyEl) errDyEl.textContent = `${dyCm}cm`;
+              if (errYawEl) errYawEl.textContent = `${dyaw}°`;
+
+              if (distCm < 10.0) {
+                if (gradeBadge) { gradeBadge.className = 'badge green'; gradeBadge.textContent = '🟢 실측 일치 극우수 (< 10cm)'; }
+                if (errCard) errCard.style.borderColor = '#3fb950';
+                if (errDistEl) errDistEl.style.color = '#3fb950';
+              } else if (distCm < 25.0) {
+                if (gradeBadge) { gradeBadge.className = 'badge gold'; gradeBadge.textContent = '🟡 허용 오차 범위 (< 25cm, 정상)'; }
+                if (errCard) errCard.style.borderColor = '#f2cc60';
+                if (errDistEl) errDistEl.style.color = '#f2cc60';
+              } else {
+                if (gradeBadge) { gradeBadge.className = 'badge red'; gradeBadge.textContent = '🔴 위치 편차 발생 (경로 보정 필요)'; }
+                if (errCard) errCard.style.borderColor = '#f85149';
+                if (errDistEl) errDistEl.style.color = '#f85149';
+              }
+            }
+          }
+
+          // 4. 네비게이션 미션 텔레메트리 갱신
+          if (data.robot1_nav) {
+            const st = data.robot1_nav;
+            const navStateEl = document.getElementById('hud-nav-state');
+            const remDistEl = document.getElementById('hud-rem-dist');
+            if (navStateEl) navStateEl.textContent = `${st.state || 'IDLE'} ${st.mission ? '(' + st.mission + ')' : ''}`;
+            // 🔴 QA Q-3 (2026-09-12): `|| 0` 은 여기서 **Q-1 과 같은 방향**으로 틀린다.
+            //    남은 거리 `0.00 m` 는 "도착했다" 로 읽힌다 — 안 온 값이 가장 좋은
+            //    소식으로 둔갑한다. 안 왔으면 숫자를 쓰지 않는다.
+            if (remDistEl) {
+              const rd = st.remaining_dist;
+              const has = (typeof rd === 'number' && isFinite(rd));
+              remDistEl.textContent = has ? `${rd.toFixed(2)} m` : '미측정';
+              remDistEl.style.color = has ? '' : '#8b949e';
+            }
+            if (st.current_target) {
+              activeGoal = { x: st.current_target[0], y: st.current_target[1], yaw: 0.0 };
+              const hGoalPos = document.getElementById('hud-goal-pos');
+              if (hGoalPos) hGoalPos.textContent = `X: ${st.current_target[0].toFixed(2)}m, Y: ${st.current_target[1].toFixed(2)}m`;
+            }
+          }
+
+          // 로봇 2 좌표 갱신
+          if (_obs(data.robots && data.robots.robot2)) {
+            const r2 = data.robots.robot2;
+            robot2Pose = { x: r2.x, y: r2.y, yaw: r2.yaw };
+            robot2Trail.push({x:r2.x, y:r2.y}); if (robot2Trail.length > 80) robot2Trail.shift();
+            _setText('r2-x', r2.x.toFixed(2) + ' m');
+            _setText('r2-y', r2.y.toFixed(2) + ' m');
+            _setText('r2-yaw', (r2.yaw * 180 / Math.PI).toFixed(1) + '°');
+            const b2 = document.getElementById('r2-observed-badge');
+            if (b2) { b2.className = 'badge green'; b2.textContent = 'OBSERVED'; }
+          } else {
+            robot2Pose = null;
+            ['r2-x', 'r2-y', 'r2-yaw'].forEach(id => _setText(id, '관측 없음'));
+            const b2 = document.getElementById('r2-observed-badge');
+            if (b2) { b2.className = 'badge'; b2.style.background = '#21262d'; b2.textContent = 'NO OBSERVATION'; }
+          }
+          // 태블릿 상태 갱신
+          const badge = document.getElementById('tablet-badge');
+          if (data.tablet_camera && data.tablet_camera.connected) {
+            badge.textContent = 'INGEST LIVE';
+            badge.className = 'badge green';
+          } else {
+            badge.textContent = 'CONNECTING...';
+            badge.className = 'badge gold';
+          }
+          // 호스트 리소스 갱신
+          if (data.host_resources) {
+            const cpu = data.host_resources.cpu_percent;
+            const ram = data.host_resources.memory_percent;
+            const temp = data.host_resources.cpu_temp;
+            if (cpu !== undefined) document.getElementById('host-cpu').textContent = cpu.toFixed(0);
+            if (ram !== undefined) document.getElementById('host-ram').textContent = ram.toFixed(0);
+            if (temp !== null && temp !== undefined) document.getElementById('host-temp').textContent = temp;
+          }
+
+          // 실시간 네트워크 전달 속도 (Ping RTT) 갱신
+          if (data.network_latency) {
+            updateLatencyUI('router', data.network_latency.router);
+            updateLatencyUI('robot1', data.network_latency.robot1);
+            updateLatencyUI('robot2', data.network_latency.robot2);
+            updateLatencyUI('internet', data.network_latency.internet);
+          // 로봇 간 통신 상태 (Fleet Comm) UI 갱신
+          if (data.fleet_comm) {
+            const fc = data.fleet_comm;
+            if (fc.robot1) {
+              const r1RttEl = document.getElementById('fleet-r1-rtt');
+              if (r1RttEl && fc.robot1.rtt_ms !== null && fc.robot1.rtt_ms !== undefined) {
+                r1RttEl.textContent = fc.robot1.rtt_ms.toFixed(1) + ' ms';
+              }
+              const r1NavEl = document.getElementById('fleet-r1-nav');
+              if (r1NavEl) {
+                r1NavEl.textContent = fc.robot1.nav_state + ' (Solo A*)';
+                r1NavEl.style.color = (fc.robot1.nav_state === 'NAVIGATING') ? '#3fb950' : '#f2cc60';
+              }
+            }
+            if (fc.robot2) {
+              const r2RttEl = document.getElementById('fleet-r2-rtt');
+              if (r2RttEl && fc.robot2.rtt_ms !== null && fc.robot2.rtt_ms !== undefined) {
+                r2RttEl.textContent = fc.robot2.rtt_ms.toFixed(1) + ' ms';
+              }
+            }
+            if (fc.p2p_link) {
+              const p2pEl = document.getElementById('fleet-lan-link');
+              if (p2pEl) {
+                // 서브넷을 문자열로 박지 않는다 - 사이트마다 바뀐다(설정 주소가 두 번 어긋났다).
+                p2pEl.textContent = (fc.p2p_link.physical_lan === 'CONNECTED') ? '양호' : '단독 가동중';
+                p2pEl.style.color = (fc.p2p_link.physical_lan === 'CONNECTED') ? '#3fb950' : '#d29922';
+              }
+            }
+          }
+
+          }
+        }
+      } catch (e) {
+        // 🔴 예전에는 그냥 삼켰다. 한 줄이 던지면 이 함수의 나머지가 통째로 멎는데
+        //    화면은 마지막 값을 그대로 들고 있어 **멈춘 줄 모른다**.
+        console.error('[fetchStatus] 실패:', e);
+        const b = document.getElementById('tablet-badge');
+        if (b) { b.className = 'badge'; b.textContent = '상태 갱신 실패'; }
+      }
+    }
+
+    function updateLatencyUI(key, info) {
+      if (!info) return;
+      const rttEl = document.getElementById('rtt-' + key);
+      const badgeEl = document.getElementById('badge-' + key);
+      // ⭐ 주소를 화면에 베끼지 않는다. 서버가 **실제로 핑하는 그 주소**를 쓴다 -
+      //    손으로 적어 두면 서버 목록을 고쳐도 화면은 옛 주소를 계속 보여 준다.
+      const ipEl = document.getElementById('ip-' + key);
+      if (ipEl) ipEl.textContent = info.ip || '주소 모름';
+      if (!rttEl || !badgeEl) return;
+
+      if (info.online && info.rtt_ms !== null) {
+        const rtt = info.rtt_ms.toFixed(1);
+        rttEl.textContent = rtt + ' ms';
+        if (info.rtt_ms < 20) {
+          rttEl.className = 'latency-rtt rtt-good';
+          badgeEl.className = 'badge green';
+          badgeEl.textContent = 'ULTRA FAST';
+        } else if (info.rtt_ms < 80) {
+          rttEl.className = 'latency-rtt rtt-mid';
+          badgeEl.className = 'badge cyan';
+          badgeEl.textContent = 'STABLE';
+        } else {
+          rttEl.className = 'latency-rtt rtt-bad';
+          badgeEl.className = 'badge red';
+          badgeEl.textContent = 'HIGH RTT';
+        }
+      } else {
+        rttEl.textContent = 'OFFLINE';
+        rttEl.className = 'latency-rtt rtt-bad';
+        badgeEl.className = 'badge red';
+        badgeEl.textContent = 'TIMEOUT';
+      }
+    }
+
+
+    // 젠킨스 작업 원클릭 트리거
+
+    setInterval(fetchStatus, 1500);
+    fetchStatus();
+  
+    function reconnectStream(imgId, url) {
+      const el = document.getElementById(imgId);
+      if (el) {
+        el.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+      }
+    }
+
+    function handleStreamError(img, url) {
+      setTimeout(() => {
+        if (img) img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+      }, 3000);
+    }
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+# 자동 생성: generate_configs.sh — 직접 편집하지 말 것
+# 팀원 읽기 전용 미러 (도메인 8 -> 9)
+#
+# 팀원이 도메인 9 한 곳에 머문 채로 로봇 4대를 동시에 관측한다.
+# 로봇 도메인마다 옮겨 다닐 필요가 없다.
+#
+# ⚠️ 2026-09-12 정정 — 이 자리에 예전에는 이렇게 적혀 있었다:
+#     "반대 방향 경로가 존재하지 않으므로 팀원 쪽에서 실물 로봇으로 명령이 나가는
+#      일이 **구조적으로 불가능**하다."
+#    사용자 지시로 팀원 주행 관제가 생기면서 **그 문장은 더 이상 사실이 아니다.**
+#    없는 보호를 있다고 적어 두는 것이 보호가 없는 것보다 나쁘므로 지운다.
+#
+#    지금의 보호는 "경로가 없다" 가 아니라 **"이름이 갈려 있다"** 이다:
+#      팀원 시뮬이 쓰는 robotN/cmd_vel        -> 아무 데도 안 간다 (여기에도 없다)
+#      조종기 전용 robotN/teleop/cmd_vel      -> 벌 2 가 나른다 (robotN_teleop_*.yaml)
+#    그리고 벌 2 는 **기본이 꺼짐**이라, 켜는 행위가 곧 "이 로봇을 넘긴다" 는 뜻이다.
+#
+# 이 미러는 여전히 **읽기 전용**이다. 여기 나열된 토픽이 팀원에게 노출되는 전부이고,
+# 이 목록에 명령이 들어가서는 안 된다 (test_bridge_two_sets.py 가 고정).
+name: pinky_bridge_team_mirror
+from_domain: 8
+to_domain: 9
+
+topics:
+
+  tf:
+    type: tf2_msgs/msg/TFMessage
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 100}
+
+  tf_static:
+    type: tf2_msgs/msg/TFMessage
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 100}
+
+  map:
+    type: nav_msgs/msg/OccupancyGrid
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+
+  bridge/health:
+    type: std_msgs/msg/String
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
+
+  robot1/odom:
+    type: nav_msgs/msg/Odometry
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot1/pose:
+    type: geometry_msgs/msg/PoseStamped
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot1/scan:
+    type: sensor_msgs/msg/LaserScan
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
+
+  robot1/camera/image_raw/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
+
+  robot1/nav_status:
+    type: std_msgs/msg/String
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot1/battery_state:
+    type: sensor_msgs/msg/BatteryState
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
+
+  robot2/odom:
+    type: nav_msgs/msg/Odometry
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot2/pose:
+    type: geometry_msgs/msg/PoseStamped
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot2/scan:
+    type: sensor_msgs/msg/LaserScan
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
+
+  robot2/camera/image_raw/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
+
+  robot2/nav_status:
+    type: std_msgs/msg/String
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot2/battery_state:
+    type: sensor_msgs/msg/BatteryState
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
+
+  robot3/odom:
+    type: nav_msgs/msg/Odometry
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot3/pose:
+    type: geometry_msgs/msg/PoseStamped
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot3/scan:
+    type: sensor_msgs/msg/LaserScan
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
+
+  robot3/camera/image_raw/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
+
+  robot3/nav_status:
+    type: std_msgs/msg/String
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot3/battery_state:
+    type: sensor_msgs/msg/BatteryState
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
+
+  robot4/odom:
+    type: nav_msgs/msg/Odometry
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot4/pose:
+    type: geometry_msgs/msg/PoseStamped
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot4/scan:
+    type: sensor_msgs/msg/LaserScan
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
+
+  robot4/camera/image_raw/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
+
+  robot4/nav_status:
+    type: std_msgs/msg/String
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  robot4/battery_state:
+    type: sensor_msgs/msg/BatteryState
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}

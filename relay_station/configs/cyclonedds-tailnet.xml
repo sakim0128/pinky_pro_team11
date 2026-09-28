@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  중계 관제 노트북 CycloneDDS 설정 — tailnet 2단계 전용 (R-2, 2026-09-24)
+
+  무엇: 강의장 없이 tailnet 만으로 실물 중계를 홈랩 가상 팜과 DDS 로 잇는다
+        (docs/PLAN_20260924_TAILNET_DATAFLOW_TEST.md 2단계).
+  언제: **RELAY_DDS_PROFILE=tailnet 을 명시했을 때만** bridge_env.sh·launch_master_gateway.sh 가 고른다.
+        자동으로는 절대 안 고른다 — 그러면 중계가 예고 없이 팜의 DDS 에 합류한다.
+
+  현장·원격 설정과 다른 점:
+    1) 인터페이스를 tailscale0 하나로 박는다. 집 공유기·강의장 망으로 DDS 가 새지 않는다.
+    2) Peers = localhost + ${FARM_HOST_TAILNET_IP}. 주소는 **파일에 적지 않는다** —
+       tailnet 주소는 홈랩 식별자라 공개 레포 금지다. 환경변수로 받는다(CycloneDDS 가 ${…} 를 편다).
+       비어 있으면 bridge_env.sh 가 78 로 멈춘다(빈 peer 로 조용히 뜨지 않게).
+    3) tailscale0 의 MTU 는 1280 이다. DDS 조각(기본 1344 B)이 그보다 크면 IP 단편화가 난다 →
+       FragmentSize 를 1100 B 로 낮춘다.
+  Domain id="any" 는 현장 설정과 같은 이유다 — 브릿지가 여러 도메인에 동시에 참여한다.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+    <Domain id="any">
+        <General>
+            <Interfaces>
+                <NetworkInterface name="tailscale0" />
+            </Interfaces>
+            <AllowMulticast>false</AllowMulticast>
+            <FragmentSize>1100B</FragmentSize>
+        </General>
+        <Discovery>
+            <ParticipantIndex>auto</ParticipantIndex>
+            <MaxAutoParticipantIndex>60</MaxAutoParticipantIndex>
+            <Peers>
+                <Peer address="localhost" />
+                <Peer address="${FARM_HOST_TAILNET_IP}" />
+            </Peers>
+        </Discovery>
+    </Domain>
+</CycloneDDS>

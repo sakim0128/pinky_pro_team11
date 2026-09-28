@@ -1,0 +1,57 @@
+[Unit]
+# 현장 중계 게이트웨이 — systemd --user 유닛 (T10)
+#
+# 2026-09-10 이전: 이 유닛은 장비에만 있었다(~/.config/systemd/user/, 2026-09-08 작성).
+#   레포에 없으니 반납·재설치·다른 기기로 옮길 때 **같이 안 따라온다.**
+#   09-09 에 없앤 "죽은 사본" 과 같은 계열이라 레포로 회수한다.
+#   설치는 복사가 아니라 **심링크**다 — scripts/install_gateway_unit.sh 참조.
+#
+# ⚠️ Linger 는 이 파일이 못 정한다. `Linger=no` 면 사용자가 로그인해야 user manager 가 뜨고,
+#    그러면 **헤드리스 재부팅에서 이 유닛은 아예 안 뜬다.**
+#      sudo loginctl enable-linger operator
+#    (root 권한이 필요해 이 레포의 스크립트가 대신 하지 않는다)
+Description=Field Master Gateway & Gazebo Digital Twin
+Documentation=file://%h/pinky_pro/src/pinky_pro_team11/docs/MULTI_CAMERA_VERIFICATION_PLAN.md
+After=network-online.target
+Wants=network-online.target
+
+# 재기동 폭주 방지. 5분 안에 5번 넘게 실패하면 멈추고 사람을 부른다 —
+# 깨진 소스로 무한 재기동하면 로그만 쌓이고 원인이 묻힌다.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+
+# 화면·GL 환경. Gazebo GUI 와 relay_controller_gui 가 이 값을 쓴다.
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=QT_QPA_PLATFORM=wayland
+Environment=LIBGL_DRI3_DISABLE=1
+Environment=PYTHONUNBUFFERED=1
+
+# ~/launch_master_gateway.sh 는 레포 relay_station/launch_master_gateway.sh 의 심링크다
+# (2026-09-09 사본 통합). 즉 이 ExecStart 도 레포를 가리킨다.
+ExecStart=/bin/bash %h/launch_master_gateway.sh
+
+# 실패하면 다시 띄운다. 단 **정상 정지는 재기동하지 않는다** —
+#   0   정상 종료
+#   130 SIGINT  (사람이 Ctrl-C 로 껐다)
+#   143 SIGTERM (systemctl stop / 재부팅)
+# 런처의 cleanup 이 종료 코드를 보존해야 이 구분이 성립한다(T10 에서 같이 고쳤다).
+# 그 전에는 cleanup 이 exit 0 으로 끝나 어떤 실패도 성공으로 보고했다 —
+# Restart=on-failure 를 걸어도 영원히 안 걸리는 상태였다.
+Restart=on-failure
+RestartSec=15
+SuccessExitStatus=0 130 143
+# 78 = 설정 오류(런처의 DDS 프로파일 검사: 고른 NIC·xml 이 없음 등) — 재시작해도 같다. 예전엔 5번 재시작 뒤
+# start-limit-hit 로 끝났다(관제 검수 REVIEW_20260925 §3.4). 브리지 유닛과 같은 규칙.
+RestartPreventExitStatus=78
+
+# 런처의 cleanup 이 gz sim·socat·GUI 를 정리할 시간을 준다.
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,69 @@
+# 2.34m x 1.26m 실물 경기장 도로망 그래프 (Road Graph)
+# [FIELD CONFIG PENDING]: 현장 실물 줄자 실측 전 가좌표 세팅. 현장 배포 시 정밀 실측값으로 미세 조정 필요.
+# 기준 좌표계: 경기장 바닥 좌하단 (0, 0) 기준, 가로 X=2.34m, 세로 Y=1.26m
+
+frame: map
+lane_width: 0.20
+
+# -----------------------------------------------------------------------------
+# 노드 정의 (2.34m x 1.26m 규격)
+# -----------------------------------------------------------------------------
+nodes:
+  # 로봇 1 출발 구역 A (좌측 하단 라인)
+  - {id: START_A, x: 0.30, y: 0.30, type: endpoint, label: "출발 구역 A (Robot 1) [FIELD CONFIG PENDING]"}
+
+  # 로봇 2 출발 구역 B (좌측 상단 라인)
+  - {id: START_B, x: 0.30, y: 0.95, type: endpoint, label: "출발 구역 B (Robot 2) [FIELD CONFIG PENDING]"}
+
+  # 교차/합류 분기점 (두 로봇의 경로가 모이는 지점)
+  - {id: JUNCTION_1, x: 0.90, y: 0.63, type: junction, label: "합류 교차로 1 [FIELD CONFIG PENDING]"}
+
+  # 공통 직선 주행 구간 중간점
+  - {id: WAYPOINT_MID, x: 1.50, y: 0.63, type: waypoint, label: "공통 주행로 중간 [FIELD CONFIG PENDING]"}
+
+  # 공통 도착 목표 구역 C
+  - {id: GOAL_C, x: 2.05, y: 0.63, type: endpoint, label: "공통 도착 구역 C (Goal) [FIELD CONFIG PENDING]"}
+
+# -----------------------------------------------------------------------------
+# 엣지 정의
+# -----------------------------------------------------------------------------
+edges:
+  # START_A -> JUNCTION_1 (Robot 1 진입로)
+  - id: START_A_TO_J1
+    from: START_A
+    to: JUNCTION_1
+    oneway: false
+    waypoints:
+      - [0.30, 0.30]
+      - [0.60, 0.45]
+      - [0.90, 0.63]
+
+  # START_B -> JUNCTION_1 (Robot 2 진입로)
+  - id: START_B_TO_J1
+    from: START_B
+    to: JUNCTION_1
+    oneway: false
+    waypoints:
+      - [0.30, 0.95]
+      - [0.60, 0.80]
+      - [0.90, 0.63]
+
+  # JUNCTION_1 -> WAYPOINT_MID (공통 중앙 차선 전반부)
+  - id: J1_TO_MID
+    from: JUNCTION_1
+    to: WAYPOINT_MID
+    oneway: false
+    waypoints:
+      - [0.90, 0.63]
+      - [1.20, 0.63]
+      - [1.50, 0.63]
+
+  # WAYPOINT_MID -> GOAL_C (공통 중앙 차선 후반부 -> 골인)
+  - id: MID_TO_GOAL
+    from: WAYPOINT_MID
+    to: GOAL_C
+    oneway: false
+    waypoints:
+      - [1.50, 0.63]
+      - [1.80, 0.63]
+      - [2.05, 0.63]
