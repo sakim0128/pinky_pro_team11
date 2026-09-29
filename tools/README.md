@@ -230,3 +230,11 @@ python3 tools/view_image.py /pinky1/lane_debug/compressed /pinky2/lane_debug/com
 python3 tools/view_image.py /pinky1/camera/image/compressed --scale 0.5                    # 원본 카메라
 ```
 q 로 끝낸다. 창 제목에 수신 fps, 3 s 끊기면 `NO FRAME`.
+
+**주행 영상 저장**: 자율주행 중엔 로봇 카메라를 `camera_node` 가 쥐고 있어 `record_drive.py`(picamera2 직접 열기)는 못 쓴다.
+관제 PC 에서 토픽을 mp4 로 저장한다 (창을 보면서, 또는 `--no-window` 로 저장만).
+```bash
+python3 tools/view_image.py /pinky1/lane_debug/compressed --record ~/drive_pinky1_$(date +%H%M).mp4          # 추론 오버레이 (박스·중심점·상태)
+python3 tools/view_image.py /pinky1/camera/image/compressed --record ~/raw_pinky1.mp4 --no-window            # 원본만, 창 없이
+```
+센서·상태까지 겹친 클립이 필요하면 §8 처럼 `record:=True` 로 bag 을 남기고 `bag_to_video.py` 로 만든다.
