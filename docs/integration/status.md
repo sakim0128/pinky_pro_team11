@@ -165,7 +165,7 @@ Overhead 카드와 P′ 위치를 연결한다.
 검증(ROS 2 Jazzy 컨테이너, `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤):
 수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7(병합 전) · §8(`094e5d7` 병합 뒤: 에이전트 319 · 중계 1425/22 · station·lane 188/24). station·lane 시험은 그대로 초록.
 
-## 2026-09-29 — 웹 배정 · 정지선 교차로 · 선착순 · 중복 정리 (브랜치 `claude/adoring-wright-wey55e`, 팀 동의 전)
+## 2026-09-29 — 웹 배정 · 정지선 교차로 · 선착순 · 중복 정리 (브랜치 `mini_project_integration_stand`, 팀 동의 전)
 
 `mini_project_integration`(e3ca6ed) 에서 갈라 만든 브랜치다. 팀 합의가 되면 `mini_project_integration` 에 얹고, 아니면 브랜치만 지운다.
 결정(사용자, 2026-09-29): 코디네이터는 relay 하나 · 로봇은 `lane_agent_node` 하나 · 이름은 `pinkyN` · 지도는 map5 · 항공뷰는 relay 와 같은 도메인 8.

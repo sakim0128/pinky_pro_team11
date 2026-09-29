@@ -5,7 +5,7 @@
 도로망 경로(어느 길로)를 따른다. 교차로는 **정지선**을 보면 일단 서고, 관제가 **먼저 도착한 로봇**에게 통과를 허가한다.
 시작점·목적지는 관제 PC yaml 이 아니라 **웹(relay :8889)** 에서 고른다.
 
-> 이 문서는 통합 브랜치(`mini_project_integration` → 작업 브랜치 `claude/adoring-wright-wey55e`, 2026-09-29) 기준이다.
+> 이 문서는 통합 브랜치(`mini_project_integration` → 작업 브랜치 `mini_project_integration_stand`, 2026-09-29) 기준이다.
 > 결정·변경 이력은 [`docs/integration/status.md`](docs/integration/status.md), mini_project_1(Nav2 2대 관제)은 [`docs/mini_project_1.md`](docs/mini_project_1.md).
 
 ---
