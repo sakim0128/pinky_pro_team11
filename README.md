@@ -170,9 +170,30 @@ v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. LanePath 가 0.9 s 끊기면 정지
   끄려면 `fsm.lane_search: false` (그때는 0.6 s 직전 명령 유지 후 정지).
 - 횡단보도: 하단 y ≥ 0.8·H 에서 3 프레임 확정 → 3 s 정지 → 0.6 m 재래치. 바리게이트: 같은 조건으로 확정 → `BARRICADE_WAIT`,
   10 프레임(≈1 s) 안 보이면 자동 재출발. 라이다 장애물 정지와 겹쳐 동작한다.
-- 교차로(경로 모드만): 항공뷰 위치가 그래프 분기 노드 반경 0.25 m 에 들어오면 `JUNCTION_STOP` 1 s → `JUNCTION_PASS`
+- 교차로 (2026-09-29 규칙, 아래 "교차로 정지선·선착순" 절): 카메라가 **정지선**(`stop_line`) 을 보거나 항공뷰 위치가 그래프 분기 노드
+  반경 0.25 m 에 들어오면 `JUNCTION_STOP` 1 s → **관제 허가**(`clear_until` 이 분기 노드를 넘음) 가 있어야 `JUNCTION_PASS`
   (카메라 끄고 경로 pure-pursuit, v_max × 0.4) → 반경 밖에서 차선 쌍이 0.3 s 보이면 주행 복귀. 0.6 m 재래치.
-- 메시지가 바뀌었으므로 **양쪽 모두 `pinky_lane_msgs` 재빌드** (LanePath.barricade_*, SceneState 좌/우 수, LaneStatus 10~13).
+  허가가 없으면 `교차로 대기 — 통과 허가 없음` 으로 계속 선다. lane_only 모드는 정지선만으로 1 s 정지 뒤 통과(관제 없음).
+- 메시지가 바뀌었으므로 **양쪽 모두 `pinky_lane_msgs` 재빌드** (LanePath.barricade_*·stop_line_*, SceneState 좌/우 수·stop_line_*, LaneStatus 10~13).
+
+**교차로 정지선·선착순 (2026-09-29)**
+
+두 대가 교차로 하나에서 만난다. 규칙: 교차로가 보이면 **일단 정지**, 먼저 도착한 핑키가 먼저 지나간다(같은 틱이면 domain_id 작은 쪽).
+
+```
+로봇  정지선(stop_line_detected, 경로상 다음 분기 노드 ≤ stop_line_zone 0.6 m) 또는 분기 반경 → JUNCTION_STOP (v=0)
+      → LaneStatus drive_state=12 보고
+관제  JUNCTION_STOP 보고 → 거리와 무관하게 다음 엣지 요청 등록 (reservation.request_next_now)
+      → 예약이 선착순(요청 틱, domain_id) 으로 분기 노드 + 다음 엣지를 한 로봇에만 → CLEARANCE(clear_until > 분기 idx)
+로봇  1 s 지났고 허가 있음 → JUNCTION_PASS (경로만, v_max×0.4) → 차선 쌍 회복 → CRUISE.  허가 없음 → 계속 정지
+관제  통과한 로봇이 노드를 release_behind(0.25 m) 지나면 놓는다 → 다음 로봇 허가
+```
+
+- 정지선은 분기 노드 **0.1 m 이내** 앞에 붙인다. 정지선 클래스는 **아직 모델에 없다** — `detector_yolo.yaml` 의 `# stop_line: [<id>]`
+  주석을 재학습 뒤 채운다. 그 전엔 분기 반경(0.25 m, 항공뷰 위치) 트리거만 동작한다.
+- 파라미터: `stop_line_zone`(0.60) · `junction_wait_clearance`(true — false 면 예전처럼 1 s 뒤 통과, 예약 경계에서만 선다)
+  · `fsm.junction_stop_seconds`(1.0). 관제 쪽은 relay `fleet_coordinator` 가 담당한다(`docs/integration/relay_station.md`).
+- 시작·목적지는 관제 PC yaml 이 아니라 **relay 웹 설정 탭 "미션 배정"** 에서 고른다(endpoint 노드 드롭다운 → `/api/fleet/assign`).
 
 ---
 

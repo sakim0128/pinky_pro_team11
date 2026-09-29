@@ -149,6 +149,8 @@ class LanePipeline(Node):
         lp.crosswalk_bottom_y = int(r.crosswalk_bottom_y)
         lp.barricade_detected = bool(r.barricade_detected)
         lp.barricade_bottom_y = int(r.barricade_bottom_y)
+        lp.stop_line_detected = bool(r.stop_line_detected)
+        lp.stop_line_bottom_y = int(r.stop_line_bottom_y)
         lp.pipeline_latency = float(self._now() - t_in)
         self._path_pubs[name].publish(lp)
         rl.last_msg = lp
@@ -170,6 +172,10 @@ class LanePipeline(Node):
         sc.barricade_detected = bool(r.barricade_detected)
         sc.barricade_bottom_y = int(r.barricade_bottom_y)
         sc.barricade_confidence = float(r.barricade_confidence)
+        sc.stop_line_raw = bool(r.stop_line_raw)
+        sc.stop_line_detected = bool(r.stop_line_detected)
+        sc.stop_line_bottom_y = int(r.stop_line_bottom_y)
+        sc.stop_line_confidence = float(r.stop_line_confidence)
         sc.detector_name = self._det_name
         sc.infer_ms = float(infer_ms)
         sc.fps = len(rl.fps_t) / 2.0

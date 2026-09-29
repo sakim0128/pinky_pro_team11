@@ -16,6 +16,8 @@ pinky_lane_agent:
     path_max_age: 0.9
     crosswalk_zone: 0.45
     junction_zone: 0.25
+    stop_line_zone: 0.60         # 정지선(카메라) 트리거는 경로상 다음 분기 노드가 이 거리 안일 때만
+    junction_wait_clearance: true # JUNCTION_STOP 에서 관제 허가(clear_until 이 분기 노드를 넘음) 를 기다린다
     lane_only: false             # true: 경로·위치 없이 카메라 차선 중앙만 (lane_only.launch.xml 이 덮는다)
     lane_lost_coast: 0.6
     search_omega: 0.4            # LANE_SEARCH 제자리 회전 각속도 (rad/s)

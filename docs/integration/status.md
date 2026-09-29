@@ -165,6 +165,35 @@ Overhead 카드와 P′ 위치를 연결한다.
 검증(ROS 2 Jazzy 컨테이너, `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤):
 수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7(병합 전) · §8(`094e5d7` 병합 뒤: 에이전트 319 · 중계 1425/22 · station·lane 188/24). station·lane 시험은 그대로 초록.
 
+## 2026-09-29 — 웹 배정 · 정지선 교차로 정지 · 선착순 통과 (브랜치 `claude/adoring-wright-wey55e`, 팀 동의 전)
+
+`mini_project_integration` 에서 갈라 만든 브랜치다. 팀 합의가 되면 `mini_project_integration` 에 얹고, 아니면 브랜치만 지운다.
+
+완료한 변경:
+
+- `mini_project_2_lane_rules` 병합 (D14: 차선 ≥3 바깥 쌍 · LANE_SEARCH · BARRICADE_WAIT · JUNCTION_STOP/PASS · 항공뷰 pose_fuser).
+  충돌: `pose_fuser_node.py` 는 lane_rules 판(`/<robot>/overhead_pose` + 마커 오프셋) 채택, 이 브랜치의 PoseFix 판은
+  `pose_fix_fuser_node.py` 로 이름을 바꿔 보존(hybrid launch·테스트 참조 갱신). `lane_robot.launch.xml` 기본 위치추정 = 항공뷰(`use_overhead:=True`).
+- **웹 배정**: relay V2 설정 탭 "미션 배정" — 로봇별 시작/목적지 드롭다운(도로망 endpoint 노드, `/api/fleet/profiles.graph`) → `/api/fleet/assign`.
+  화면에 노드 이름을 박지 않는다(맵이 바뀌면 `road_graph.yaml` 만 고친다).
+- **정지선**: `LanePath.stop_line_detected/_bottom_y`, `SceneState.stop_line_*`, `lane_target` 디바운스(하단 ≥0.80·H, 2 확정/5 해제),
+  오버레이 색. 모델 클래스 id 는 미정 — `detector_yolo.yaml` 에 주석으로 자리만.
+- **교차로 규칙**(로봇 `lane_driver`/`drive_fsm`): 트리거 = 정지선(경로상 다음 분기 ≤ `stop_line_zone` 0.6 m) 또는 분기 반경. `JUNCTION_STOP` 은
+  1 s 지나고 **관제 허가(`clear_until` > 분기 idx)** 가 있어야 `JUNCTION_PASS`. 허가 없으면 `교차로 대기 — 통과 허가 없음`. 정지 중엔
+  WAIT_CLEARANCE 로 바뀌지 않는다. lane_only 는 정지선만으로 1 s 정지 뒤 통과.
+- **선착순**(relay `fleet_coordinator`/`reservation`): `DRIVE_JUNCTION_STOP` 보고 → `reservation.request_next_now` (거리 무관 요청) → 기존
+  선착순(요청 틱 → domain_id). 상태 JSON 로봇별 `junction_wait_sec`. V2 문구 drive_state 10~13.
+- relay 브리지(`generate_configs.sh`, `robot{1,2}_control.yaml`)에 `/pinkyN/overhead_pose` (8→10/11) 추가.
+
+검증(ROS 없는 컨테이너): `pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test` 415 passed / 152 skipped ·
+relay 순수 시험 `test_assign_ui.py` 5 · `test_junction_first_come.py` 4 · `test_team11_export.py` 등 통과. rclpy 가 필요한 relay 시험은 재측정 전.
+
+확인할 사항:
+
+- `overhead_tracker_node` 는 관제 도메인 0 에서 돈다 — relay(8) 로 가려면 0→8 미러가 있어야 한다(`team_mirror.yaml` 에 항목 추가 필요, 미완).
+- 정지선 모델 id · 새 맵의 `road_graph.yaml`(endpoint 3개: 왼쪽 위·오른쪽 위·오른쪽 아래) 은 팀 결정 뒤.
+- 중복 정리(relay 의 road_graph/reservation 포크, 코디네이터·웹 통합)는 이번 범위 밖 — `docs/integration` 의 인벤토리 참고, 다음 작업.
+
 ## 2026-09-28 저녁 — 제어권 정책: 팀원 노트북도 중계를 거쳐 움직이는 명령을 낸다 (rkd1rjs2 팀원)
 
 완료한 변경(원 저장소 main `1eed3f8` → 이 브랜치 `mini_project_integration`, `relay_station/` 안과 `docs/integration/` 만):

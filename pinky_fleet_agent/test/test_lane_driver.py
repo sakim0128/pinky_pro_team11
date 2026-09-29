@@ -635,3 +635,147 @@ def test_driver_stops_at_junction_then_passes_slowly_on_route():
     assert all(o.quality == QUALITY_JUNCTION for o in passing if 1.3 < o.route_idx * 0.1 < 1.7)
     runs = sum(1 for i in range(1, len(sim.log)) if sim.log[i][1].state == JUNCTION_STOP != sim.log[i - 1][1].state)
     assert runs == 1                                                           # 교차로 정지는 한 번
+
+
+# ------------------------------------------------------------ 교차로 규칙 (2026-09-29): 정지선 트리거 · 관제 허가 대기
+
+def test_fsm_junction_stop_waits_for_clearance_then_passes():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, JUNCTION_STOP
+    fsm = DriveFsm(FsmParams(junction_stop_seconds=1.0))
+    blocked = Inputs(started=True, junction_trigger=True, lane_both=True, junction_clear=False,
+                     clearance_reason='J1 pinky1 점유')
+    assert fsm.step(0.0, blocked)[0] == JUNCTION_STOP
+    s, f, r = fsm.step(1.5, blocked)                              # 1 s 지났지만 허가 없음 → 계속 정지
+    assert s == JUNCTION_STOP and f == 0.0 and '허가 없음' in r and 'pinky1' in r
+    assert fsm.step(30.0, blocked)[0] == JUNCTION_STOP            # 오래 기다려도 스스로 출발하지 않는다
+    # 예약 경계(at_clearance)에 닿아도 JUNCTION_STOP 은 WAIT_CLEARANCE 로 바뀌지 않는다
+    assert fsm.step(30.1, Inputs(started=True, junction_trigger=True, lane_both=True, junction_clear=False,
+                                 at_clearance=True))[0] == JUNCTION_STOP
+    s, f, _ = fsm.step(30.2, Inputs(started=True, junction_trigger=True, lane_both=True, junction_clear=True))
+    assert s == JUNCTION_PASS and f == 0.4
+    # 허가가 바로 있으면 1 s 뒤 통과 (기존 동작)
+    fsm2 = DriveFsm(FsmParams(junction_stop_seconds=1.0))
+    ok = Inputs(started=True, junction_trigger=True, lane_both=True)
+    assert fsm2.step(0.0, ok)[0] == JUNCTION_STOP
+    assert fsm2.step(0.9, ok)[0] == JUNCTION_STOP
+    assert fsm2.step(1.0, ok)[0] == JUNCTION_PASS
+
+
+class StopLineSim(Sim):
+    """카메라가 정지선을 본다: 경로상 분기 노드 0.10 m 앞에 정지선이 있고, 그 0.30 m 앞부터 화면 하단에 걸린다."""
+
+    def __init__(self, *a, stop_line_ahead=0.30, stop_line_offset=0.10, **kw):
+        super().__init__(*a, **kw)
+        self.stop_line_visible = True
+        self.stop_line_ahead = stop_line_ahead
+        self.stop_line_offset = stop_line_offset
+        self.fake_stop_line = False        # 분기와 무관한 자리에서 정지선을 (잘못) 본다
+
+    def run(self, seconds, heartbeat=True, cam=None):
+        cam = self.cam if cam is None else cam
+        for _ in range(int(seconds / DT)):
+            self.t += DT
+            if heartbeat and int(self.t / DT) % 2 == 0:
+                self.d.set_clearance(1, self.d.clear_until, self.t, self.d.clearance_reason)
+            if cam and int(self.t / DT) % 6 == 0:
+                f = self.d.follower
+                lat = f.lateral if f else 0.0
+                error_x = max(-1.0, min(1.0, lat / self.half_lane))
+                stop = self.fake_stop_line
+                if self.stop_line_visible and f is not None:
+                    for i in self.d.junction_idx:
+                        ahead = f.cum[i] - self.stop_line_offset - f.progress_s
+                        if 0.0 <= ahead <= self.stop_line_ahead:
+                            stop = True
+                self.d.set_lane_path(self.t, self.t, self.lane_quality, error_x, False, stop_line=stop)
+            out = self.d.tick(self.t, self.x, self.y, self.yaw)
+            self.x += out.v * math.cos(self.yaw) * DT
+            self.y += out.v * math.sin(self.yaw) * DT
+            self.yaw += out.omega * DT
+            self.log.append((self.t, out))
+        return self.log[-1][1]
+
+
+def test_driver_stop_line_triggers_junction_stop_before_map_zone():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, JUNCTION_STOP
+    p = DriverParams()
+    p.junction_zone = 0.05                                 # 맵 반경을 거의 끄고 정지선만으로 세운다
+    sim = StopLineSim(straight(), params=p, junction_idx=[15])
+    sim.start()
+    out = sim.run(60)
+    assert out.state == ARRIVED
+    stop = [(t, o) for t, o in sim.log if o.state == JUNCTION_STOP]
+    assert stop and all(o.v == 0.0 for _, o in stop)
+    assert 0.95 <= stop[-1][0] - stop[0][0] + DT <= 1.15                     # 허가가 있으니 1 s 만 선다
+    assert 1.05 <= stop[0][1].route_idx * 0.1 <= 1.45                        # 정지선 앞 (노드 1.5 m 보다 앞)
+    assert any(o.state == JUNCTION_PASS for _, o in sim.log)
+    runs = sum(1 for i in range(1, len(sim.log)) if sim.log[i][1].state == JUNCTION_STOP != sim.log[i - 1][1].state)
+    assert runs == 1
+
+
+def test_driver_stop_line_far_from_any_junction_is_ignored():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_STOP
+    sim = StopLineSim(straight(), junction_idx=[25])       # 분기 2.5 m — 출발 직후 보이는 정지선은 0.6 m 밖
+    sim.stop_line_visible = False
+    sim.fake_stop_line = True                              # 처음부터 계속 정지선을 본다
+    sim.start()
+    sim.run(8)
+    early = [o for t, o in sim.log if t < 8 and o.route_idx * 0.1 < 1.5]
+    assert early and all(o.state != JUNCTION_STOP for o in early)
+    # 분기가 없는 경로면 정지선을 아무리 봐도 교차로 트리거가 아니다
+    sim2 = StopLineSim(straight(), junction_idx=[])
+    sim2.fake_stop_line = True
+    sim2.start()
+    assert sim2.run(40).state == ARRIVED and not any(o.state == JUNCTION_STOP for _, o in sim2.log)
+
+
+def test_driver_waits_at_stop_line_until_station_clears_the_junction():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, JUNCTION_STOP
+    sim = StopLineSim(straight(), junction_idx=[15], edge_end_idx=[15, 30], edge_ids=['a', 'b'])
+    sim.start(clear_until=13)                               # 관제: 분기 노드 0.2 m 앞까지만 허가
+    sim.d.clearance_reason = 'J pinky1 통과 중'
+    out = sim.run(12)
+    assert out.state == JUNCTION_STOP and out.v == 0.0 and '허가 없음' in out.reason and 'pinky1' in out.reason
+    assert 1.0 <= out.route_idx * 0.1 <= 1.45              # 정지선 앞에서 멈춘 채
+    sim.d.set_clearance(1, 30, sim.t, '')                   # 관제가 분기 너머까지 허가
+    out = sim.run(40)
+    assert out.state == ARRIVED
+    assert any(o.state == JUNCTION_PASS for _, o in sim.log)
+    # 허가 없이 서 있던 동안 WAIT_CLEARANCE 로 바뀌지 않았다 (한 상태로 기다린다)
+    assert not any(o.state == WAIT_CLEARANCE for t, o in sim.log if t <= 12)
+
+
+def test_driver_junction_wait_clearance_can_be_disabled():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS
+    p = DriverParams()
+    p.junction_wait_clearance = False
+    sim = StopLineSim(straight(), params=p, junction_idx=[15], edge_end_idx=[15, 30], edge_ids=['a', 'b'])
+    sim.start(clear_until=13)
+    sim.run(12)
+    assert any(o.state == JUNCTION_PASS for _, o in sim.log)          # 허가 없이도 1 s 뒤 통과 (예약 경계에서 선다)
+    assert sim.log[-1][1].state == WAIT_CLEARANCE
+
+
+def test_lane_only_stop_line_stops_once_then_continues_without_station():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, JUNCTION_STOP
+    s = LaneOnlySim()
+
+    def run(seconds, stop_line):
+        for _ in range(int(seconds / DT)):
+            s.t += DT
+            if int(s.t / DT) % 6 == 0:
+                s.d.set_lane_path(s.t, s.t, QUALITY_BOTH, 0.0, False, stop_line=stop_line)
+            out = s.d.tick(s.t, 0.0, 0.0, 0.0)
+            s.x += out.v * DT
+            s.log.append((s.t, out))
+        return s.log[-1][1]
+
+    assert run(2.0, False).v > 0.0
+    out = run(0.5, True)
+    assert out.state == JUNCTION_STOP and out.v == 0.0
+    run(1.0, True)
+    assert s.log[-1][1].state == JUNCTION_PASS                         # 관제가 없으니 허가 없이 통과
+    out = run(3.0, False)
+    assert out.v > 0.0
+    runs = sum(1 for i in range(1, len(s.log)) if s.log[i][1].state == JUNCTION_STOP != s.log[i - 1][1].state)
+    assert runs == 1

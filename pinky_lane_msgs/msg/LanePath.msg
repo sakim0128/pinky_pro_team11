@@ -32,4 +32,6 @@ bool    crosswalk_detected          # 디바운스 통과한 횡단보도 트리
 int32   crosswalk_bottom_y
 bool    barricade_detected          # 디바운스 통과한 바리게이트 (치워질 때까지 정지)
 int32   barricade_bottom_y
+bool    stop_line_detected          # 디바운스 통과한 정지선 (교차로 진입 — 로봇은 JUNCTION_STOP, 관제 허가 뒤 통과)
+int32   stop_line_bottom_y
 float32 pipeline_latency            # 관제 PC 내부 수신->발행 (s). 관제 시계끼리라 유효

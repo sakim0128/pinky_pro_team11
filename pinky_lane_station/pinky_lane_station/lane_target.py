@@ -17,9 +17,10 @@ ROS 에 의존하지 않는다. 검출기(YOLO-seg / classic / stub) 가 낸 ``I
     LOST   : 없음
     error_x = (target_x − W/2)/(W/2)   차선 중앙이 화면 오른쪽이면 양수 (= 로봇이 왼쪽 치우침)
 
-횡단보도 / 바리게이트
-    crosswalk(barricade) 인스턴스의 최하단 y ≥ stop_row_frac·H 이면 raw. 연속 confirm 프레임이면 확정,
+횡단보도 / 바리게이트 / 정지선
+    crosswalk(barricade, stop_line) 인스턴스의 최하단 y ≥ stop_row_frac·H 이면 raw. 연속 confirm 프레임이면 확정,
     연속 release 프레임 동안 raw 가 없으면 해제. 바리게이트는 해제가 길다 (치워진 걸 1 s 확인).
+    정지선은 교차로 진입 표시다 — 로봇이 이 플래그로 JUNCTION_STOP 에 들어가고 관제 허가(clear_until) 뒤 통과한다.
 """
 
 from collections import deque
@@ -34,6 +35,7 @@ CLS_LEFT = 'left_lane'          # 모델 클래스 0
 CLS_RIGHT = 'right_lane'        # 모델 클래스 2
 CLS_CROSSWALK = 'crosswalk'
 CLS_BARRICADE = 'barricade'
+CLS_STOP_LINE = 'stop_line'     # 교차로 정지선 (모델 클래스 id 는 재학습 뒤 detector_yolo.yaml class_map 에)
 LANE_CLASSES = (CLS_LANE, CLS_LEFT, CLS_RIGHT)
 SIDE_OF_CLASS = {CLS_LEFT: 'L', CLS_RIGHT: 'R'}
 
@@ -88,6 +90,11 @@ class TargetParams:
     barricade_min_width_frac: float = 0.15
     barricade_confirm: int = 3
     barricade_release: int = 10           # ≈ 1 s (10 fps) 동안 안 보여야 해제
+    stop_line_stop_row_frac: float = 0.80 # 정지선 최하단 y ≥ 이 행이면 raw (선이 얇아 하단으로 본다)
+    stop_line_min_conf: float = 0.30
+    stop_line_min_width_frac: float = 0.25 # 차로 폭을 가로지르는 선 — 좁은 조각은 무시
+    stop_line_confirm: int = 2
+    stop_line_release: int = 5
 
 
 @dataclass
@@ -114,6 +121,10 @@ class TargetResult:
     barricade_detected: bool = False
     barricade_bottom_y: int = 0
     barricade_confidence: float = 0.0
+    stop_line_raw: bool = False
+    stop_line_detected: bool = False
+    stop_line_bottom_y: int = 0
+    stop_line_confidence: float = 0.0
     image_width: int = 0
     image_height: int = 0
     candidates: list = field(default_factory=list)   # [(x, conf, side), ...] 진단용
@@ -182,11 +193,13 @@ class LaneTargetEstimator:
         self._half_hist = deque(maxlen=self.p.half_lane_history)
         self._crosswalk = CrosswalkDebounce(self.p.crosswalk_confirm, self.p.crosswalk_release)
         self._barricade = CrosswalkDebounce(self.p.barricade_confirm, self.p.barricade_release)
+        self._stop_line = CrosswalkDebounce(self.p.stop_line_confirm, self.p.stop_line_release)
 
     def reset(self):
         self._half_hist.clear()
         self._crosswalk.reset()
         self._barricade.reset()
+        self._stop_line.reset()
 
     @property
     def half_lane_px(self):
@@ -306,4 +319,14 @@ class LaneTargetEstimator:
             r.barricade_confidence = float(best.conf)
             r.barricade_raw = best.bottom_y >= p.barricade_stop_row_frac * H
         r.barricade_detected = self._barricade.update(r.barricade_raw)
+
+        # ------------------------------------------------ 정지선 (교차로 진입)
+        sls = [i for i in instances if i.cls == CLS_STOP_LINE and i.conf >= p.stop_line_min_conf
+               and i.width >= p.stop_line_min_width_frac * W]
+        if sls:
+            best = max(sls, key=lambda i: i.bottom_y)
+            r.stop_line_bottom_y = int(round(best.bottom_y))
+            r.stop_line_confidence = float(best.conf)
+            r.stop_line_raw = best.bottom_y >= p.stop_line_stop_row_frac * H
+        r.stop_line_detected = self._stop_line.update(r.stop_line_raw)
         return r

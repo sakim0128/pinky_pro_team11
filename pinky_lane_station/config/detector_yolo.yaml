@@ -1,4 +1,6 @@
 # 실전 인식 설정 — YOLO-seg. 모델 클래스: 0 왼쪽 라인, 1 횡단보도, 2 오른쪽 라인, 3 라바콘, 4 신호등, 5 바리게이트.
+# 정지선(stop_line, 교차로 진입 표시)은 **아직 모델에 없다** (2026-09-29: 차선 세그 vs 주행가능영역 세그 미결 → 재학습 뒤 id 확정).
+#   재학습하면 아래 class_map 에 stop_line: [<id>] 를 넣는다. 없으면 정지선 트리거는 안 나가고 교차로 정지는 맵 반경만 쓴다.
 # 학습 때 이미지 상위 30 % 를 검정으로 채웠다 → pipeline.mask_top_frac 로 추론 입력도 똑같이 마스킹한다.
 # 가중치는 git 에 넣지 않는다. 관제 PC 에 ~/models/lane_26n.pt 로 둔다.
 # yolo26 은 ultralytics 8.4 이상:  pip install -U ultralytics
@@ -14,6 +16,7 @@ detector:
   # 우리 클래스 ← 모델 클래스 id. 좌/우 라벨은 차선이 3개 이상일 때 "가장 바깥 쌍" 을 고르는 데 쓴다
   # (≤ 2개면 화면 위치 규칙). barricade 는 정지 트리거, cone/traffic_light 는 오버레이 표시만.
   class_map: {left_lane: [0], right_lane: [2], crosswalk: [1], cone: [3], traffic_light: [4], barricade: [5]}
+  # stop_line: [6]                # ← 재학습 뒤 모델 id 로 채운다 (교차로 정지선). 미정이라 주석
 
 target:                           # lane_target.TargetParams
   sample_row_frac: 0.72
@@ -27,6 +30,9 @@ target:                           # lane_target.TargetParams
   barricade_stop_row_frac: 0.80   # 바리게이트 하단이 이 행 아래로 오면 정지
   barricade_confirm: 3
   barricade_release: 10           # ≈ 1 s 안 보이면 재출발
+  stop_line_stop_row_frac: 0.80   # 정지선 하단이 이 행 아래로 오면 raw (모델에 클래스가 있을 때만 의미)
+  stop_line_confirm: 2
+  stop_line_release: 5
 
 pipeline:
   max_rate: 10.0

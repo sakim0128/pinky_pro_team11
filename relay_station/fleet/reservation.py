@@ -170,6 +170,23 @@ class Reservation:
         idx = max(0, min(len(slot.cum) - 1, int(idx)))
         slot.reported_s = slot.cum[idx]
 
+    def request_next_now(self, name):
+        """거리와 무관하게 다음 엣지 요청을 지금 등록한다 (2026-09-29 교차로 규칙).
+
+        로봇이 정지선을 보고 JUNCTION_STOP 을 보고하면 코디네이터가 부른다 — 정지선이 reserve_ahead 보다 멀어도
+        요청이 서고, 선착순(요청 틱, 같은 틱이면 domain_id) 은 그대로다. 이미 요청했으면 그 틱을 지킨다.
+        반환: 요청한 엣지 id ('' 이면 없음 — 도착·마지막 엣지 뒤).
+        """
+        slot = self.robots.get(name)
+        if slot is None:
+            return ''
+        k = slot.next_edge_k
+        if slot.finished or k >= slot.n_edges:
+            return ''
+        eid = slot.route.edge_ids[k]
+        self.request_tick.setdefault((eid, name), self._tick)
+        return eid
+
     def _lead(self, slot):
         """다음 엣지 요청에 쓰는 진행도 — 가장 앞선 추정. 시험·도구가 progress_s 를 직접 올려도 따라간다.
         에이전트가 믿는 진행(reported_s)도 넣는다(통합 검토 RES-F2 — 위 note_reported_idx)."""

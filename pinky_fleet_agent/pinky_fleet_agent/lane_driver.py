@@ -37,6 +37,8 @@ class DriverParams:
     path_max_age: float = 0.9             # 이보다 오래된 error_x 는 STALE 취급
     crosswalk_zone: float = 0.45          # 그래프 횡단보도 노드 ± 이 거리 밖의 트리거는 무시
     junction_zone: float = 0.25           # 분기 노드 ± 이 거리는 JUNCTION 취급 (관제가 안 보내도)
+    stop_line_zone: float = 0.60          # 정지선 검출은 경로상 다음 분기 노드가 이 거리 안에 있을 때만 교차로 트리거 (오검출 방어)
+    junction_wait_clearance: bool = True  # JUNCTION_STOP 에서 관제 허가(clear_until > 분기 idx) 를 기다린다
     lane_only: bool = False               # 경로·위치 없이 카메라 차선 중앙만 따라간다 (테스트 모드)
     lane_lost_coast: float = 0.6          # lane_only: 차선을 잃고 이만큼(s) 직전 명령 유지 후 정지
     search_omega: float = 0.4             # LANE_SEARCH 제자리 회전 각속도 (rad/s)
@@ -82,7 +84,7 @@ class LaneDriver:
         self.path_link = LinkWatch(self.p.path_timeout, restore_grace=0.0)
         # 최근 LanePath
         self._lane = {'stamp': None, 'quality': QUALITY_LOST, 'error_x': None, 'crosswalk': False,
-                      'barricade': False, 'left_seen': False, 'right_seen': False}
+                      'barricade': False, 'stop_line': False, 'left_seen': False, 'right_seen': False}
         self._search_dir = 0.0
         self._last_valid_error = None      # 마지막 BOTH/SINGLE 의 error_x (LOST 탐색 방향용)
         self._travelled = 0.0
@@ -133,7 +135,7 @@ class LaneDriver:
         self.set_command(CMD_CLEARANCE, now, route_seq=route_seq, clear_until=idx)
 
     def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False,
-                      barricade=False, left_seen=None, right_seen=None):
+                      barricade=False, left_seen=None, right_seen=None, stop_line=False):
         self.path_link.on_command(now, heartbeat=True)
         q = int(quality)
         if left_seen is None:            # 옛 호출자: quality 로 추정
@@ -143,6 +145,7 @@ class LaneDriver:
         self._lane = {'stamp': float(source_stamp), 'quality': q,
                       'error_x': None if error_x is None else float(error_x),
                       'crosswalk': bool(crosswalk), 'barricade': bool(barricade),
+                      'stop_line': bool(stop_line),
                       'left_seen': bool(left_seen), 'right_seen': bool(right_seen)}
         if q in (QUALITY_BOTH, QUALITY_SINGLE) and error_x is not None:
             self._last_valid_error = float(error_x)
@@ -167,6 +170,20 @@ class LaneDriver:
         s = self.follower.progress_s
         return any(abs(self.follower.cum[i] - s) <= tolerance for i in idx_list
                    if 0 <= i < len(self.follower.cum))
+
+    def _next_junction_idx(self, ahead):
+        """진행도 기준 (뒤로 junction_zone 까지 포함해) 가장 가까운 앞쪽 분기 노드의 waypoint idx. 거리 ahead 밖이면 None."""
+        if not self.follower or not self.junction_idx:
+            return None
+        s = self.follower.progress_s
+        best = None
+        for i in self.junction_idx:
+            if not (0 <= i < len(self.follower.cum)):
+                continue
+            gap = self.follower.cum[i] - s
+            if -self.p.junction_zone <= gap <= ahead and (best is None or gap < best[0]):
+                best = (gap, i)
+        return None if best is None else best[1]
 
     def _search_direction(self, x, y, yaw):
         """LANE_SEARCH 회전 방향 (+1 좌회전 / −1 우회전).
@@ -236,6 +253,12 @@ class LaneDriver:
         in_junction = bool(self.follower) and self._near_any(self.junction_idx, p.junction_zone)
         if in_junction:
             quality = QUALITY_JUNCTION
+        # 정지선(카메라) → 교차로 트리거. 경로 모드는 다음 분기 노드가 stop_line_zone 안일 때만 (다른 흰 선 오검출 방어)
+        next_j = self._next_junction_idx(p.stop_line_zone)
+        stop_line_trigger = bool(self._lane['stop_line']) and next_j is not None
+        # 관제 허가: clear_until 이 분기 노드 idx 를 넘어야 통과. 분기가 없거나 goal 까지 허가면 True
+        junction_clear = (not p.junction_wait_clearance or next_j is None
+                          or self.clear_until > next_j or self.clear_until >= self.goal_idx)
         lane_visible = quality in (QUALITY_BOTH, QUALITY_SINGLE, QUALITY_JUNCTION)
         lane_both = quality in (QUALITY_BOTH, QUALITY_JUNCTION)
         out.quality = quality
@@ -274,7 +297,7 @@ class LaneDriver:
             obstacle=blocked, obstacle_reason=obstacle_reason,
             at_clearance=at_clearance, clearance_reason=self.clearance_reason,
             crosswalk_trigger=crosswalk_trigger, barricade=self._lane['barricade'],
-            junction_trigger=in_junction,
+            junction_trigger=in_junction or stop_line_trigger, junction_clear=junction_clear,
             lane_visible=lane_visible, lane_both=lane_both,
             arrived=arrived, travelled=self._travelled,
         )
@@ -308,6 +331,8 @@ class LaneDriver:
             obstacle=blocked, obstacle_reason=obstacle_reason,
             at_clearance=False, crosswalk_trigger=self._lane['crosswalk'],   # 존 검사 없음 (그래프가 없다)
             barricade=self._lane['barricade'],
+            # 정지선 → 교차로 정지. 관제·경로가 없으니 허가 없이 정지 시간만 채우고 통과한다
+            junction_trigger=bool(self._lane['stop_line']), junction_clear=True,
             lane_visible=lane_visible, lane_both=lane_both, arrived=False, travelled=self._travelled,
         )
         state, speed_factor, reason = self.fsm.step(now, inp)

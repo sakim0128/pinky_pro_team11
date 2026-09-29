@@ -217,6 +217,15 @@ EOF
     to_domain: ${d}
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
+  # 5-b) 항공뷰 위치 (다운링크: 관제 도메인 8 -> 로봇 도메인) — 팀11 overhead_tracker_node(ArUco) 가 내고
+  #      로봇 pose_fuser_node(lane_robot.launch.xml use_overhead) 가 map->odom TF 로 쓴다 (2026-09-29).
+  #      overhead_tracker 가 도메인 0 에서 돌면 0->8 미러(팀 브리지)를 먼저 거쳐야 한다.
+  /pinky${n}/overhead_pose:
+    type: geometry_msgs/msg/PoseStamped
+    from_domain: ${RELAY_DOMAIN}
+    to_domain: ${d}
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
   # 6) FleetCommand (다운링크: 관제 도메인 8 -> 로봇 도메인, Robot 1/2 한정 관리/주행 명령 브리지) [R-D3]
   #    Team11 agent_node.py 연동용 (CMD_SET_INITIAL_POSE, CMD_SET_MAP, CMD_GOTO 등).
   #    Nav2 + Marker 하이브리드 주행에서 온보드 PinkyAgent가 Nav2 NavigateToPose 목표를 수신하여 수행하며,

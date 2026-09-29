@@ -20,6 +20,7 @@ CLASS_COLORS = {
     'cone': (0, 140, 255),
     'traffic_light': (0, 140, 255),
     'barricade': (0, 0, 255),
+    'stop_line': (255, 0, 255),
 }
 DEFAULT_COLOR = (200, 200, 200)
 TARGET_COLOR = (0, 0, 255)

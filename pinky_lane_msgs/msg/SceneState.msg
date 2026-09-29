@@ -18,6 +18,11 @@ bool    barricade_detected
 int32   barricade_bottom_y
 float32 barricade_confidence
 
+bool    stop_line_raw                # 정지선 (교차로 진입 표시)
+bool    stop_line_detected
+int32   stop_line_bottom_y
+float32 stop_line_confidence
+
 string  detector_name               # "lane=yolo11n-seg@lane_v3.pt" — 재현성
 float32 infer_ms
 float32 fps

@@ -147,6 +147,8 @@ class FleetRobotContext:
         # 통합 검토 FLEET-R1: 에이전트가 지금 경로의 도착(DRIVE_ARRIVED)을 처음 말한 시각 — 확인된 포즈가 목표 근처라 받기 전까지
         self.arrive_claim_since: Optional[float] = None
         self.arrive_warned: bool = False
+        # 2026-09-29 교차로 규칙: 로봇이 JUNCTION_STOP(정지선·분기 반경) 을 처음 보고한 시각 — 선착순 근거·화면 표시
+        self.junction_stop_since: Optional[float] = None
 
 
 class RelayFleetCoordinator(Node):
@@ -584,6 +586,15 @@ class RelayFleetCoordinator(Node):
         if ctx.route is not None and msg.route_seq == ctx.route_seq:
             # 통합 검토 RES-F2: 잡기(다음 엣지 요청)는 에이전트가 믿는 진행도 따른다 — 놓기는 아니다(reservation.note_reported_idx)
             self.reservation.note_reported_idx(name, msg.route_idx)
+            # 2026-09-29 교차로 규칙: 정지선(또는 분기 반경) 에 선 로봇은 거리와 무관하게 지금 다음 엣지를 요청한다.
+            #     허가는 예약이 선착순(요청 틱 → domain_id) 으로 준다. 로봇은 허가(clear_until > 분기 idx) 전엔 통과하지 않는다.
+            if msg.drive_state == LaneStatus.DRIVE_JUNCTION_STOP:
+                if ctx.junction_stop_since is None:
+                    ctx.junction_stop_since = ctx.lane_status_time
+                    eid = self.reservation.request_next_now(name) if self.mission_state == MISSION_RUNNING else ''
+                    self.get_logger().info(f"[{name}] JUNCTION_STOP — 다음 엣지 요청 {eid or '(없음)'} (선착순)")
+            elif msg.drive_state != LaneStatus.DRIVE_JUNCTION_PASS:
+                ctx.junction_stop_since = None
 
         if (msg.drive_state == LaneStatus.DRIVE_ESTOP and not self.estop_latched
                 and not self._estop_authority):
@@ -1633,6 +1644,9 @@ class RelayFleetCoordinator(Node):
                 "goal_node": ctx.goal_node,
                 "route_seq": ctx.route_seq,
                 "clear_until_idx": ctx.clear_until_idx,
+                # 2026-09-29 교차로 규칙: 정지선에 선 지 몇 초(허가 대기·통과 중), 아니면 null
+                "junction_wait_sec": (None if ctx.junction_stop_since is None
+                                      else round(self._now() - ctx.junction_stop_since, 1)),
                 "held_edges": res_status.get("held_edges", []),
                 "waiting_for": res_status.get("waiting_for", ""),
                 "blocked_by": res_status.get("blocked_by", ""),
