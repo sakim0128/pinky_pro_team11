@@ -59,6 +59,8 @@ ROS_DOMAIN_ID=8 ros2 launch pinky_lane_station lane_station.launch.xml use_bridg
 
 # 4) 항공뷰 — 상부 카메라 ArUco → /pinkyN/overhead_pose (pinky_fleet_station, docs/integration/overhead_tracker.md)
 ROS_DOMAIN_ID=8 ros2 launch pinky_fleet_station overhead_tracker.launch.xml
+#    또는 태블릿이 로봇 좌표를 HTTP 로 보낸다 → 중계가 같은 /pinkyN/overhead_pose 로 낸다 (docs/integration/tablet_pose.md).
+#    한 로봇에는 한 출처만 — 둘을 같은 로봇에 쓰지 않는다
 
 # 로봇 (도메인 10 · 11) — lane_agent_node 만
 ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 map:=$HOME/map/map5.yaml

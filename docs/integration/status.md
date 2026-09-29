@@ -212,3 +212,13 @@ rclpy/ROS msgs 가 필요한 relay 시험은 이름 변경 뒤 컴파일만 했�
 검증(rkd1rjs2 노트북, rclpy 없는 Windows — 정적·순수만): `test_team11_export.py` 7 · `test_no_baked_addresses.py` · `test_control_policy.py` 12 ·
 `test_control_0928_control_policy_wiring.py` 8 · `test_control_0928_webui_p1.py` 11 · `test_v2_front_honesty.py` 6 통과. rclpy 가 필요한 나머지는
 컨테이너 재측정 전이다(README "시험" 절의 1425/22 는 이 변경 **전** 수치).
+
+## 2026-09-29 — 태블릿 좌표를 로봇 위치로 (rkd1rjs2 팀원, 문서만)
+
+태블릿이 로봇 위 마커로 구한 map5 좌표를 중계 `POST /api/vision/pose_fix` 로 계속 보내면, 중계가 같은 좌표를
+`/pinkyN/overhead_pose` 로 내고 브리지가 로봇으로 내린다 — 로봇 `pose_fuser_node` 가 천장 추적기 값과 똑같이 받는다.
+마커 도착 판정과 갈림길 방향은 로봇과 코디네이터가 한다. 계약·규칙·확인 방법: [`tablet_pose.md`](tablet_pose.md).
+
+- 게이트웨이 소스는 rkd1rjs2/robot_mini_project_pinky `e59d521` 에서 관리한다 — 이 브랜치 `relay_station/` 코드는 바꾸지 않았다.
+- 이 브랜치의 브리지 설정에는 필요한 다운링크가 이미 있다.
+- 확인할 사항: `road_graph.yaml` 노드 좌표는 임시값 — 바닥 마커 위치를 map5 로 재서 넣는다. 실물 확인 전이다.
