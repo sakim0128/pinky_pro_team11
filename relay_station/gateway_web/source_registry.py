@@ -326,7 +326,7 @@ SEVERITY_ORDER = ("ok", "info", "degraded", "safety")
 
 # ---- pose 가용성 (R-1, 2026-09-12) ------------------------------------------
 #
-# 🔴 실측: `/robot1/pose` 가 **Publisher 1 인데 18초간 메시지 0** 인 동안
+# 🔴 실측: `/pinky1/pose` 가 **Publisher 1 인데 18초간 메시지 0** 인 동안
 #    `poseCorrectionPossible` 이 true 였다. 원인은 AMCL `update_min_d: 0.05` —
 #    **정지한 로봇은 pose 를 안 낸다.** 발행자가 있는 것과 값이 오는 것은 다른 사실이다.
 #
@@ -346,13 +346,13 @@ def pose_availability(pose_publishers, pose_msgs=None):
 
     🔴 인자 이름이 `robot_publishers` 였다. 2026-09-14 실측에서 그 이름이 결함을 낳았다 —
        호출자가 **로봇당 탐침 5토픽(odom·pose·image_raw·compressed·scan)의 합계**를
-       넘기고 있었고, 그래서 `/robot1/pose` 발행자가 0 인데도 `/robot1/scan` 하나 때문에
+       넘기고 있었고, 그래서 `/pinky1/pose` 발행자가 0 인데도 `/pinky1/scan` 하나 때문에
        `publishers=1` 이 되어 `POSE_NO_PUBLISHER` 가 아니라 `POSE_NEVER_RECEIVED` 가 나왔다.
        바로 이 함수가 **일부러 갈라 놓은 두 상태**가 상류에서 뭉개진 것이다.
        이름을 `pose_publishers` 로 바꾼다 — 무엇을 받아야 하는지 이름이 말하게 한다.
 
     ⚠️ 아직 **신선도는 안 본다.** 한 번 받은 뒤 로봇이 움직이면 그 값은 낡지만,
-       그걸 판정하려면 마지막 pose 이후의 **odom 이동량**이 필요하다(`/robot1/odom`
+       그걸 판정하려면 마지막 pose 이후의 **odom 이동량**이 필요하다(`/pinky1/odom`
        은 15 Hz 로 계속 온다). 그 판정은 `fusion_clock` 과 같은 물리를 쓴다 —
        이동량이 격자를 넘으면 그 pose 는 더 이상 그 자리를 말하지 않는다.
        여기서는 **없는 것을 있다고 하지 않는 것**까지만 고친다.
@@ -381,9 +381,9 @@ def readiness(registry, robot_publishers=0, observing=False, robot_pose_msgs=Non
 
     ⭐⭐ `robot_publishers` 와 `pose_publishers` 는 **다른 수량이다.**
       robot_publishers  로봇 토픽 아무거나의 발행자 수  -> NO_ROBOT_DATA 판정용
-      pose_publishers   `/robotN/pose` 만의 발행자 수   -> pose 가용성 판정용
+      pose_publishers   `/pinkyN/pose` 만의 발행자 수   -> pose 가용성 판정용
       2026-09-14 실측에서 이 둘이 뭉개져 있었다 — 호출자가 탐침 5토픽 합계를 하나로
-      넘겼고, `/robot1/scan` 발행자 1 때문에 pose 발행자가 0 인데도 `publishers=1` 이
+      넘겼고, `/pinky1/scan` 발행자 1 때문에 pose 발행자가 0 인데도 `publishers=1` 이
       되어 `POSE_NO_PUBLISHER` 가 `POSE_NEVER_RECEIVED` 로 가려졌다.
       ⚠️ `pose_publishers` 를 안 주면 **모르는 것으로 친다**(POSE_PUBLISHERS_UNMEASURED).
          옛 뜻(합계)으로 답하지 않는다 — 틀린 초록보다 모른다가 낫다.

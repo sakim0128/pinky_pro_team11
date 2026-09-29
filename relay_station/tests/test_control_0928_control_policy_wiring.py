@@ -34,11 +34,10 @@ def test_정책_객체는_모듈_수준이고_허용_파일_경로는_두_배치
     assert "'..', 'configs', 'control_allow.json'" in body and "'..', '..', 'configs', 'control_allow.json'" in body
 
 
-def test_움직이는_다섯_경로는_전부_정책을_지난다():
-    goal = _block("if parsed.path in ('/api/robot1/goal', '/api/goal'):")
-    assert "self._deny_if_cannot_move('remote goal dispatch')" in goal and "not in LOCAL_CONTROL_IPS" not in goal
-    mission = _block("elif parsed.path == '/api/robot1/mission':")
-    assert "self._deny_if_cannot_move('remote mission trigger')" in mission and "not in LOCAL_CONTROL_IPS" not in mission
+def test_움직이는_세_경로는_전부_정책을_지난다():
+    # 2026-09-29: 우회 목표·미션 경로(/api/robotN/goal · /api/robotN/mission)는 지웠다 — 로봇은 lane_agent_node 뿐이다
+    assert "parsed.path in ('/api/robot1/goal'" not in SRC and "parsed.path == '/api/robot1/mission'" not in SRC
+    assert "def send_goal" not in SRC and "def send_mission" not in SRC and "DIRECT_MOTION_PATHS" not in SRC
     resume = _block("elif parsed.path in ROBOT_RESUME_PATHS:")
     assert "self._deny_if_cannot_move('remote robot resume', {'robot': robot})" in resume and "not in LOCAL_CONTROL_IPS" not in resume
     profile = _block("elif parsed.path in PROFILE_COMMANDS:")
@@ -54,7 +53,7 @@ def test_로봇_정지는_정책을_부르지_않는다():
 
 
 def test_관측·캘리브레이션·비전_세계는_여전히_현장_노트북만():
-    for head in ("elif parsed.path == '/api/observe':", "elif parsed.path == '/api/calibration/masks':",
+    for head in ("if parsed.path == '/api/observe':", "elif parsed.path == '/api/calibration/masks':",
                  "elif parsed.path == '/api/vision/world':", "elif parsed.path in ('/api/calibration/points', '/api/calibration/settle',"):
         blk = _block(head)
         assert "client_ip not in LOCAL_CONTROL_IPS" in blk, head

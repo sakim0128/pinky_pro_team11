@@ -1,20 +1,19 @@
 #!/bin/bash
 ###############################################################################
-#  map_robot2.sh — 로봇 #2 키보드 조작 & SLAM 2D 맵핑 통합 스크립트
+#  map_pinky1.sh — 로봇 #1 키보드 조작 & SLAM 2D 맵핑 통합 스크립트
 #
 #  기능:
-#    1. slam_toolbox 기반 고정밀 2D 실시간 매핑 (로봇 2호기 전용)
+#    1. slam_toolbox 기반 고정밀 2D 실시간 매핑 (교육장 소형 공간 최적화)
 #    2. teleop_twist_keyboard 통합 (터미널에서 즉시 i,j,k,l 키로 주행)
-#    3. /odom 및 /robot2/odom 자동 감지 매핑 지원
-#    4. 종료 시 대화형 맵 저장 (.pgm + .yaml + .png)
-#    5. 웹 대시보드(/my_map.png) 원클릭 동기화 지원
+#    3. 종료 시 대화형 맵 저장 (.pgm + .yaml + .png)
+#    4. 웹 대시보드(/my_map.png) 원클릭 동기화 지원
 #
 #  사용법:
-#    ~/map_robot2.sh             # 맵핑 & 키보드 조작 시작 (기본)
-#    ~/map_robot2.sh save [이름]  # 현재 맵 즉시 저장 (별도 터미널)
-#    ~/map_robot2.sh status      # 현재 맵핑 상태 확인
-#    ~/map_robot2.sh stop        # 맵핑 종료 및 저장
-#    ~/map_robot2.sh teleop      # SLAM 없이 순수 키보드 조작만 실행
+#    ~/map_pinky1.sh             # 맵핑 & 키보드 조작 시작 (기본)
+#    ~/map_pinky1.sh save [이름]  # 현재 맵 즉시 저장 (별도 터미널)
+#    ~/map_pinky1.sh status      # 현재 맵핑 상태 확인
+#    ~/map_pinky1.sh stop        # 맵핑 종료 및 저장
+#    ~/map_pinky1.sh teleop      # SLAM 없이 순수 키보드 조작만 실행
 ###############################################################################
 
 # ── ROS 2 환경 설정 ──────────────────────────────────────────
@@ -25,7 +24,7 @@
 #   설계 근거: docs/DOMAIN_ARCHITECTURE.md
 source /opt/ros/jazzy/setup.bash 2>/dev/null || true
 source $HOME/pinky_pro/install/setup.bash 2>/dev/null || true
-export ROS_DOMAIN_ID=11   # 로봇 2호기 고유 도메인 (직접 참여)
+export ROS_DOMAIN_ID=10   # 로봇 1호기 고유 도메인 (직접 참여)
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export CYCLONEDDS_URI="file://$HOME/pinky_pro/src/pinky_pro_team11/configs/cyclonedds.xml"
 export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
@@ -33,8 +32,8 @@ export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 # ── 경로 및 설정값 ───────────────────────────────────────────
 MAP_SAVE_DIR="$HOME/maps"
 WEB_MAP_PATH="$HOME/field_gateway_relay/static/my_map.png"
-SLAM_PARAMS_FILE="/tmp/slam_mapping_params_r2.yaml"
-SLAM_PID_FILE="/tmp/slam_toolbox_r2.pid"
+SLAM_PARAMS_FILE="/tmp/slam_mapping_params.yaml"
+SLAM_PID_FILE="/tmp/slam_toolbox.pid"
 
 # ── ANSI 색상 코드 ───────────────────────────────────────────
 RED='\033[0;31m'
@@ -48,10 +47,7 @@ NC='\033[0m'
 
 # ── SLAM 파라미터 파일 생성 ──────────────────────────────────
 create_slam_params() {
-    local odom_topic="${1:-/odom}"
-    local scan_topic="${2:-/scan}"
-
-    cat > "$SLAM_PARAMS_FILE" << YAML
+    cat > "$SLAM_PARAMS_FILE" << 'YAML'
 slam_toolbox:
   ros__parameters:
     solver_plugin: solver_plugins::CeresSolver
@@ -63,7 +59,7 @@ slam_toolbox:
 
     mode: mapping
 
-    # 소형 교육장 정밀도 최적화: 2.5cm/격자
+    # 소형 교육장(2.6m x 1.25m) 정밀도 최적화: 2.5cm/격자
     resolution: 0.025
     min_laser_range: 0.05
     max_laser_range: 6.0
@@ -74,7 +70,7 @@ slam_toolbox:
     odom_frame: odom
     map_frame: map
     base_frame: base_footprint
-    scan_topic: $scan_topic
+    scan_topic: /scan
     use_scan_matching: true
     use_scan_barycenter: true
 
@@ -121,7 +117,7 @@ except Exception as e:
 # ── 맵 저장 함수 ─────────────────────────────────────────────
 save_map() {
     mkdir -p "$MAP_SAVE_DIR"
-    local default_name="robot2_map_$(date +%Y%m%d_%H%M%S)"
+    local default_name="education_room_$(date +%Y%m%d_%H%M%S)"
     local save_name="${1:-$default_name}"
     local save_path="$MAP_SAVE_DIR/$save_name"
 
@@ -134,7 +130,7 @@ save_map() {
         --ros-args -p save_map_timeout:=8.0 2>&1
 
     if [ -f "${save_path}.pgm" ] && [ -f "${save_path}.yaml" ]; then
-        echo -e "${GREEN}✅ [성공] 로봇 #2 맵 저장 완료!${NC}"
+        echo -e "${GREEN}✅ [성공] 맵 저장 완료!${NC}"
         echo -e "   - PGM: ${save_path}.pgm ($(du -h "${save_path}.pgm" 2>/dev/null | cut -f1))"
         echo -e "   - YAML: ${save_path}.yaml"
 
@@ -164,29 +160,34 @@ save_map() {
 # ── 상태 확인 함수 ───────────────────────────────────────────
 view_status() {
     echo -e "${BOLD}${CYAN}====================================================${NC}"
-    echo -e "${BOLD}  🗺️  로봇 #2 SLAM 매핑 상태 모니터링${NC}"
+    echo -e "${BOLD}  🗺️  로봇 #1 SLAM 매핑 상태 모니터링${NC}"
     echo -e "${BOLD}${CYAN}====================================================${NC}"
 
     # SLAM 실행 여부
     local slam_pid
-    slam_pid=$(pgrep -f "slam_toolbox.*slam_mapping_params_r2" | head -1)
-    if [ -z "$slam_pid" ]; then
-        slam_pid=$(pgrep -f "async_slam_toolbox_node" | head -1)
-    fi
-
+    slam_pid=$(pgrep -f "async_slam_toolbox_node" | head -1)
     if [ -n "$slam_pid" ]; then
         echo -e "  ● SLAM 노드:  ${GREEN}정상 가동 중${NC} (PID: $slam_pid)"
     else
         echo -e "  ● SLAM 노드:  ${RED}중지됨${NC}"
     fi
 
-    # 핵심 토픽 점검
+    # 시뮬레이션 / 실물 시계 감지
+    if ros2 topic list 2>/dev/null | grep -q "^/clock$"; then
+        echo -e "  ● 시간 모드:  ${YELLOW}Gazebo 시뮬레이션 시계 (/clock)${NC}"
+    else
+        echo -e "  ● 시간 모드:  ${GREEN}실물 로봇 시스템 시계 (Wall Time)${NC}"
+    fi
+
+    # 핵심 토픽 발행자 점검
     echo -e "\n${BOLD}[핵심 토픽 상태]${NC}"
-    for t in "/scan" "/robot2/scan" "/odom" "/robot2/odom" "/cmd_vel" "/robot2/cmd_vel" "/map"; do
+    for t in "/scan" "/map" "/odom" "/cmd_vel"; do
         local cnt
         cnt=$(ros2 topic info "$t" 2>/dev/null | grep "Publisher count" | awk '{print $3}')
         if [ -n "$cnt" ] && [ "$cnt" != "0" ]; then
             echo -e "  - $t: ${GREEN}발행 중${NC} (퍼블리셔 $cnt 개)"
+        else
+            echo -e "  - $t: ${RED}발행자 없음 (대기)${NC}"
         fi
     done
 
@@ -202,26 +203,24 @@ view_status() {
 
 # ── SLAM 종료 함수 ───────────────────────────────────────────
 stop_slam() {
-    echo -e "${YELLOW}🛑 로봇 #2 SLAM 프로세스 정리 중...${NC}"
-    pkill -f "slam_toolbox.*slam_mapping_params_r2" 2>/dev/null || true
+    echo -e "${YELLOW}🛑 SLAM 매핑 프로세스 정리 중...${NC}"
+
+    # 백그라운드 SLAM 종료
     pkill -f "async_slam_toolbox_node" 2>/dev/null || true
+    pkill -f "slam_toolbox" 2>/dev/null || true
     pkill -f "teleop_twist_keyboard" 2>/dev/null || true
     rm -f "$SLAM_PID_FILE" 2>/dev/null || true
-    echo -e "${GREEN}✅ 모든 SLAM 및 키보드 조작 프로세스가 종료되었습니다.${NC}"
+
+    echo -e "${GREEN}✅ 모든 SLAM 및 키보드 조작 프로세스가 정상 종료되었습니다.${NC}"
 }
 
 # ── 순수 키보드 텔레옵만 실행 ────────────────────────────────
 run_teleop_only() {
-    local cmd_topic="/cmd_vel"
-    if ros2 topic list 2>/dev/null | grep -q "^/robot2/cmd_vel$"; then
-        cmd_topic="/robot2/cmd_vel"
-    fi
-
-    echo -e "${BOLD}${CYAN}🎮 로봇 #2 키보드 수동 주행 모드 ($cmd_topic)${NC}"
+    echo -e "${BOLD}${CYAN}🎮 로봇 #1 키보드 수동 주행 모드 (/cmd_vel)${NC}"
     echo -e "${YELLOW}속도: 전진 0.12 m/s, 회전 0.8 rad/s (정지: Space/k, 종료: Ctrl+C)${NC}\n"
     ros2 run teleop_twist_keyboard teleop_twist_keyboard \
         --ros-args \
-        -r cmd_vel:="$cmd_topic" \
+        -r cmd_vel:=/cmd_vel \
         -p speed:=0.12 \
         -p turn:=0.8 \
         -p speed_limit:=0.25 \
@@ -233,62 +232,54 @@ start_mapping() {
     clear 2>/dev/null || true
     echo -e "${BOLD}${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║       🗺️  로봇 #2 (Pinky Sub) SLAM 맵핑 & 키보드 조작         ║"
+    echo "║       🗺️  로봇 #1 SLAM 맵핑 & 키보드 조작 시스템             ║"
     echo "║       소형 교육장(2.6m x 1.25m) 신규 맵 생성 모드            ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 
-    # 1. 센서 및 토픽 점검 & 토픽 네임스페이스 감지
+    # 1. 환경 및 토픽 사전 점검
     echo -e "${CYAN}[1/4] 센서 및 토픽 사전 연결 점검...${NC}"
 
-    local scan_topic="/scan"
-    if ! ros2 topic list 2>/dev/null | grep -q "^/scan$" && ros2 topic list 2>/dev/null | grep -q "^/robot2/scan$"; then
-        scan_topic="/robot2/scan"
-    fi
-
-    local odom_topic="/odom"
-    if ! ros2 topic list 2>/dev/null | grep -q "^/odom$" && ros2 topic list 2>/dev/null | grep -q "^/robot2/odom$"; then
-        odom_topic="/robot2/odom"
-    fi
-
-    local cmd_topic="/cmd_vel"
-    if ! ros2 topic list 2>/dev/null | grep -q "^/cmd_vel$" && ros2 topic list 2>/dev/null | grep -q "^/robot2/cmd_vel$"; then
-        cmd_topic="/robot2/cmd_vel"
-    fi
-
-    echo -e "  - LiDAR 토픽: ${GREEN}$scan_topic${NC}"
-    echo -e "  - Odom 토픽:  ${GREEN}$odom_topic${NC}"
-    echo -e "  - 제어 토픽:  ${GREEN}$cmd_topic${NC}"
-
     local scan_pub
-    scan_pub=$(ros2 topic info "$scan_topic" 2>/dev/null | grep "Publisher count" | awk '{print $3}')
+    scan_pub=$(ros2 topic info /scan 2>/dev/null | grep "Publisher count" | awk '{print $3}')
     if [ -z "$scan_pub" ] || [ "$scan_pub" = "0" ]; then
-        echo -e "${RED}⚠️  [경고] $scan_topic 라이다 토픽 퍼블리셔가 감지되지 않습니다!${NC}"
-        echo -e "   로봇 2호기에서 bringup 서비스 기동 여부를 확인하세요."
+        echo -e "${RED}⚠️  [경고] /scan (라이다) 토픽 퍼블리셔가 감지되지 않습니다!${NC}"
+        echo -e "   - 가제보 시뮬레이션: ros2 launch pinky_gz_sim launch_sim.launch.xml"
+        echo -e "   - 실물 로봇: pinky_bringup 또는 rplidar 드라이버 가동 확인 필요"
         read -p "   그래도 SLAM을 시작하시겠습니까? (y/N): " cont_ans
         if [[ ! "$cont_ans" =~ ^[Yy]$ ]]; then
             echo "맵핑을 취소합니다."
             exit 0
         fi
     else
-        echo -e "  ✓ LiDAR 연결됨 (퍼블리셔 $scan_pub 개)"
+        echo -e "  ✓ LiDAR (/scan):       ${GREEN}연결됨${NC} (퍼블리셔 $scan_pub 개)"
+    fi
+
+    # 시뮬레이션 시간 결정
+    local use_sim="false"
+    if ros2 topic list 2>/dev/null | grep -q "^/clock$"; then
+        use_sim="true"
+        echo -e "  ✓ 시간 동기화:         ${YELLOW}Gazebo 시뮬레이션 시계 (/clock 감지됨)${NC}"
+    else
+        echo -e "  ✓ 시간 동기화:         ${GREEN}실물 로봇 시스템 시계 (Wall-clock)${NC}"
     fi
 
     # 2. 잔여 프로세스 정리
     echo -e "\n${CYAN}[2/4] 이전 잔여 프로세스 정리...${NC}"
-    pkill -f "slam_toolbox.*slam_mapping_params_r2" 2>/dev/null || true
+    pkill -f "async_slam_toolbox_node" 2>/dev/null || true
     pkill -f "teleop_twist_keyboard" 2>/dev/null || true
     sleep 1
+    echo "  ✓ 정리 완료"
 
     # 3. SLAM Toolbox 백그라운드 구동
     echo -e "\n${CYAN}[3/4] SLAM 백엔드 (slam_toolbox) 초기화...${NC}"
-    create_slam_params "$odom_topic" "$scan_topic"
+    create_slam_params
     mkdir -p "$MAP_SAVE_DIR"
 
     ros2 launch slam_toolbox online_async_launch.py \
         slam_params_file:="$SLAM_PARAMS_FILE" \
-        use_sim_time:=false \
-        > /tmp/slam_mapping_r2.log 2>&1 &
+        use_sim_time:="$use_sim" \
+        > /tmp/slam_mapping.log 2>&1 &
     SLAM_PID=$!
     echo "$SLAM_PID" > "$SLAM_PID_FILE"
 
@@ -300,10 +291,10 @@ start_mapping() {
     echo ""
 
     if kill -0 $SLAM_PID 2>/dev/null; then
-        echo -e "  ✓ SLAM 노드: ${GREEN}가동 성공${NC} (PID: $SLAM_PID)"
+        echo -e "  ✓ SLAM 노드:           ${GREEN}가동 성공${NC} (PID: $SLAM_PID)"
     else
-        echo -e "  ❌ ${RED}SLAM 노드 기동 실패!${NC} 로그: /tmp/slam_mapping_r2.log"
-        tail -15 /tmp/slam_mapping_r2.log
+        echo -e "  ❌ ${RED}SLAM 노드 기동 실패!${NC} 로그를 확인하세요 (/tmp/slam_mapping.log)"
+        tail -15 /tmp/slam_mapping.log
         exit 1
     fi
 
@@ -311,17 +302,28 @@ start_mapping() {
     echo -e "\n${CYAN}[4/4] 키보드 조작 인터페이스 활성화${NC}"
     echo -e "${BOLD}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║  ⌨️  로봇 #2 키보드 주행 조작 키 안내:                        ║"
+    echo "║  ⌨️  키보드 주행 조작 키 안내:                               ║"
     echo "║                                                              ║"
     echo "║        u    i    o         ↖  전진  ↗                        ║"
     echo "║        j    k    l    →    ←  정지  →                        ║"
     echo "║        m    ,    .         ↙  후진  ↘                        ║"
     echo "║                                                              ║"
+    echo "║  속도 미세조절:                                              ║"
+    echo "║    q / z : 전체 속도 10% 증가 / 감소                         ║"
+    echo "║    w / x : 선속도(전진/후진) 10% 증가 / 감소                 ║"
+    echo "║    e / c : 각속도(회전) 10% 증가 / 감소                      ║"
+    echo "║                                                              ║"
     echo "║  정지: [스페이스바] 또는 [k]                                 ║"
     echo "║  종료 & 맵 저장: [Ctrl + C]                                  ║"
+    echo "║                                                              ║"
+    echo "║  💡 주행 팁:                                                 ║"
+    echo "║   - 회전 시 천천히 제자리 회전하여 라이다 벽면을 채우세요.    ║"
+    echo "║   - 교육장 외곽 벽면을 한 바퀴 돈 뒤 처음 위치로 오면        ║"
+    echo "║     루프 클로저(Loop Closure)가 적용되어 맵이 보정됩니다.    ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 
+    # 텔레옵 종료 시 처리 핸들러
     trap 'echo ""; handle_exit' INT
 
     handle_exit() {
@@ -344,19 +346,25 @@ start_mapping() {
         read -p "SLAM 백그라운드 프로세스를 종료하시겠습니까? (Y/n): " do_stop
         if [[ ! "$do_stop" =~ ^[Nn]$ ]]; then
             stop_slam
+        else
+            echo -e "${CYAN}SLAM이 백그라운드에서 계속 실행 중입니다.${NC}"
+            echo -e "  - 나중에 맵 저장: ~/map_pinky1.sh save [이름]"
+            echo -e "  - 완전 종료:     ~/map_pinky1.sh stop"
         fi
         exit 0
     }
 
+    # teleop_twist_keyboard 실행 (사용자 터미널 포그라운드 점유)
     ros2 run teleop_twist_keyboard teleop_twist_keyboard \
         --ros-args \
-        -r cmd_vel:="$cmd_topic" \
+        -r cmd_vel:=/cmd_vel \
         -p speed:=0.12 \
         -p turn:=0.8 \
         -p speed_limit:=0.25 \
         -p turn_limit:=1.5
 }
 
+# ── CLI 서브커맨드 라우터 ─────────────────────────────────────
 case "${1:-start}" in
     start)
         start_mapping
@@ -375,9 +383,17 @@ case "${1:-start}" in
         ;;
     help|--help|-h)
         echo "사용법: $0 {start|save [이름]|status|stop|teleop|help}"
+        echo ""
+        echo "  start   - 2D SLAM 매핑 및 키보드 조작 시작 (기본값)"
+        echo "  save    - 현재까지 탐색된 맵을 파일로 저장 (.pgm + .yaml + .png)"
+        echo "  status  - SLAM 노드 및 라이다, 오돔, 맵 토픽 상태 확인"
+        echo "  stop    - SLAM 프로세스 종료"
+        echo "  teleop  - SLAM 없이 순수 키보드 조작(/cmd_vel)만 실행"
+        echo "  help    - 본 도움말 출력"
         ;;
     *)
         echo -e "${RED}알 수 없는 서브커맨드: $1${NC}"
+        echo "사용법: $0 {start|save [이름]|status|stop|teleop|help}"
         exit 1
         ;;
 esac

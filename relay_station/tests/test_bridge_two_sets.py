@@ -12,18 +12,18 @@
 > `(팀원 시뮬레이션 cmd_vel 이 실물 로봇으로 나가는 사고 차단)`
 
 ⭐ **막으려던 것은 "팀원" 이 아니라 "시뮬레이션 트래픽" 이다.** 그래서 길을 막는 대신
-   **이름을 가른다**: 벌 2 는 `robotN/teleop/cmd_vel` 만 보고, 팀원이 시뮬에 쓰는
-   `robotN/cmd_vel` 은 **쳐다보지 않는다.** 조종기가 일부러 그 이름으로 쏘지 않는 한
+   **이름을 가른다**: 벌 2 는 `pinkyN/teleop/cmd_vel` 만 보고, 팀원이 시뮬에 쓰는
+   `pinkyN/cmd_vel` 은 **쳐다보지 않는다.** 조종기가 일부러 그 이름으로 쏘지 않는 한
    아무것도 안 나간다.
 
 이 성질은 **이름이 갈려 있다는 것 하나**로만 성립한다. 그래서 여기서 고정한다.
-누가 편의를 위해 벌 2 에 `robotN/cmd_vel` 을 한 줄 넣는 순간 사고가 되살아나는데,
+누가 편의를 위해 벌 2 에 `pinkyN/cmd_vel` 을 한 줄 넣는 순간 사고가 되살아나는데,
 설정 파일만 보면 그게 한 줄 추가로 보인다.
 
 ## 두 벌로 쪼갠 이유
 
-    robotN_teleop_in.yaml    9 -> 8   팀원이 보낸 것을 관제국이 **본다**
-    robotN_teleop_out.yaml   8 -> N   그것을 로봇에게 **내보낸다**
+    pinkyN_teleop_in.yaml    9 -> 8   팀원이 보낸 것을 관제국이 **본다**
+    pinkyN_teleop_out.yaml   8 -> N   그것을 로봇에게 **내보낸다**
 
 `_out` 만 끄면 화면에는 그대로 보이면서 로봇은 안 움직인다 — **관측을 잃지 않는 정지**다.
 한 벌로 뭉쳐 두면 끄는 순간 무엇을 시키려 했는지도 같이 안 보이게 된다.
@@ -64,8 +64,8 @@ def test_네_대_모두_두_벌이_생겼다():
     """⭐⭐ 파일이 없으면 아래 시험은 구조적으로 통과한다."""
     for n in ROBOT_DOMAINS:
         for half in ("in", "out"):
-            doc = _load("robot%d_teleop_%s.yaml" % (n, half))
-            assert _topics(doc), "robot%d_teleop_%s 에 토픽이 없다" % (n, half)
+            doc = _load("pinky%d_teleop_%s.yaml" % (n, half))
+            assert _topics(doc), "pinky%d_teleop_%s 에 토픽이 없다" % (n, half)
 
 
 # ---- 🔴 원래 막으려던 사고를 여전히 막는가 ------------------------------------------------
@@ -78,7 +78,7 @@ def test_팀원_시뮬_이름을_벌2가_안_본다():
     bad = []
     for n in ROBOT_DOMAINS:
         for half in ("in", "out"):
-            fn = "robot%d_teleop_%s.yaml" % (n, half)
+            fn = "pinky%d_teleop_%s.yaml" % (n, half)
             for t in _topics(_load(fn)):
                 if TELEOP_PREFIX not in t:
                     bad.append("%s: %s" % (fn, t))
@@ -89,19 +89,19 @@ def test_팀원_시뮬_이름을_벌2가_안_본다():
 
 
 def test_시뮬이_쓰는_이름은_명시적으로_제외다():
-    """음성 대조군 — `robotN/cmd_vel` 이 벌 2 어디에도 없어야 한다."""
+    """음성 대조군 — `pinkyN/cmd_vel` 이 벌 2 어디에도 없어야 한다."""
     for n in ROBOT_DOMAINS:
         for half in ("in", "out"):
-            names = set(_topics(_load("robot%d_teleop_%s.yaml" % (n, half))))
-            assert "robot%d/cmd_vel" % n not in names, \
-                "robot%d_teleop_%s 가 시뮬 이름을 물었다" % (n, half)
+            names = set(_topics(_load("pinky%d_teleop_%s.yaml" % (n, half))))
+            assert "pinky%d/cmd_vel" % n not in names, \
+                "pinky%d_teleop_%s 가 시뮬 이름을 물었다" % (n, half)
 
 
 # ---- 방향과 도메인이 맞는가 -----------------------------------------------------------
 
 def test_들어오는_다리는_팀원에서_관제로만_간다():
     for n in ROBOT_DOMAINS:
-        doc = _load("robot%d_teleop_in.yaml" % n)
+        doc = _load("pinky%d_teleop_in.yaml" % n)
         assert doc["from_domain"] == TEAM_DOMAIN, doc["from_domain"]
         assert doc["to_domain"] == RELAY_DOMAIN, doc["to_domain"]
         for t, spec in _topics(doc).items():
@@ -112,15 +112,15 @@ def test_들어오는_다리는_팀원에서_관제로만_간다():
 def test_나가는_다리만_로봇_도메인에_닿는다():
     """⭐ 로봇 도메인에 닿는 유일한 자리다. 여기만 끄면 바퀴가 선다."""
     for n, d in ROBOT_DOMAINS.items():
-        doc = _load("robot%d_teleop_out.yaml" % n)
+        doc = _load("pinky%d_teleop_out.yaml" % n)
         assert doc["from_domain"] == RELAY_DOMAIN
-        assert doc["to_domain"] == d, "robot%d 가 도메인 %s 로 간다" % (n, doc["to_domain"])
+        assert doc["to_domain"] == d, "pinky%d 가 도메인 %s 로 간다" % (n, doc["to_domain"])
         for t, spec in _topics(doc).items():
             assert spec.get("remap") == "cmd_vel", \
                 "로봇 안에서는 표준 이름이어야 온보드를 안 고친다: %s" % t
     # 들어오는 다리는 로봇 도메인에 **못 닿는다**
     for n in ROBOT_DOMAINS:
-        doc = _load("robot%d_teleop_in.yaml" % n)
+        doc = _load("pinky%d_teleop_in.yaml" % n)
         for t, spec in _topics(doc).items():
             assert spec.get("to_domain", doc["to_domain"]) not in ROBOT_DOMAINS.values(), \
                 "들어오는 다리가 로봇에 직접 닿는다 — 그러면 끌 손잡이가 하나로 줄어든다: %s" % t
@@ -130,9 +130,9 @@ def test_한_로봇의_벌이_다른_로봇에_안_닿는다():
     """B-2 와 같은 성질 — 이름에 자기 번호가 박혀 있어야 한다."""
     for n in ROBOT_DOMAINS:
         for half in ("in", "out"):
-            for t in _topics(_load("robot%d_teleop_%s.yaml" % (n, half))):
-                assert t.startswith("robot%d/" % n), \
-                    "robot%d 벌이 %s 를 나른다" % (n, t)
+            for t in _topics(_load("pinky%d_teleop_%s.yaml" % (n, half))):
+                assert t.startswith("pinky%d/" % n), \
+                    "pinky%d 벌이 %s 를 나른다" % (n, t)
 
 
 # ---- 🔴 루프 -------------------------------------------------------------------
@@ -146,7 +146,7 @@ def test_미러와_teleop_이름이_안_겹친다():
     """
     mirror = set(_topics(_load("team_mirror.yaml")))
     for n in ROBOT_DOMAINS:
-        incoming = set(_topics(_load("robot%d_teleop_in.yaml" % n)))
+        incoming = set(_topics(_load("pinky%d_teleop_in.yaml" % n)))
         overlap = mirror & incoming
         assert not overlap, "미러와 teleop 들어오는 다리가 겹친다(루프): %s" % sorted(overlap)
 

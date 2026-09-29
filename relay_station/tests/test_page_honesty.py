@@ -30,7 +30,7 @@ IPV4 = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
 # 서버가 핑하는 노드들 (NetworkLatencyMonitor.targets 와 같은 키)
 # ⭐ 서버가 핑하는 **고정 설비**만. 태블릿·폰은 들고 다녀서 주소가 바뀌므로
 #    핑 목록에 없다 - 도달 여부는 소스 자신이 말한다.
-NODES = ("router", "robot1", "robot2", "internet")
+NODES = ("router", "pinky1", "pinky2", "internet")
 
 
 def _html():

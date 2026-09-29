@@ -200,12 +200,12 @@ BRIDGE_DIR="${REPO_ROOT:-$HOME/pinky_pro/src/pinky_pro_team11}/relay_station/dom
 if [ -x /opt/ros/jazzy/lib/domain_bridge/domain_bridge ]; then
     # systemd 유저 유닛이 이미 설치돼 있으면 그쪽에 맡긴다(Restart=always 로 자동 복구).
     if systemctl --user list-unit-files 'pinky-domain-bridge@.service' >/dev/null 2>&1; then
-        systemctl --user start pinky-domain-bridge@robot1_control.service 2>/dev/null || true
-        systemctl --user start pinky-domain-bridge@robot2_control.service 2>/dev/null || true
+        systemctl --user start pinky-domain-bridge@pinky1_control.service 2>/dev/null || true
+        systemctl --user start pinky-domain-bridge@pinky2_control.service 2>/dev/null || true
         systemctl --user start pinky-domain-bridge@team_mirror.service    2>/dev/null || true
         systemctl --user start pinky-bridge-watchdog.service              2>/dev/null || true
     fi
-    for U in pinky-domain-bridge@robot1_control pinky-domain-bridge@robot2_control \
+    for U in pinky-domain-bridge@pinky1_control pinky-domain-bridge@pinky2_control \
              pinky-domain-bridge@team_mirror pinky-bridge-watchdog; do
         if systemctl --user is-active --quiet "$U.service" 2>/dev/null; then
             echo "  - 🟢 $U"
@@ -239,7 +239,6 @@ cleanup() {
     pkill -9 -f "gz sim" >/dev/null 2>&1 || true
     pkill -9 -f "ros_gz_bridge" >/dev/null 2>&1 || true
     pkill -9 -f "ros_gz_image" >/dev/null 2>&1 || true
-    pkill -f "relay_controller_gui.py" 2>/dev/null || true
     fuser -k 8889/tcp >/dev/null 2>&1 || true
     echo "[INFO] All systems cleanly terminated. (rc=$rc)"
     exit "$rc"
@@ -266,15 +265,12 @@ echo "  - 메인 로봇(Pinky #1) & 서브 로봇(Pinky #2) 듀얼 디지털 트
 
 # 5. 게이트웨이 웹 서버 기동
 echo -e "\n🛰️  [5/5] 중계 게이트웨이 웹 서버 기동 (포트 8889)"
-pkill -f "relay_controller_gui.py" 2>/dev/null || true
-    fuser -k 8889/tcp >/dev/null 2>&1 || true
+fuser -k 8889/tcp >/dev/null 2>&1 || true
 sleep 0.5
 
 cd "$SCRIPT_DIR"
-# 현장 중계 장비 전용 로봇 제어 콘솔 GUI 기동
-pkill -f "relay_controller_gui.py" 2>/dev/null || true
-nohup python3 "$SCRIPT_DIR/relay_controller_gui.py" >/tmp/relay_gui.log 2>&1 &
-echo "  - 현장 중계 장비 로봇 제어 콘솔 창(GUI)이 화면에 팝업되었습니다."
+# (옛 relay_controller_gui.py — Nav2 클릭 목표 데스크톱 창 — 은 지웠다(2026-09-29). 로봇은 lane_agent_node 뿐이라 목표 API 가 없다.
+#  제어는 브라우저 http://<중계 PC>:8889/fleet_control_v2.html 의 "미션 배정" 카드 · 플릿 시작/정지.)
 
 # MCV-1C: 로컬 캠은 필요할 때만 열린다(lazy open + idle release) - LED 는 유휴에 꺼진다.
 # 장치를 절대 열지 않으려면 인자로 --no-camera 를 준다. pull 소스는 그 플래그와 무관하다.

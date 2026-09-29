@@ -46,17 +46,17 @@ CONTROL_DOMAIN = 8
 # `create_publisher(Type, '/topic', qos)` — 파이썬 소스와 셸 안의 파이썬 heredoc 둘 다.
 PUBLISHER = re.compile(r"create_publisher\(\s*\w+\s*,\s*['\"]([^'\"]+)['\"]")
 
-PREFIXED = re.compile(r"^/(robot|pinky)[1-4]/")
+PREFIXED = re.compile(r"^/pinky[1-4]/")
 
 
 def _bridge_downlink_names():
     """브리지가 도메인 8에서 **받아 내려보내는** 토픽들 → (전체키 집합, 명령어 집합)."""
     keys, commands = set(), set()
-    # ⭐ **명령은 `robotN_control.yaml` 의 다운링크뿐이다.** 처음엔 configs/ 전체를
+    # ⭐ **명령은 `pinkyN_control.yaml` 의 다운링크뿐이다.** 처음엔 configs/ 전체를
     #    읽었는데, `team_mirror.yaml`(8→9 읽기 전용 미러)의 `bridge/health` 까지
     #    "명령" 으로 잡혀 감시자가 거짓 양성으로 걸렸다. 미러는 명령 경로가 아니다.
     for fn in sorted(os.listdir(BRIDGE_CFG)):
-        if not re.match(r"robot[1-4]_control\.yaml$", fn):
+        if not re.match(r"pinky[1-4]_control\.yaml$", fn):
             continue
         with io.open(os.path.join(BRIDGE_CFG, fn), encoding="utf-8") as fh:
             doc = yaml.safe_load(fh) or {}
@@ -97,8 +97,10 @@ def test_브리지_화이트리스트를_읽어낸다():
     """⭐⭐ 명령어 집합이 비면 아래 본 검사는 구조적으로 통과한다."""
     keys, commands = _bridge_downlink_names()
     assert commands, "브리지 설정에서 다운링크 명령을 하나도 못 읽었다"
-    assert {"goal_pose", "cmd_vel", "mission_cmd"} <= commands, commands
-    assert "/robot1/goal_pose" in keys, keys
+    # 2026-09-29: goal_pose·mission_cmd·cmd_vel 다운링크는 없다(로봇은 lane_agent_node 뿐) — 남은 명령이 화이트리스트다
+    assert {"vision_pose", "route", "lane_command", "command", "pose_fix"} <= commands, commands
+    assert not {"goal_pose", "cmd_vel", "mission_cmd"} & commands, commands
+    assert "/pinky1/vision_pose" in keys, keys
 
 
 def test_볼_발행자가_있다():
@@ -111,9 +113,9 @@ def test_탐지기가_접두어_없는_이름을_잡는다():
     assert PUBLISHER.findall("pub = node.create_publisher(PoseStamped, '/goal_pose', 10)") \
         == ["/goal_pose"]
     assert not PREFIXED.match("/goal_pose")
-    assert PREFIXED.match("/robot1/goal_pose")
+    assert PREFIXED.match("/pinky1/vision_pose")
     assert PREFIXED.match("/pinky1/pose_fix")
-    assert not PREFIXED.match("/robot5/goal_pose"), "로봇은 1~4 다"
+    assert not PREFIXED.match("/robot1/vision_pose"), "이름은 pinkyN 하나다 (2026-09-29)"
     assert not PREFIXED.match("/pinky5/pose_fix"), "로봇은 1~4 다"
 
 
@@ -127,7 +129,7 @@ def test_명령은_로봇별_이름으로만_발행한다():
     assert not bad, (
         "관제 평면에서 접두어 없는 명령 토픽을 발행한다 — 로봇이 같은 도메인에"
         + chr(10) + "들어오면 그 하나가 4대 전부에게 간다." + chr(10)
-        + "브리지도 이 이름은 안 나른다(설정은 /robotN/<이름> 을 기다린다)." + chr(10)
+        + "브리지도 이 이름은 안 나른다(설정은 /pinkyN/<이름> 을 기다린다)." + chr(10)
         + chr(10) + chr(10).join("  %s:%d  ->  %s" % b for b in bad))
 
 

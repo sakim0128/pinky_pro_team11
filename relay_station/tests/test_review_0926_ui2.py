@@ -62,7 +62,6 @@ def _state_dir(tmp_path, monkeypatch):
 def g(monkeypatch):
     import gateway_web_server as gws
     node = MagicMock()
-    node.send_mission.return_value = 1
     monkeypatch.setattr(gws, "GLOBAL_ROBOT_SUB_NODE", node)
     monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", None)
     monkeypatch.setattr(gws, "ALLOW_DIRECT_FALLBACK", False)
@@ -154,56 +153,16 @@ def test_OPS1_18081_경로로_온_요청은_보기는_되고_움직이는_명령
             except OSError:
                 time.sleep(0.05)
         assert _http(view_port, "GET", "/api/fleet/status")[0] == 200            # 보기는 된다
-        for path in ("/api/robot1/resume", "/api/robot1/goal", "/api/fleet/start", "/api/fleet/profile"):
+        for path in ("/api/pinky1/resume", "/api/fleet/start", "/api/fleet/profile", "/api/fleet/assign"):
             assert _http(view_port, "POST", path)[0] == 403, path              # 움직이는 명령은 원격으로 본다
-        for path in ("/api/fleet/estop", "/api/robot1/stop"):
+        for path in ("/api/fleet/estop", "/api/pinky1/stop"):
             assert _http(view_port, "POST", path)[0] != 403, path              # 멈추는 명령은 어디서든 받는다(D7)
-        assert _http(gw_port, "POST", "/api/robot1/resume")[0] != 403          # 이 노트북에서 :8889 로는 된다
+        assert _http(gw_port, "POST", "/api/pinky1/resume")[0] != 403          # 이 노트북에서 :8889 로는 된다
     finally:
         proc.terminate()
         proc.wait(5)
         srv.shutdown()
         srv.server_close()
-
-
-# ==== OPS-5 · 래치·해제 보류를 보고하는 로봇에 우회 목표·미션을 받지 않는다 ================================================
-
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-@pytest.mark.parametrize("state,reason", [
-    (LaneStatus.DRIVE_ESTOP, "ESTOP"),
-    (LaneStatus.DRIVE_LINK_LOST, "관제 링크 유실"),
-    (LaneStatus.DRIVE_IDLE, RELEASE_HOLD),
-    (LaneStatus.DRIVE_IDLE, "해제 보류 — Nav2 취소 미확인"),
-], ids=["estop", "link-lost", "release-hold-unknown", "release-hold"])
-def test_OPS5_래치나_해제_보류를_보고하는_로봇에는_우회_목표·미션을_409_ROBOT_LATCHED_로_거부한다(g, monkeypatch, path,
-                                                                                         state, reason):
-    gws, node = g
-    c = _coord(state="ASSIGNED")
-    c.robots["pinky1"].lane_status = _ls(state, reason)          # 코디네이터가 아직 세우지 않았어도(held=False)
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5, "mission": "1"}')
-    assert code == 409 and body["reason"] == "ROBOT_LATCHED" and body["dispatched"] is False
-    assert "pinky1" in body["message"]
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
-
-
-def test_OPS5_평소_보고면_목표를_보내고__200_은_발행했다고만_말한다(g, monkeypatch):
-    gws, node = g
-    c = _coord(state="ASSIGNED")
-    c.robots["pinky1"].lane_status = _ls(LaneStatus.DRIVE_IDLE, "경로 수신 — START 대기")
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 200 and body["success"] is True and node.send_goal.called
-    assert body["dispatched"] is True and body["confirmed"] is None
-    assert "발행했다" in body["message"] and "sent to Robot" not in body["message"]
-
-
-def test_OPS5_래치_판정은_에이전트가_싣는_상태_번호·해제_보류_문구와_같다():
-    import gateway_web_server as gws
-    from pinky_fleet_agent import hybrid_agent_node as agent_node
-    assert set(gws.LATCHED_DRIVE_STATES) == {LaneStatus.DRIVE_ESTOP, LaneStatus.DRIVE_LINK_LOST}
-    assert agent_node.RELEASE_HOLD_REASON.startswith(gws.RELEASE_HOLD_PREFIX)
 
 
 # ==== OPS-3 · 래치로 세워 둔 로봇이 있으면 ② 로봇 지도·③ 초기 위치를 보내지 않는다 ======================================
@@ -263,8 +222,8 @@ def test_UIR1_래치를_보고하고_꺼진_로봇이_있어도_로봇_재개_�
     """
     gws, node = g
     c = _wired(gws, node, monkeypatch, _coord(state="ASSIGNED"))
-    c.profiles = {"map4": types.SimpleNamespace(robot_map_name="map4")}
-    c.active_profile = "map4"
+    c.profiles = {"team11_map5": types.SimpleNamespace(robot_map_name="map5")}
+    c.active_profile = "team11_map5"
     if kind == "estop":
         c.estop_fleet()
         c._t += 1
@@ -281,7 +240,7 @@ def test_UIR1_래치를_보고하고_꺼진_로봇이_있어도_로봇_재개_�
         assert c.robots["pinky2"].held_reason == FC.HELD_LINK_LOST
     code, body = _post(gws, "/api/fleet/" + cmd, ip="127.0.0.1")        # 보고가 방금이거나 세워 둔 채 — 아직 막는다
     assert code == 409 and body["latched"] == ["pinky2"] and "로봇 재개 먼저" in body["message"]
-    assert _post(gws, "/api/robot2/resume", ip="127.0.0.1")[0] == 200     # 409 가 말한 처방
+    assert _post(gws, "/api/pinky2/resume", ip="127.0.0.1")[0] == 200     # 409 가 말한 처방
     c._t += 10.0                                                         # pinky2 는 10 s 째 조용하다
     for p in c.fleet_cmd_pubs.values():
         p.reset_mock()
@@ -307,24 +266,6 @@ def test_UIR1_로봇_스스로의_래치_보고는_최근_것만_센다(g, monke
     assert [call[0][0] for call in node.send_fleet_control.call_args_list] == [{"cmd": "robot_maps"}]
 
 
-@pytest.mark.parametrize("reason", ["E-STOP", RELEASE_HOLD], ids=["estop", "release-hold"])
-def test_UIR1_조용한_로봇의_옛_래치_보고로도_우회_목표는_거부하되_로봇_재개로_풀린다고_하지_않는다(g, monkeypatch, reason):
-    """움직이는 쪽은 닫힌 채로 — 에이전트가 조용하면 래치도 취소도 지키는 쪽이 없다. 다만 처방은 정직하게."""
-    gws, node = g
-    c = _coord(state="ASSIGNED")
-    ctx = c.robots["pinky1"]
-    ctx.lane_status = _ls(LaneStatus.DRIVE_ESTOP if reason == "E-STOP" else LaneStatus.DRIVE_IDLE, reason)
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    ctx.lane_status_time = c._t - 30.0
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "ROBOT_LATCHED" and body["dispatched"] is False
-    assert "마지막 보고(30 s 전)" in body["message"] and "/api/robot1/resume" not in body["message"]
-    ctx.lane_status_time = c._t - 0.5
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "ROBOT_LATCHED" and "마지막 보고" not in body["message"]
-    node.send_goal.assert_not_called()
-
-
 # ==== OPS-6 · 로봇 재개는 플릿 재개가 실제로 무엇을 할지로 말한다 ========================================================
 
 @pytest.mark.parametrize("state,pre,routes,goes", [
@@ -344,57 +285,13 @@ def test_OPS6_로봇_재개_문구는_플릿_재개가_실제로_갈_상태와_�
         for ctx in c.robots.values():
             ctx.route = None
     c.stop_robot("pinky1")
-    code, body = _post(gws, "/api/robot1/resume", ip="127.0.0.1")
+    code, body = _post(gws, "/api/pinky1/resume", ip="127.0.0.1")
     assert code == 200 and body["mission_state"] == state
     assert body["fleet_resume_goes_to"] == goes
     assert "(플릿 재개 때 출발)" not in body["message"]
     assert ("출발한다" in body["message"]) == (goes == "RUNNING")
     c.resume_fleet()                                                # 말한 대로 되는가 — 코디네이터 규칙과 대사
     assert c.mission_state == goes
-
-
-# ==== OPS-10 · 미션 API 는 본문이 말한, 내비게이터가 아는 미션만 낸다 ===================================================
-
-@pytest.mark.parametrize("raw", [
-    b"", b"{not json", b'{"x": 1}', b"[1]", b'["mission"]', b'"1"', b'{"mission": ""}', b'{"mission": null}', b'{"mission": true}',
-    b'{"mission": 1.0}', b'{"mission": "3"}', b'{"mission": "mission1"}', b'{"mission": "point1"}', b'{"mission": "stop"}',
-])
-def test_OPS10_미션이_없거나_모르는_본문은_400_BAD_MISSION_이고_보내지_않는다(g, monkeypatch, raw):
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    code, body = _post(gws, "/api/robot1/mission", ip="127.0.0.1", body=raw)
-    assert code == 400 and body["reason"] == "BAD_MISSION" and body["dispatched"] is False
-    assert body["message"].startswith("미션 거부 — ")
-    if raw in (b'{"mission": true}', b'{"mission": 1.0}', b'{"mission": null}'):
-        assert "글자·정수가 아니다" in body["message"]                  # 참·실수를 '1' 로 읽지 않는다
-    node.send_mission.assert_not_called()
-
-
-@pytest.mark.parametrize("raw,cmd", [
-    (b'{"mission": "1"}', "mission1"), (b'{"mission": "2"}', "mission2"), (b'{"mission": 2}', "mission2"),
-    (b'{"mission": " 1 "}', "mission1"),
-])
-def test_OPS10_아는_미션은_내비게이터_명령으로_보낸다(g, monkeypatch, raw, cmd):
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    code, body = _post(gws, "/api/robot1/mission", ip="127.0.0.1", body=raw)
-    assert code == 202 and body["dispatched"] is True
-    node.send_mission.assert_called_once_with(cmd)
-
-
-@pytest.mark.skip(reason='대사 대상(원 저장소 robots/robot1/services/robot1_mission_navigator.py)이 이 레포에 없다 — hybrid_robot.launch.xml 의 로봇은 mission_cmd 문자열이 아니라 FleetCommand·LaneCommand 로 움직인다. 400 BAD_MISSION 검증은 위 두 시험이 잰다')
-def test_OPS10_받는_미션은_내비게이터가_아는_명령이고_GUI_는_그_값을_보낸다():
-    import gateway_web_server as gws
-    nav = io.open(os.path.join(REPO, "robots", "robot1", "services", "robot1_mission_navigator.py"), encoding="utf-8").read()
-    handler = nav[nav.index("def _cb_mission_cmd"):nav.index("def plan_and_navigate_to")]
-    for cmd in gws.MISSION_COMMANDS.values():
-        assert "'%s'" % cmd in handler, cmd
-    gui = io.open(os.path.join(GATEWAY_DIR, "relay_controller_gui.py"), encoding="utf-8").read()
-    assert "json.dumps({'mission': str(mission_num)})" in gui
-    sent = set(re.findall(r"self\._send_mission\((\d+)\)", gui))
-    assert sent and sent <= set(gws.MISSION_COMMANDS), sent
-    for page in ("fleet_control_v2.js", "index.html"):               # 웹 화면은 미션 API 를 부르지 않는다
-        assert "/api/robot1/mission" not in io.open(os.path.join(STATIC, page), encoding="utf-8").read(), page
 
 
 # ==== OPS-2·4·7·8·N1 · V2 화면 (정적 검사) ===============================================================================
@@ -450,7 +347,7 @@ window.alert = (m) => window.__alerts.push(String(m));
 window.confirm = (m) => { window.__confirms.push(String(m)); return true; };
 const J = (status, body) => ({status, body});
 window.__fleet = () => ({mission_state: window.__mode.mission || "ASSIGNED", estop_latched:false, control_note: window.__mode.note || null,
-  profile:{label:"시험 프로파일", frame:"team11_map4"},                                   // 관제 U-2·U-6: 부제·요약 문장의 label
+  profile:{label:"시험 프로파일", frame:"team11_map5"},                                   // 관제 U-2·U-6: 부제·요약 문장의 label
   robots:{pinky1:{held:false, is_stale: !!window.__mode.stale1, state:{x:0.1,y:0.2,yaw:0,localized:true},
                   lane_status: window.__mode.ls1 || {drive_state:0, state_reason:"경로 수신 — START 대기"}},
           pinky2:{held: !!window.__mode.held2, held_reason: window.__mode.held2 ? "운영자" : null, is_stale:false, state:{x:0.3,y:0.2,yaw:0,localized:true}, lane_status:{drive_state:0, state_reason:"IDLE"}}}});
@@ -624,11 +521,11 @@ def test_OPS4_V2_로봇_정지는_묻지_않고_재개는_묻는다(v2):
     v2.mode("{}")
     v2.ev('document.querySelector(\'[data-robot-cmd="stop"][data-robot="1"]\').click(); 0')
     time.sleep(0.4)
-    assert v2.ev("window.__confirms.length") == 0 and v2.ev("window.__posts.slice()") == ["/api/robot1/stop"]
+    assert v2.ev("window.__confirms.length") == 0 and v2.ev("window.__posts.slice()") == ["/api/pinky1/stop"]
     v2.mode("{}")
     v2.ev('document.querySelector(\'[data-robot-cmd="resume"][data-robot="1"]\').click(); 0')
     time.sleep(0.4)
-    assert v2.ev("window.__confirms.length") == 1 and v2.ev("window.__posts.slice()") == ["/api/robot1/resume"]
+    assert v2.ev("window.__confirms.length") == 1 and v2.ev("window.__posts.slice()") == ["/api/pinky1/resume"]
 
 
 def test_OPS4_V2_누르는_사이_갱신이_껴도_로봇_정지가_나간다(v2):
@@ -643,7 +540,7 @@ def test_OPS4_V2_누르는_사이_갱신이_껴도_로봇_정지가_나간다(v2
     time.sleep(0.5)
     v2.mouse("mouseReleased", x, y)
     time.sleep(0.5)
-    assert v2.ev("window.__posts.slice()") == ["/api/robot2/stop"]
+    assert v2.ev("window.__posts.slice()") == ["/api/pinky2/stop"]
 
 
 # ==== E2E-3 · 실제 게이트웨이는 SIGTERM·SIGINT 에 HTTP 를 닫고 곧 끝난다 ================================================

@@ -99,7 +99,11 @@ def test_detector_yolo_class_map_matches_model_labels():
     for key in cfg['target']:
         assert key in TargetParams.__dataclass_fields__, key
     launch = read(os.path.join(STATION, 'launch', 'lane_station.launch.xml'))
-    assert 'detector_yolo.yaml' in launch and 'use_coordinator' in launch
+    assert 'detector_yolo.yaml' in launch
+    # 코디네이터는 중계(relay_station/fleet/fleet_coordinator.py) 하나다 — 관제 PC launch 는 브릿지 + 인식뿐
+    for launch_name in ('lane_station.launch.xml', 'fake_lane.launch.xml'):
+        text = read(os.path.join(STATION, 'launch', launch_name))
+        assert 'lane_coordinator' not in text and 'use_coordinator' not in text, launch_name
 
 
 def test_lane_only_launch_overrides_only_allowed_params(agent_params):
@@ -147,6 +151,13 @@ def lane_mission():
     return yaml.safe_load(read(os.path.join(STATION, 'config', 'lane_mission.yaml')))
 
 
+@pytest.fixture(scope='module')
+def relay_mission():
+    """코디네이터(예약·CLEARANCE 틱)는 중계 하나 — 그 미션 파일이 tick_rate·reservation 의 정본이다."""
+    return yaml.safe_load(read(os.path.join(REPO, 'relay_station', 'fleet', 'config', 'profiles',
+                                            'team11_map5', 'lane_mission.yaml')))
+
+
 def test_agent_yaml_keys_exist_in_driver_params(agent_params):
     from pinky_fleet_agent.lane_driver import DriverParams
     p = DriverParams()
@@ -172,13 +183,13 @@ def test_path_timeout_covers_three_stale_periods(agent_params, detector_cfg):
     assert detector_cfg['pipeline']['stale_max_seconds'] > agent_params['path_timeout']
 
 
-def test_link_timeout_covers_clearance_ticks(agent_params, lane_mission):
-    tick = 1.0 / lane_mission['coordinator']['tick_rate']
+def test_link_timeout_covers_clearance_ticks(agent_params, relay_mission):
+    tick = 1.0 / relay_mission['coordinator']['tick_rate']
     assert agent_params['link_timeout'] >= 3 * tick
 
 
-def test_reservation_margins(lane_mission):
-    r = lane_mission['reservation']
+def test_reservation_margins(relay_mission):
+    r = relay_mission['reservation']
     assert r['reserve_ahead'] > r['node_stop_margin'] > 0
     assert r['release_behind'] > 0
 
@@ -266,6 +277,19 @@ def test_lane_mission_loads_and_routes_exist():
     g = RoadGraph.load(m.graph_path)
     assert m.validate_against_graph(g) == []
     assert [r['name'] for r in m.by_priority()] == ['pinky1', 'pinky2']
+    assert 'reservation' not in m.to_dict() and 'coordinator' not in m.to_dict()     # 코디네이터 몫은 relay 에
+
+
+def test_lane_mission_matches_relay_profile_mission():
+    """로봇 목록(이름·도메인)과 기본 시작·목적지는 관제 PC 파일과 중계 프로파일이 같아야 한다 — 두 곳이 어긋나면
+    파이프라인·가짜 로봇은 한 이름을, 코디네이터는 다른 이름을 본다."""
+    lane = yaml.safe_load(read(os.path.join(STATION, 'config', 'lane_mission.yaml')))
+    relay = yaml.safe_load(read(os.path.join(REPO, 'relay_station', 'fleet', 'config', 'profiles',
+                                             'team11_map5', 'lane_mission.yaml')))
+    key = lambda r: (r['name'], int(r['domain_id']), r['start'], r['goal'])       # noqa: E731
+    assert [key(r) for r in lane['robots']] == [key(r) for r in relay['robots']]
+    assert all(r.get('drive_mode', 'lane') == 'lane' for r in relay['robots'])
+    assert lane['map']['yaml_path'].endswith('pinky_fleet_station/config/map5.yaml')
 
 
 def test_lane_mission_rejects_duplicates(tmp_path):
@@ -285,8 +309,11 @@ def test_setup_installs_lane_configs_and_launch():
         assert os.path.isfile(os.path.join(STATION, 'config', f)), f
     for f in ('lane_station.launch.xml', 'lane_bridge.launch.xml', 'fake_lane.launch.xml'):
         assert os.path.isfile(os.path.join(STATION, 'launch', f)), f
-    for entry in ('lane_coordinator_node', 'lane_pipeline_node', 'fake_lane_robot', 'bench_detector'):
+    for entry in ('lane_pipeline_node', 'fake_lane_robot', 'bench_detector'):
         assert f"'{entry} = pinky_lane_station.{entry}:main'" in setup, entry
+    assert 'lane_coordinator_node' not in setup                     # 코디네이터는 중계(relay_station/fleet) 하나
+    assert not os.path.exists(os.path.join(STATION, 'pinky_lane_station', 'lane_coordinator_node.py'))
+    assert not os.path.exists(os.path.join(STATION, 'pinky_lane_station', 'reservation.py'))
     agent_setup = read(os.path.join(AGENT, 'setup.py'))
     for entry in ('lane_agent_node', 'camera_node'):
         assert f"'{entry} = pinky_fleet_agent.{entry}:main'" in agent_setup, entry

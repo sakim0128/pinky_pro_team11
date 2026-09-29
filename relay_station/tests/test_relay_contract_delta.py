@@ -251,10 +251,10 @@ def test_C_A1_pose_fix_validation_rejections():
 
 def test_C_A2_routing_and_bridge_isolation():
     """Verify pinky1 bridges only to D10 and pinky2 only to D11. R3/R4 remain untouched."""
-    doc_r1 = _load_yaml("robot1_control.yaml")
-    doc_r2 = _load_yaml("robot2_control.yaml")
-    doc_r3 = _load_yaml("robot3_control.yaml")
-    doc_r4 = _load_yaml("robot4_control.yaml")
+    doc_r1 = _load_yaml("pinky1_control.yaml")
+    doc_r2 = _load_yaml("pinky2_control.yaml")
+    doc_r3 = _load_yaml("pinky3_control.yaml")
+    doc_r4 = _load_yaml("pinky4_control.yaml")
     doc_tm = _load_yaml("team_mirror.yaml")
 
     topics_r1 = doc_r1.get("topics", {})
@@ -306,7 +306,7 @@ def test_C_A3_canonical_zone_event_parse():
     coord._zone_event_seq = {}
     coord._now = lambda: 100.0
 
-    ctx = FleetRobotContext("pinky1", 10, start_node="START_A", goal_node="GOAL_C")
+    ctx = FleetRobotContext("pinky1", 10, start_node="BL", goal_node="TR")
     coord.robots = {"pinky1": ctx}
     coord.mission_state = MISSION_RUNNING
 
@@ -340,7 +340,7 @@ def test_C_A4_legacy_zone_event_alias_compatibility():
     coord._zone_event_seq = {}
     coord._now = lambda: 50.0
 
-    ctx = FleetRobotContext("pinky1", 10, start_node="START_A", goal_node="GOAL_C")
+    ctx = FleetRobotContext("pinky1", 10, start_node="BL", goal_node="TR")
     coord.robots = {"pinky1": ctx}
     coord.mission_state = MISSION_RUNNING
 
@@ -369,7 +369,7 @@ def test_C_A5_duplicate_and_out_of_order_zone_event_reject():
     coord._zone_event_seq = {}
     coord._now = lambda: 100.0
 
-    ctx = FleetRobotContext("pinky1", 10, start_node="START_A", goal_node="GOAL_C")
+    ctx = FleetRobotContext("pinky1", 10, start_node="BL", goal_node="TR")
     coord.robots = {"pinky1": ctx}
 
     # 1. First event with seq=10 accepted
@@ -583,7 +583,7 @@ def test_C_A11_zone_event_tablet_restart_sequence_reset():
     coord._zone_event_session = {}
     coord._now = lambda: 100.0
 
-    ctx = FleetRobotContext("pinky1", 10, start_node="START_A", goal_node="GOAL_C")
+    ctx = FleetRobotContext("pinky1", 10, start_node="BL", goal_node="TR")
     coord.robots = {"pinky1": ctx}
 
     # 1. Normal sequence progress up to seq=100

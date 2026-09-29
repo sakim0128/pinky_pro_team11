@@ -4,7 +4,7 @@ Mock Robot Pose Publisher for Field Gateway Validation
 - 실제 로봇이 주행 중이 아닐 때도 게이트웨이 및 관제 뷰어 동작을 검증하기 위한 가상 주행 노드
 - Robot 1: 미션 경로(1번 원점 -> 2번 지점 -> 3번 지점 -> 1번 원점) 부드러운 순환 주행
 - Robot 2: 대기 구역 순찰 주행
-- 토픽: /robot1/odom, /robot2/odom (nav_msgs/Odometry, DOMAIN 10)
+- 토픽: /pinky1/odom, /pinky2/odom (nav_msgs/Odometry, DOMAIN 10)
 """
 
 import math
@@ -17,8 +17,8 @@ from nav_msgs.msg import Odometry
 class MockRobotPublisher(Node):
     def __init__(self):
         super().__init__('mock_robot_publisher')
-        self.pub_r1 = self.create_publisher(Odometry, '/robot1/odom', 10)
-        self.pub_r2 = self.create_publisher(Odometry, '/robot2/odom', 10)
+        self.pub_r1 = self.create_publisher(Odometry, '/pinky1/odom', 10)
+        self.pub_r2 = self.create_publisher(Odometry, '/pinky2/odom', 10)
 
         # 미션 경유지 정의
         self.waypoints = [
@@ -37,7 +37,7 @@ class MockRobotPublisher(Node):
         self.r1_yaw = 0.0
 
         self.timer = self.create_timer(0.05, self.update_and_publish) # 20Hz
-        self.get_logger().info("Mock Robot Publisher started for /robot1/odom & /robot2/odom")
+        self.get_logger().info("Mock Robot Publisher started for /pinky1/odom & /pinky2/odom")
 
     def update_and_publish(self):
         # Robot 1: 웨이포인트 보간 이동
@@ -53,7 +53,7 @@ class MockRobotPublisher(Node):
         self.r1_y = p_from[1] + (p_to[1] - p_from[1]) * self.progress
         self.r1_yaw = math.atan2(p_to[1] - p_from[1], p_to[0] - p_from[0])
 
-        msg1 = self._create_odom_msg('robot1_base_link', self.r1_x, self.r1_y, self.r1_yaw)
+        msg1 = self._create_odom_msg('pinky1_base_link', self.r1_x, self.r1_y, self.r1_yaw)
         self.pub_r1.publish(msg1)
 
         # Robot 2: 우측 하단에서 작은 원형 순찰
@@ -61,7 +61,7 @@ class MockRobotPublisher(Node):
         r2_x = 1.5 + 0.6 * math.cos(t)
         r2_y = -0.8 + 0.6 * math.sin(t)
         r2_yaw = t + math.pi / 2
-        msg2 = self._create_odom_msg('robot2_base_link', r2_x, r2_y, r2_yaw)
+        msg2 = self._create_odom_msg('pinky2_base_link', r2_x, r2_y, r2_yaw)
         self.pub_r2.publish(msg2)
 
     def _create_odom_msg(self, frame_id, x, y, yaw):

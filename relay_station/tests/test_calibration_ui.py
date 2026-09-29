@@ -23,7 +23,7 @@ HTML = os.path.join(os.path.dirname(_HERE), "gateway_web", "static", "index.html
 #    가드가 새 id 를 덮는다. 2026-09-14: tablet-relay -> phone2 로 개명(기기 교체).
 #    옛 id 도 남겨 둔다 — 되살아나 JS 에 박히는 것도 막을 값이다.
 SOURCE_IDS = ("phone", "phone2", "tablet-relay", "relay-cam", "gazebo", "control",
-              "robot1", "robot2")
+              "pinky1", "pinky2")
 
 SETTLED_GREEN = "#238636"
 # 화면이 "흔들림 없음" 으로 쓰는 말. 감시가 안 돌 때 이 말이 나오면 안 된다.

@@ -3,9 +3,10 @@
 
 ROS 에 의존하지 않는다. 코디네이터가 이것으로 미션 파일을 고르고, 게이트웨이가 웹에 보여 주고 바꾼다.
 
-## 왜 (PLAN_20260925_MAP4_FRAME_UNIFICATION)
-옛 5노드 가상 경기장(좌하단 원점)과 팀11 map4(가운데 원점)는 좌표가 다르다. 한쪽만 바뀌면 도로망·지도·마커가
-섞인다. 코드 커밋 날짜를 맞추는 대신, 두 묶음을 다 싣고 **현장에서 웹으로 한 번에** 고른다.
+## 왜 (PLAN_20260925_MAP4_FRAME_UNIFICATION → 2026-09-29 map5 통일)
+도로망·지도·마커는 같은 좌표계여야 한다. 좌표 묶음을 프로파일로 두면 코드를 바꾸지 않고 **현장에서 웹으로 한 번에** 고른다.
+지금 목록은 team11_map5 하나(config/profiles/profiles.yaml) — 도로망은 pinky_lane_station/config/road_graph.yaml, 지도는
+pinky_fleet_station/config/map5.yaml 을 **상대경로로 가리킨다**(프로파일 폴더 밖 경로도 받는다 — 복사본을 두지 않는다).
 
 ## 정직성
 - 못 읽는 프로파일은 고를 수 없고, 왜 못 읽는지(`problems`)를 그대로 보인다.
@@ -19,13 +20,13 @@ import tempfile
 
 import yaml
 
-from .road_graph import RoadGraph
+from pinky_lane_station.road_graph import RoadGraph
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 MANIFEST = os.path.join(PKG_DIR, 'config', 'profiles', 'profiles.yaml')
 STATE_ENV = 'PINKY_RELAY_STATE_DIR'          # 시험·도커가 상태 위치를 바꾼다
 BOUNDS_EPS = 1e-6
-OCC_SAMPLE_STEP = 0.005                      # m — 엣지를 5 mm 간격으로 지도 칸에 대 본다(map4 칸 0.05 m 의 1/10)
+OCC_SAMPLE_STEP = 0.005                      # m — 엣지를 5 mm 간격으로 지도 칸에 대 본다(map5 칸 0.01 m 의 1/2)
 OCC_KINDS = (('occupied', '점유'), ('unknown', '알 수 없음'), ('off_map', '지도 밖'))
 
 

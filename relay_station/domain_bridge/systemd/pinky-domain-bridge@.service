@@ -2,7 +2,7 @@
 # 🌉 Pinky 도메인 브릿지 (인스턴스 = configs/<이름>.yaml)
 #
 #   설치: relay_station/domain_bridge/install_bridge.sh
-#   예시: systemctl --user start pinky-domain-bridge@robot1_control
+#   예시: systemctl --user start pinky-domain-bridge@pinky1_control
 #
 #   브릿지는 관제 대시보드와 팀원 미러(도메인 9)를 동시에 먹여살리는
 #   단일 장애점이다. 죽으면 웹 대시보드와 팀원 관측이 함께 실명하므로

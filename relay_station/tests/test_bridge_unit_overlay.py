@@ -49,7 +49,7 @@ def _run(tmp_path, with_install):
     cmd = _exec_start()
     real_repo = re.search(r"source (\S+)/relay_station/domain_bridge/bridge_env\.sh", cmd).group(1)
     cmd = cmd.replace(real_repo, str(repo)).replace("/opt/ros/jazzy/setup.bash", str(ros))
-    cmd = cmd.replace("%i", "robot1_control")
+    cmd = cmd.replace("%i", "pinky1_control")
     env = {"PATH": "%s:/usr/bin:/bin" % bindir, "HOME": str(tmp_path)}
     r = subprocess.run(["/bin/bash", "-c", cmd], env=env, capture_output=True, text=True, timeout=20)
     return r.returncode, (out.read_text().strip() if out.exists() else None)
@@ -59,7 +59,7 @@ def test_install_이_없어도_브리지는_뜬다(tmp_path):
     rc, ran = _run(tmp_path, with_install=False)
     assert ran is not None, "install/ 이 없다고 ros2 run 까지 못 갔다 — 브리지가 안 뜬다(D-3 루프)"
     assert ran.startswith("RAN overlay=none run domain_bridge domain_bridge ")
-    assert ran.endswith("/configs/robot1_control.yaml")
+    assert ran.endswith("/configs/pinky1_control.yaml")
 
 
 def test_install_이_있으면_얹고_뜬다__PoseFix_타입을_찾게(tmp_path):

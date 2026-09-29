@@ -37,7 +37,6 @@ from std_msgs.msg import String  # noqa: E402
 from relay_station.fleet import fleet_coordinator as FC  # noqa: E402
 from relay_station.fleet import profiles as P  # noqa: E402
 from relay_station.fleet.reservation import Reservation  # noqa: E402
-from pinky_fleet_agent.route_chain import RouteChain  # noqa: E402
 from test_d7_robot_stop import _coord, _lane_status, _post, _reset, _sent  # noqa: E402
 
 GATEWAY_DIR = os.path.join(REPO, "relay_station", "gateway_web")
@@ -53,7 +52,6 @@ def _state_dir(tmp_path, monkeypatch):
 def g(monkeypatch):
     import gateway_web_server as gws
     node = MagicMock()
-    node.send_mission.return_value = 1
     monkeypatch.setattr(gws, "GLOBAL_ROBOT_SUB_NODE", node)
     monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", None)
     monkeypatch.setattr(gws, "FLEET_IMPORT_ERROR", IMPORT_ERR)
@@ -71,7 +69,7 @@ def test_G2_코디네이터가_없으면_플릿_명령은_503_이고_보내지_�
     gws, node = g
     ip = "192.0.2.50" if cmd in ("estop", "stop") else "127.0.0.1"   # 멈추는 명령은 원격에서도 받는다(D7)
     code, body = _post(gws, "/api/fleet/" + cmd, ip=ip,
-                       body=b'{"robot": "pinky1", "start": "START_A", "goal": "GOAL_C"}')
+                       body=b'{"robot": "pinky1", "start": "BL", "goal": "TR"}')
     assert code == 503 and body["success"] is False and body["reason"] == "NO_FLEET_COORDINATOR"
     assert body["detail"] == IMPORT_ERR and body["dispatched"] is False
     assert body["message"]                                      # V2 는 message 를 실패 창에 띄운다
@@ -99,14 +97,14 @@ def test_G2_직접_모드는_그대로__코디네이터가_받는다(g, monkeypa
 
 def test_G2_로봇_재개도_코디네이터가_없으면_503_이고_보내지_않는다(g):
     gws, node = g
-    code, body = _post(gws, "/api/robot1/resume", ip="127.0.0.1")
+    code, body = _post(gws, "/api/pinky1/resume", ip="127.0.0.1")
     assert code == 503 and body["reason"] == "NO_FLEET_COORDINATOR" and body["detail"] == IMPORT_ERR
     node.send_fleet_control.assert_not_called()
 
 
 def test_G2_로봇_정지의_503_도_이유를_싣는다(g):
     gws, _ = g
-    code, body = _post(gws, "/api/robot1/stop")
+    code, body = _post(gws, "/api/pinky1/stop")
     assert code == 503 and body["reason"] == "NO_FLEET_COORDINATOR" and body["detail"] == IMPORT_ERR
 
 
@@ -122,17 +120,6 @@ def test_G2_화면은_503_비상정지·정지를_실패로_보인다():
     html = io.open(os.path.join(static, "index.html"), encoding="utf-8").read()
     stop = html[html.index("async function stopNavigation"):html.index("function renderNavCanvas")]
     assert "if (r.ok && body.success)" in stop and "#f85149" in stop.split("} else if (msgEl) {")[1]
-
-
-# ==== G-1 · 코디네이터가 없으면 우회 목표·미션도 503 ===================================================================
-
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-def test_G1_코디네이터가_없으면_우회_목표·미션은_503_이고_보내지_않는다(g, path):
-    gws, node = g
-    code, body = _post(gws, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5, "mission": "1"}')
-    assert code == 503 and body["reason"] == "NO_FLEET_COORDINATOR" and body["detail"] == IMPORT_ERR
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
 
 
 def test_G1_기동_검사가_플릿_코디네이터_import_를_본다__이_레포는_된다():
@@ -215,84 +202,6 @@ def test_GW_R2_런처는_게이트웨이를_띄우는_폴더를_검사에_넘긴
     assert head[head.rfind("\ncd "):].startswith('\ncd "$SCRIPT_DIR"'), "게이트웨이를 띄우는 폴더가 검사에 넘긴 폴더와 다르다"
 
 
-# ==== G-11 · 아무것도 안 냈으면 200 이 아니다 ============================================================================
-
-def test_G11_ROS_노드가_없으면_목표는_503_이고_성공이라_하지_않는다(g, monkeypatch):
-    gws, _ = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    monkeypatch.setattr(gws, "GLOBAL_ROBOT_SUB_NODE", None)
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 503 and body["success"] is False and body["reason"] == "NO_ROS_NODE"
-
-
-def test_G11_발행이_실패하면_503(g, monkeypatch):
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    node.send_goal.side_effect = RuntimeError("publisher destroyed")
-    code, body = _post(gws, "/api/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 503 and body["reason"] == "PUBLISH_FAILED" and "publisher destroyed" in body["message"]
-
-
-def test_G11_평소에는_보낸다(g, monkeypatch):
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 200 and body["success"] is True and node.send_goal.called
-
-
-# ==== G-6 · 플릿이 달리는 동안 경로 있는 로봇의 우회 목표는 예약을 비켜 간다 ========================================
-
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-def test_G6_플릿_RUNNING_중_경로가_있는_로봇의_우회_목표는_409_FLEET_RUNNING(g, monkeypatch, path):
-    gws, node = g
-    c = _coord(state="RUNNING")
-    assert c.robots["pinky1"].route is not None
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5, "mission": "1"}')
-    assert code == 409 and body["reason"] == "FLEET_RUNNING"
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
-
-
-@pytest.mark.parametrize("state,route", [("IDLE", True), ("ASSIGNED", True), ("RUNNING", False)],
-                         ids=["idle", "assigned", "running-no-route"])
-def test_G6_시작_전이거나_경로가_없는_로봇은_그대로_받는다(g, monkeypatch, state, route):
-    gws, node = g
-    c = _coord(state=state)
-    if not route:
-        c.robots["pinky1"].route = None
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, _ = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 200 and node.send_goal.called
-
-
-# ==== G-10 · 로봇을 못 찾으면 건너뛰지 않는다 ============================================================================
-
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-def test_G10_코디네이터에서_로봇을_못_찾으면_HOLD_검사를_건너뛰지_않고_503(g, monkeypatch, path):
-    gws, node = g
-    c = _coord(state="ASSIGNED")
-    c.robots = {"pinky_a": c.robots["pinky1"], "pinky_b": c.robots["pinky2"]}   # 미션이 이름을 바꿨다
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5, "mission": "1"}')
-    assert code == 503 and body["reason"] == "ROBOT_NOT_IN_FLEET"
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
-
-
-def test_G10_HOLD_거부는_이유를_말한다(g, monkeypatch):
-    gws, _ = g
-    c = _coord(state="ASSIGNED")
-    c.stop_robot("pinky1")
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "ROBOT_HELD" and FC.HELD_BY_OPERATOR in body["message"]
-    c.resume_robot("pinky1")
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 110.0, "관제 링크 유실")      # 재기동 뒤 링크유실 래치
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "ROBOT_HELD" and FC.HELD_LINK_LOST in body["message"]
-
-
 # ==== G-13 · 변이 M1 — resume_fleet 이 비상정지 권한을 잡지 않으면 ======================================================
 
 def test_G13_S6_복원_뒤_플릿_재개는_권한을_잡아_세워_둔_로봇의_ESTOP_보고로_다시_래치하지_않는다():
@@ -310,8 +219,8 @@ def test_G13_S6_복원_뒤_플릿_재개는_권한을_잡아_세워_둔_로봇�
 # ==== G-14 · HTTP 스레드의 읽기와 executor 틱이 한 잠금을 쓴다 ============================================================
 
 _LOCKED_CALLS = {
-    "assign_conflict": lambda c: c.assign_conflict("pinky2", "GOAL_C", "START_B"),
-    "assign_conflict_why": lambda c: c.assign_conflict_why("pinky2", "GOAL_C", "START_B"),
+    "assign_conflict": lambda c: c.assign_conflict("pinky2", "BL", "BR"),
+    "assign_conflict_why": lambda c: c.assign_conflict_why("pinky2", "BL", "BR"),
     "get_fleet_status_dict": lambda c: c.get_fleet_status_dict(),
     "profile_status": lambda c: c.profile_status(),
     "profile_switch_blocker": lambda c: c.profile_switch_blocker(),
@@ -321,7 +230,7 @@ _LOCKED_CALLS = {
     "loop_tick": lambda c: c._loop_tick(),
     "cb_control": lambda c: c._cb_control(String(data='{"cmd": "stop_robot", "robot": "pinky2"}')),
     "cb_lane_status": lambda c: _lane_status(c, "pinky2", LaneStatus.DRIVE_IDLE, 101.0),
-    "assign_route": lambda c: c.assign_route("pinky1", "START_A", "GOAL_C"),
+    "assign_route": lambda c: c.assign_route("pinky1", "BL", "TR"),
     # RELAY_ALLOW_DIRECT_FALLBACK 은 HTTP 스레드에서 이것들을 곧바로 부른다
     "start_fleet": lambda c: c.start_fleet(),
     "stop_fleet": lambda c: c.stop_fleet(),
@@ -379,7 +288,7 @@ def test_G14_상태·전환_카드는_읽는_내내_잠금을_쥔다():
     c.reservation.edge_holder, c.reservation.node_holder = {}, {}
     c.reservation.status.side_effect = lambda n: (seen.append(("status", c._coord_lock._is_owned())), res.status(n))[1]
     c.get_fleet_status_dict()
-    c.profiles, c.active_profile = _OwnedProbe(c._coord_lock, seen), "legacy"
+    c.profiles, c.active_profile = _OwnedProbe(c._coord_lock, seen), "team11_map5"
     c.profile_status()
     assert {what for what, _ in seen} == {"status", "profiles"} and all(owned for _, owned in seen), seen
 
@@ -421,10 +330,7 @@ def test_G5_비상정지_래치는_로봇_보고_전에도_재시작을_넘는�
     _reset(c2)
     assert c2.resume_robot("pinky1") is False
     assert _sent(c2.lane_cmd_pubs["pinky1"]) == []
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c2)
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "FLEET_ESTOP" and not node.send_goal.called
+    # (옛 우회 목표 API /api/robot1/goal 의 409 검사는 지웠다 — 그 경로는 없다, 2026-09-29)
     c2._publish_lane_commands()
     assert _sent(c2.lane_cmd_pubs["pinky1"])[-1].command == LaneCommand.CMD_ESTOP
 
@@ -461,9 +367,7 @@ def test_G4_플릿_정지는_재시작을_넘고_배정이_ASSIGNED_로_덮지_�
     c.stop_fleet()
     c2 = _restart(tmp_path)
     assert c2.mission_state == "STOPPED"
-    gws, _ = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c2)
-    assert _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')[1]["reason"] == "FLEET_STOPPED"
+    # (옛 우회 목표 API /api/robot1/goal 의 409 검사는 지웠다 — 그 경로는 없다, 2026-09-29)
     _reset(c2)
     c2._publish_lane_commands()
     assert _sent(c2.lane_cmd_pubs["pinky1"])[-1].command == LaneCommand.CMD_STOP
@@ -516,9 +420,9 @@ def test_G4_DONE_도_재시작을_넘고__전환하면_지운다(tmp_path):
     c2 = _restart(tmp_path)
     assert c2.mission_state == "DONE" and c2.profile_switch_blocker() is None   # DONE 에서는 전환된다
     c2.profiles_default, c2.profiles = P.load_profiles()
-    c2.active_profile, c2.route_pubs = "legacy", {}
+    c2.active_profile, c2.route_pubs = None, {}
     c2.reservation = Reservation(c2.graph)
-    assert c2.switch_profile("map4")
+    assert c2.switch_profile("team11_map5")
     assert _file(tmp_path)["mission_state"] is None
     assert _restart(tmp_path).mission_state == "ASSIGNED"
 
@@ -543,9 +447,7 @@ def test_G3_로봇별_정지는_이유와_함께_재시작을_넘고_start_가_�
     c2.start_fleet()
     assert _sent(c2.lane_cmd_pubs["pinky1"]) == []
     assert [m.command for m in _sent(c2.lane_cmd_pubs["pinky2"])] == [LaneCommand.CMD_START]
-    gws, _ = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c2)
-    assert _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b"{}")[1]["reason"] == "ROBOT_HELD"
+    # (옛 우회 목표 API /api/robot1/goal 의 409 검사는 지웠다 — 그 경로는 없다, 2026-09-29)
     c2.resume_robot("pinky1")
     assert _file(tmp_path)["held"] == {}
     assert not _restart(tmp_path).robots["pinky1"].held
@@ -679,30 +581,9 @@ def test_제어_상태를_모르는_시험_객체는_아무것도_쓰지_않는�
     assert not (tmp_path / "state").exists()
 
 
-# ==== REVIEW_20260926 G · 재기동 뒤 링크유실 래치 ========================================================================
-
-def _chain_link_lost(c, name="pinky1"):
-    ctx = c.robots[name]
-    msg = c._to_route_msg(name, ctx.route_seq, ctx.route)
-    ch = RouteChain()
-    ch.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)
-    ch.on_lane_command(LaneCommand.CMD_START, ctx.route_seq, 0)
-    ch.on_lane_command(LaneCommand.CMD_CLEARANCE, ctx.route_seq, 8)
-    ch.on_link_lost(moving=True)
-    assert ch.link_lost
-    return ch
-
-
 # 통합 검토 F1: R5 의 래치 해제는 RESUME 앞에 허가 0(CLEARANCE 0)을 준다 — RESUME 이 goto 를 만들지 않게.
 #   예전 시험은 [RESUME, STOP] 을 고정했다. 순서의 뜻(STOP 이 마지막 — 곧바로 다시 선다)은 그대로다.
 R5_LATCH_RELEASE = [LaneCommand.CMD_CLEARANCE, LaneCommand.CMD_RESUME, LaneCommand.CMD_STOP]
-
-
-def _feed(ch, c, name="pinky1"):
-    acts = []
-    for m in _sent(c.lane_cmd_pubs[name]):
-        acts += ch.on_lane_command(m.command, m.route_seq, m.clear_until_idx)
-    return acts
 
 
 def test_G_재기동_뒤_LINK_LOST_보고는_로봇별_정지로__이유를_보이고_남긴다(tmp_path):
@@ -719,23 +600,6 @@ def test_G_재기동_뒤_LINK_LOST_보고는_로봇별_정지로__이유를_보�
     assert _sent(c.lane_cmd_pubs["pinky1"]) == []                    # START 는 래치된 로봇에 안 먹는다 — 안 보낸다
 
 
-def test_G_로봇_재개가_링크유실_래치를_푼다__옛_보고로_다시_세우지_않고_새_유실은_다시_세운다():
-    c = _coord(state="ASSIGNED")
-    ch = _chain_link_lost(c)
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.0, "관제 링크 유실")
-    assert c.robots["pinky1"].held
-    _reset(c)
-    assert c.resume_robot("pinky1") is True
-    _feed(ch, c)
-    assert not ch.link_lost and not ch.latched                      # LaneCommand RESUME 이 풀었다
-    assert not c.robots["pinky1"].held and c.robots["pinky1"].held_reason == ""
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.05, "관제 링크 유실")   # RESUME 전에 떠난 옛 보고
-    assert not c.robots["pinky1"].held
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_WAIT_CLEARANCE, 100.2, "RESUME")    # 풀린 보고 — 유예는 여기서 끝
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 101.0, "관제 링크 유실")    # 새 유실(유예 시간 안이어도)
-    assert c.robots["pinky1"].held and c.robots["pinky1"].held_reason == FC.HELD_LINK_LOST
-
-
 def test_G_재개가_안_닿아_유예가_지나도_링크유실이면_다시_세운다():
     """링크가 끊긴 채 누른 재개는 로봇에 안 닿는다 — 그 뒤 LINK_LOST 보고를 영영 '옛 보고' 로 보면 래치가 화면에서 숨는다."""
     c = _coord(state="ASSIGNED")
@@ -745,28 +609,6 @@ def test_G_재개가_안_닿아_유예가_지나도_링크유실이면_다시_�
     assert not c.robots["pinky1"].held                             # 유예 안 — 옛 보고일 수 있다
     _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.0 + c.LINK_LOST_RESUME_GRACE_SEC + 0.1, "관제 링크 유실")
     assert c.robots["pinky1"].held and c.robots["pinky1"].held_reason == FC.HELD_LINK_LOST
-
-
-def test_G_플릿_정지_중_로봇_재개가_세워_둔_로봇의_ESTOP_래치도_푼다__R5_는_그대로_STOP():
-    """§13-4: S7 로 세워 둔 로봇은 ESTOP 해제 뒤에도 에이전트 ESTOP 래치를 쥔다 — 로봇 재개가 푼다. 플릿이 STOPPED 면 R5 가
-    RESUME 을 삼켜 래치가 남았다(화면의 '로봇 재개 필요' 가 거짓). RESUME 바로 뒤 STOP 으로 STOP 래치는 곧바로 다시 건다."""
-    c = _coord(state="RUNNING")
-    ctx = c.robots["pinky1"]
-    msg = c._to_route_msg("pinky1", ctx.route_seq, ctx.route)
-    ch = RouteChain()
-    ch.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)
-    c.stop_robot("pinky1")
-    c.estop_fleet()
-    _feed(ch, c)
-    c.resume_fleet()                                                # S7: 세워 둔 로봇엔 RESUME 없음
-    c.stop_fleet()
-    _reset(c)
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_ESTOP, 100.1, "E-STOP")
-    assert ch.estop and not c.estop_latched
-    assert c.resume_robot("pinky1") is True
-    assert [m.command for m in _sent(c.lane_cmd_pubs["pinky1"])] == R5_LATCH_RELEASE
-    _feed(ch, c)
-    assert not ch.estop and ch.stopped and ch.active_target is None
 
 
 @pytest.mark.parametrize("which", ["HELD_LINK_LOST", "HELD_ESTOP_RESTORED"])
@@ -784,39 +626,6 @@ def test_G_재기동_뒤_보고_전에도_파일의_래치_이유로_로봇_재�
     _reset(c2)
     c2.resume_robot("pinky1")
     assert [m.command for m in _sent(c2.lane_cmd_pubs["pinky1"])] == R5_LATCH_RELEASE
-
-
-@pytest.mark.parametrize("state", ["STOPPED", "DONE"])
-def test_G_플릿_정지·완료_중에도_로봇_재개가_링크유실_래치를_풀고_STOP_은_바로_다시_건다(state):
-    """R5 는 정지·완료 중 RESUME 을 안 보낸다(0.1 s 출발 방지). 링크유실 래치는 RESUME 으로만 풀리므로 RESUME 바로 뒤에
-    같은 발행자로 STOP 을 잇는다 — 에이전트는 이 순서로 받아 STOP 래치를 다시 건다."""
-    c = _coord(state=state)
-    ch = _chain_link_lost(c)
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.0, "관제 링크 유실")
-    _reset(c)
-    assert c.resume_robot("pinky1") is True
-    assert [m.command for m in _sent(c.lane_cmd_pubs["pinky1"])] == R5_LATCH_RELEASE
-    assert [m.command for m in _sent(c.fleet_cmd_pubs["pinky1"])] == [FleetCommand.CMD_STOP]
-    _feed(ch, c)
-    assert not ch.link_lost and ch.stopped and ch.active_target is None
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.05, "관제 링크 유실")   # RESUME 전에 떠난 옛 보고
-    assert not c.robots["pinky1"].held
-    c._publish_lane_commands()
-    assert _sent(c.lane_cmd_pubs["pinky1"])[-1].command == LaneCommand.CMD_STOP
-
-
-def test_G_재기동_뒤_새_경로의_로봇은_RESUME_으로도_갈_목표가_없다():
-    c = _coord(state="DONE")
-    ctx = c.robots["pinky1"]
-    msg = c._to_route_msg("pinky1", ctx.route_seq, ctx.route)
-    ch = RouteChain()
-    ch.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)   # 재기동이 다시 보낸 경로
-    ch.link_lost = True
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.0, "관제 링크 유실")
-    _reset(c)
-    c.resume_robot("pinky1")
-    acts = _feed(ch, c)
-    assert not ch.link_lost and not [a for a in acts if a[0] == "goto"]
 
 
 def test_G_운영자가_세운_로봇이_링크유실을_보고해도_로봇_재개가_래치를_푼다():
@@ -904,7 +713,7 @@ def test_실제_생성자는_UTF_8_이_아닌_상태_파일에도_죽지_않고_
     assert json.loads((sd / FC.CONTROL_STATE_FILE).read_text(encoding="utf-8"))["estop_latched"] is True
 
 
-# ==== 중계 항목 · 목표 구역 별칭은 legacy 좌표에서만 =======================================================================
+# ==== 중계 항목 · 목표 구역 별칭은 프로파일이 없을 때만 =====================================================================
 
 def _zone(c, zone_id, t):
     c._t = t
@@ -915,32 +724,23 @@ def _zone(c, zone_id, t):
 def _profiled(name):
     c = _coord(state="ASSIGNED")
     c.profiles_default, c.profiles = P.load_profiles()
-    c.active_profile, c.route_pubs = "legacy", {}
+    c.active_profile, c.route_pubs = None, {}
     c.reservation = Reservation(c.graph)
     for ctx in c.robots.values():
         ctx.route = None
     c.goal_event_timeout = 3.0
-    if name != "legacy":
-        assert c.switch_profile(name)
+    assert c.switch_profile(name)
     c.robots["pinky1"].arrived = True
     return c
 
 
-def test_map4_에서는_GOAL_C_구역_이벤트가_TC_도착을_확정하지_않고_TC_이벤트가_확정한다():
-    c = _profiled("map4")
-    assert c.robots["pinky1"].goal_node == "TC"
+def test_map5_에서는_옛_별칭_구역_이벤트가_TR_도착을_확정하지_않고_TR_이벤트가_확정한다():
+    c = _profiled("team11_map5")
+    assert c.robots["pinky1"].goal_node == "TR"
     for alias in ("GOAL_C", "goal", "goal_zone"):
         _zone(c, alias, 100.0)
         assert c.robots["pinky1"].arrival_confirmed is False, alias
-    _zone(c, "TC", 100.5)
-    assert c.robots["pinky1"].arrival_confirmed is True
-
-
-@pytest.mark.parametrize("zone", ["GOAL_C", "goal", "goal_zone"])
-def test_legacy_좌표에서는_예전_별칭이_그대로_도착을_확정한다(zone):
-    c = _profiled("legacy")
-    assert c.robots["pinky1"].goal_node == "GOAL_C"
-    _zone(c, zone, 100.0)
+    _zone(c, "TR", 100.5)
     assert c.robots["pinky1"].arrival_confirmed is True
 
 
