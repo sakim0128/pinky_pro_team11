@@ -99,7 +99,7 @@ def test_gated_bringup_uses_gated_navigation():
 def test_hybrid_robot_runs_the_gate_and_the_hybrid_agent():
     root = ET.parse(HYBRID_ROBOT).getroot()
     execs = {n.get('exec') for n in root.iter('node')}
-    assert {'drive_command_gate', 'pose_fuser_node'} <= execs
+    assert {'drive_command_gate', 'pose_fix_fuser_node'} <= execs
     assert 'pinky_fleet_agent)/launch/hybrid_agent.launch.xml' in read(HYBRID_ROBOT)
     assert ET.parse(HYBRID_AGENT).getroot().find('node').get('exec') == 'hybrid_agent_node'
 
@@ -108,7 +108,9 @@ def test_hybrid_robot_runs_the_gate_and_the_hybrid_agent():
                                   'lane_agent.launch.xml', 'lane_only.launch.xml'])
 def test_existing_launch_files_do_not_start_new_nodes(name):
     source = read(os.path.join(LAUNCH, name))
-    for new in ('hybrid_agent', 'drive_command_gate', 'pose_fuser', 'nav2_gated'):
+    # lane_robot 은 항공뷰 pose_fuser_node(overhead_pose) 를 띄운다 (mini_project_2_lane_rules 병합).
+    # hybrid 의 PoseFix 판은 pose_fix_fuser_node 로 이름이 다르다.
+    for new in ('hybrid_agent', 'drive_command_gate', 'pose_fix_fuser', 'nav2_gated'):
         assert new not in source, f'{name} 가 {new} 를 띄운다'
 
 

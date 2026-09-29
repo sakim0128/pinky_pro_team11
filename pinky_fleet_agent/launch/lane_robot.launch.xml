@@ -6,9 +6,12 @@
     ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 \
         map:=$HOME/map/map4.yaml camera_orient:=rot180
 
-  bringup(모터/라이다/TF) + map_server + AMCL (localization_launch, planner/controller 없음)
-  + 초음파 노드 + 카메라 + lane_agent. /cmd_vel 발행자는 lane_agent 하나뿐이다.
+  bringup(모터/라이다/TF) + 위치추정 + 초음파 노드 + 카메라 + lane_agent. /cmd_vel 발행자는 lane_agent 하나뿐이다.
   robot.launch.xml(Nav2 전체) 과 동시에 띄우지 말 것.
+
+  위치추정 (둘 다 False 면 외부에서 map→odom TF 를 줘야 한다)
+    use_overhead:=True (기본)  관제 overhead_tracker_node 의 /<robot>/overhead_pose 를 pose_fuser_node 가 받아 map→odom TF
+    use_amcl:=True             map_server + AMCL (localization_launch). use_overhead 와 동시에 켜지 말 것
 -->
 <launch>
     <arg name="robot_name" default="pinky1"/>
@@ -16,7 +19,11 @@
     <arg name="map" default="/home/pinky/map/map4.yaml"/>
     <arg name="use_sim_time" default="False"/>
     <arg name="launch_bringup" default="True"/>
-    <arg name="launch_localization" default="True"/>
+    <arg name="use_overhead" default="True" description="항공뷰 pose_fuser_node 로 map→odom TF"/>
+    <arg name="use_amcl" default="False" description="map_server + AMCL. use_overhead 와 동시에 켜지 말 것"/>
+    <arg name="station_latency" default="0.15" description="항공뷰 캡처→로봇 도착 지연 (s)"/>
+    <arg name="marker_yaw_offset" default="0.0" description="마커 +x 가 로봇 전방과 이루는 각 (rad)"/>
+    <arg name="marker_offset_x" default="0.0" description="마커 중심의 전방 오프셋 (m)"/>
     <arg name="launch_ultrasonic" default="True"
          description="pinky_sensor_adc main_node (us_sensor/range). bringup 이 띄우지 않는다."/>
     <arg name="use_camera" default="True"/>
@@ -33,10 +40,19 @@
     </include>
 
     <include file="$(find-pkg-share pinky_navigation)/launch/localization_launch.xml"
-             if="$(var launch_localization)">
+             if="$(var use_amcl)">
         <arg name="map" value="$(var map)"/>
         <arg name="use_sim_time" value="$(var use_sim_time)"/>
     </include>
+
+    <node pkg="pinky_fleet_agent" exec="pose_fuser_node" name="pose_fuser" output="screen"
+          if="$(var use_overhead)">
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="station_latency" value="$(var station_latency)"/>
+        <param name="yaw_offset" value="$(var marker_yaw_offset)"/>
+        <param name="offset_x" value="$(var marker_offset_x)"/>
+    </node>
 
     <node pkg="pinky_sensor_adc" exec="main_node" name="pinky_sensor_adc" output="screen"
           if="$(var launch_ultrasonic)"/>

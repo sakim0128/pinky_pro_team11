@@ -39,6 +39,12 @@ topics:
     to_domain: 0
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
+  /pinky1/overhead_pose:                 # 관제 overhead_tracker_node(항공뷰 ArUco) → 로봇 pose_fuser_node
+    type: geometry_msgs/msg/PoseStamped
+    from_domain: 0
+    to_domain: 10
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
   # ------------------------- pinky2 (domain 11) -------------------------
   /pinky2/camera/image/compressed:
     type: sensor_msgs/msg/CompressedImage
@@ -68,4 +74,10 @@ topics:
     type: pinky_lane_msgs/msg/LaneStatus
     from_domain: 11
     to_domain: 0
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky2/overhead_pose:                 # 관제 overhead_tracker_node(항공뷰 ArUco) → 로봇 pose_fuser_node
+    type: geometry_msgs/msg/PoseStamped
+    from_domain: 0
+    to_domain: 11
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}

@@ -20,6 +20,8 @@
 | :--- | :--- |
 | `pinky_lane_msgs/CMakeLists.txt` | `msg/PoseFix.msg` 한 줄 (mini_project_2_aerial_view 판과 같다) |
 | `pinky_fleet_agent/setup.py` | 진입점 3개: `pose_fuser_node` · `drive_command_gate` · `hybrid_agent_node` |
+
+> **2026-09-29 병합 메모**: `mini_project_2_lane_rules` 를 합치면서 이 패치의 PoseFix 입력 판은 `pose_fix_fuser_node.py`(진입점 `pose_fix_fuser_node`) 로 이름을 바꿨다. `pose_fuser_node.py` 는 항공뷰 `/<robot>/overhead_pose` 입력 판(마커 오프셋 보정 포함)이고 `lane_robot.launch.xml` 이 기본으로 띄운다. `hybrid_robot.launch.xml` 은 `pose_fix_fuser_node` 를 띄운다. 아래 본문의 `pose_fuser_node` 는 그 이전 이름이다.
 | `pinky_fleet_agent/package.xml` | `lifecycle_msgs` (에이전트가 Nav2 수명주기를 묻는다) |
 
 `agent_node.py` · `lane_agent_node.py` · `link_watch.py` · 기존 launch 는 바이트 그대로다

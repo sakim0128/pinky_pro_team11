@@ -14,10 +14,12 @@ except ImportError:              # pragma: no cover
 # 클래스별 오버레이 색 (BGR)
 CLASS_COLORS = {
     'lane': (0, 255, 0),
+    'left_lane': (0, 255, 0),
+    'right_lane': (255, 200, 0),
     'crosswalk': (0, 220, 255),
     'cone': (0, 140, 255),
     'traffic_light': (0, 140, 255),
-    'barricade': (0, 140, 255),
+    'barricade': (0, 0, 255),
 }
 DEFAULT_COLOR = (200, 200, 200)
 TARGET_COLOR = (0, 0, 255)

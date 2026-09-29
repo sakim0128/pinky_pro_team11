@@ -85,8 +85,9 @@ def test_detector_yolo_class_map_matches_model_labels():
     det = cfg['detector']
     assert det['kind'] == 'ultralytics' and det['device'] == 'cpu'
     cm = det['class_map']
-    assert sorted(cm['lane']) == [0, 2] and cm['crosswalk'] == [1]
+    assert cm['left_lane'] == [0] and cm['right_lane'] == [2] and cm['crosswalk'] == [1]
     assert cm['cone'] == [3] and cm['traffic_light'] == [4] and cm['barricade'] == [5]
+    assert 'lane' not in cm                                     # 좌/우 라벨을 합치지 않는다 (작업 1)
     ids = sorted(i for v in cm.values() for i in v)
     assert ids == [0, 1, 2, 3, 4, 5], ids                     # 모든 모델 클래스가 정확히 한 번
     pipe = cfg['pipeline']
@@ -162,6 +163,7 @@ def test_agent_yaml_keys_exist_in_driver_params(agent_params):
 
 def test_crosswalk_relatch_exceeds_zone(agent_params):
     assert agent_params['fsm']['crosswalk_relatch_distance'] > agent_params['crosswalk_zone']
+    assert agent_params['fsm']['junction_relatch_distance'] > 2 * agent_params['junction_zone']
 
 
 def test_path_timeout_covers_three_stale_periods(agent_params, detector_cfg):
@@ -232,6 +234,19 @@ def test_bridge_lane_topics_match_nodes_and_mission(lane_mission):
     for name in ('pinky1', 'pinky2'):
         t = fleet[f'/{name}/amcl_pose']
         assert t['type'] == 'geometry_msgs/msg/PoseWithCovarianceStamped' and t['to_domain'] == 0
+    # 항공뷰: 관제 overhead_tracker_node → 로봇 pose_fuser_node (D14)
+    for robot in lane_mission['robots']:
+        t = bridge[f"/{robot['name']}/overhead_pose"]
+        assert t['type'] == 'geometry_msgs/msg/PoseStamped'
+        assert (t['from_domain'], t['to_domain']) == (0, int(robot['domain_id']))
+    tracker = read(os.path.join(REPO, 'pinky_fleet_station', 'pinky_fleet_station', 'overhead_tracker_node.py'))
+    assert "f'/{name}/overhead_pose'" in tracker                  # 팀원 노드의 토픽 이름과 일치
+    fuser = read(os.path.join(AGENT, 'pinky_fleet_agent', 'pose_fuser_node.py'))
+    assert "f'/{name}/overhead_pose'" in fuser and 'PoseStamped' in fuser
+    setup = read(os.path.join(AGENT, 'setup.py'))
+    assert 'pose_fuser_node = pinky_fleet_agent.pose_fuser_node:main' in setup
+    launch = read(os.path.join(AGENT, 'launch', 'lane_robot.launch.xml'))
+    assert 'exec="pose_fuser_node"' in launch and 'use_overhead' in launch and '$(eval' not in launch
 
 
 def test_bridge_lane_message_types_exist():

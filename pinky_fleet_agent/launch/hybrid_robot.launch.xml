@@ -9,7 +9,7 @@
   + hybrid_agent_node. 관제는 FleetCommand(단일 목표) 와 Route/LaneCommand(레인 관제) 둘 다 쓸 수 있다.
   robot.launch.xml · lane_robot.launch.xml 과 동시에 띄우지 말 것 (셋 다 /<robot_name>/command 를 받는다).
 
-  위치: 기본은 AMCL. use_pose_fuser:=True 면 AMCL 대신 pose_fuser_node 가 /<robot_name>/pose_fix
+  위치: 기본은 AMCL. use_pose_fuser:=True 면 AMCL 대신 pose_fix_fuser_node 가 /<robot_name>/pose_fix
   (외부 비전) + odom 으로 map->odom 을 낸다. fix 가 fix_timeout 동안 없으면 TF 가 끊겨 Nav2 가 멈춘다.
 
   /cmd_vel 경로:
@@ -42,7 +42,7 @@
     <arg name="launch_bringup" default="True"
          description="시뮬레이션에서 돌릴 때는 False 로 두고 pinky_gz_sim 을 따로 띄운다."/>
     <arg name="use_pose_fuser" default="False"
-         description="True: AMCL 대신 pose_fuser_node 가 외부 비전 PoseFix + odom 으로 map->odom 을 낸다."/>
+         description="True: AMCL 대신 pose_fix_fuser_node 가 외부 비전 PoseFix + odom 으로 map->odom 을 낸다."/>
 
     <include file="$(find-pkg-share pinky_bringup)/launch/bringup_robot.launch.xml"
              if="$(var launch_bringup)">
@@ -67,7 +67,7 @@
         <param name="use_sim_time" value="$(var use_sim_time)"/>
     </node>
 
-    <node pkg="pinky_fleet_agent" exec="pose_fuser_node" name="pose_fuser" output="screen"
+    <node pkg="pinky_fleet_agent" exec="pose_fix_fuser_node" name="pose_fuser" output="screen"
           if="$(var use_pose_fuser)">
         <param name="robot_name" value="$(var robot_name)"/>
         <param name="use_sim_time" value="$(var use_sim_time)"/>

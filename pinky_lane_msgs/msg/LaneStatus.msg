@@ -13,6 +13,10 @@ uint8 DRIVE_LANE_LOST=6             # 카메라가 차선을 못 봄. 맵 경로
 uint8 DRIVE_ARRIVED=7
 uint8 DRIVE_ESTOP=8                 # 수동 래치. RESUME 으로만 해제
 uint8 DRIVE_LINK_LOST=9             # 관제 침묵 → 정지
+uint8 DRIVE_BARRICADE_WAIT=10       # 카메라가 바리게이트를 봄. 치워지면 자동 복귀
+uint8 DRIVE_LANE_SEARCH=11          # 차선 쌍이 안 보임 → 제자리 회전 탐색. 쌍이 보이면 복귀
+uint8 DRIVE_JUNCTION_STOP=12        # 분기 노드 반경 진입 → 1 s 정지
+uint8 DRIVE_JUNCTION_PASS=13        # 카메라 없이 경로만으로 교차로 통과 (서행)
 uint8   drive_state
 string  state_reason                # 사람이 읽는 이유. "초음파 0.14m", "JS 앞 대기 (pinky1)"
 

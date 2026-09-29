@@ -4,7 +4,7 @@
   pinky_navigation/launch/bringup_launch.xml 과 같은 구성이고 두 가지가 다르다.
 
   1. navigation 은 이 패키지의 nav2_gated_navigation.launch.xml 을 쓴다 (출력 = /cmd_vel_mission).
-  2. use_pose_fuser:=True 면 AMCL 을 띄우지 않고 map_server 만 띄운다. map->odom 은 pose_fuser_node 가 낸다.
+  2. use_pose_fuser:=True 면 AMCL 을 띄우지 않고 map_server 만 띄운다. map->odom 은 pose_fix_fuser_node 가 낸다.
      False(기본)면 원본 localization_launch.xml (map_server + amcl) 을 그대로 쓴다.
 -->
 <launch>

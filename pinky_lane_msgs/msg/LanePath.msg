@@ -30,4 +30,6 @@ float32 confidence
 
 bool    crosswalk_detected          # 디바운스 통과한 횡단보도 트리거
 int32   crosswalk_bottom_y
+bool    barricade_detected          # 디바운스 통과한 바리게이트 (치워질 때까지 정지)
+int32   barricade_bottom_y
 float32 pipeline_latency            # 관제 PC 내부 수신->발행 (s). 관제 시계끼리라 유효
