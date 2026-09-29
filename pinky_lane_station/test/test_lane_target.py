@@ -204,34 +204,34 @@ def test_barricade_requires_width_and_conf():
     assert est.update([barricade(420)], W, H).barricade_detected
 
 
-# ------------------------------------------------------------ 정지선 (2026-09-29 교차로 규칙)
+# ------------------------------------------------------------ 빨간 선 (2026-09-29 교차로 규칙)
 
-def stop_line(bottom_y, conf=0.9, x0=180, x1=460):
-    return Instance('stop_line', conf, [(x0, bottom_y - 12), (x1, bottom_y - 12),
+def red_line(bottom_y, conf=0.9, x0=180, x1=460):
+    return Instance('red_line', conf, [(x0, bottom_y - 12), (x1, bottom_y - 12),
                                         (x1, bottom_y), (x0, bottom_y)])
 
 
-def test_stop_line_triggers_near_bottom_debounces_and_does_not_touch_lanes():
-    est = LaneTargetEstimator(TargetParams(stop_line_confirm=2, stop_line_release=3))
-    r = est.update([line(200), line(440), stop_line(300)], W, H)
-    assert r.stop_line_bottom_y == 300 and not r.stop_line_raw and not r.stop_line_detected
-    r = est.update([line(200), line(440), stop_line(400)], W, H)
-    assert r.stop_line_raw and not r.stop_line_detected            # 1/2
-    r = est.update([line(200), line(440), stop_line(400)], W, H)
-    assert r.stop_line_detected and r.stop_line_confidence == 0.9   # 확정
+def test_red_line_triggers_near_bottom_debounces_and_does_not_touch_lanes():
+    est = LaneTargetEstimator(TargetParams(red_line_confirm=2, red_line_release=3))
+    r = est.update([line(200), line(440), red_line(300)], W, H)
+    assert r.red_line_bottom_y == 300 and not r.red_line_raw and not r.red_line_detected
+    r = est.update([line(200), line(440), red_line(400)], W, H)
+    assert r.red_line_raw and not r.red_line_detected            # 1/2
+    r = est.update([line(200), line(440), red_line(400)], W, H)
+    assert r.red_line_detected and r.red_line_confidence == 0.9   # 확정
     for i in range(3):
         r = est.update([line(200), line(440)], W, H)
-        assert r.stop_line_detected == (i < 2)                     # 3 프레임 뒤 해제
+        assert r.red_line_detected == (i < 2)                     # 3 프레임 뒤 해제
     assert r.quality == QUALITY_BOTH and not r.crosswalk_detected and not r.barricade_detected
 
 
-def test_stop_line_requires_width_and_conf_and_reset_clears_it():
-    est = LaneTargetEstimator(TargetParams(stop_line_confirm=1))
-    r = est.update([line(200), line(440), stop_line(400, x0=300, x1=340)], W, H)   # 좁은 조각
-    assert not r.stop_line_raw and not r.stop_line_detected
-    r = est.update([line(200), line(440), stop_line(400, conf=0.1)], W, H)         # 낮은 conf
-    assert not r.stop_line_raw
-    r = est.update([line(200), line(440), stop_line(400)], W, H)
-    assert r.stop_line_detected
+def test_red_line_requires_width_and_conf_and_reset_clears_it():
+    est = LaneTargetEstimator(TargetParams(red_line_confirm=1))
+    r = est.update([line(200), line(440), red_line(400, x0=300, x1=340)], W, H)   # 좁은 조각
+    assert not r.red_line_raw and not r.red_line_detected
+    r = est.update([line(200), line(440), red_line(400, conf=0.1)], W, H)         # 낮은 conf
+    assert not r.red_line_raw
+    r = est.update([line(200), line(440), red_line(400)], W, H)
+    assert r.red_line_detected
     est.reset()
-    assert not est.update([line(200), line(440)], W, H).stop_line_detected
+    assert not est.update([line(200), line(440)], W, H).red_line_detected

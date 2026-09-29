@@ -61,8 +61,14 @@
             <button class="btn" data-command="resume" data-moving="1">재시작</button>
             <button class="btn danger" data-command="estop">비상정지</button>
           </div>
+          <!-- 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼 · 교차로 통행권. 비전 모드가 아니면 숨는다 -->
+          <div class="vision-panel" id="vision-panel" hidden>
+            <div class="button-row" id="vision-scenarios"></div>
+            <p class="muted" id="vision-status">—</p>
+            <div id="vision-robots"></div>
+          </div>
           <div class="toolbar-summary">
-            <div><span>운영 방식</span><strong>Nav2 이동 + 도로망 예약</strong></div>
+            <div><span>운영 방식</span><strong id="summary-mode">Nav2 이동 + 도로망 예약</strong></div>
             <div><span>외부 위치</span><strong id="summary-vision">—</strong></div>
             <div><span>플릿 상태</span><strong id="summary-fleet">—</strong></div>
             <div><span>좌표</span><strong id="summary-profile">—</strong></div>

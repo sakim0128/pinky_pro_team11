@@ -16,11 +16,13 @@ pinky_lane_agent:
     path_max_age: 0.9
     crosswalk_zone: 0.45
     junction_zone: 0.25
-    stop_line_zone: 0.60         # 정지선(카메라) 트리거는 경로상 다음 분기 노드가 이 거리 안일 때만
+    red_line_zone: 0.60         # 빨간 선(카메라) 트리거는 경로상 다음 분기 노드가 이 거리 안일 때만
     junction_wait_clearance: true # JUNCTION_STOP 에서 관제 허가(clear_until 이 분기 노드를 넘음) 를 기다린다
     lane_only: false             # true: 경로·위치 없이 카메라 차선 중앙만 (lane_only.launch.xml 이 덮는다)
     lane_lost_coast: 0.6
     search_omega: 0.4            # LANE_SEARCH 제자리 회전 각속도 (rad/s)
+    odom_timeout: 0.5            # 비전 미션 교차로 동작: odom 이 이만큼 끊기면 멈춰 기다린다
+    stop_line_min_gap: 0.15      # 비전 미션: 흰 정지선을 연달아 셀 때 최소 주행거리 (m)
     auto_start: false
     control:
       v_max: 0.15
@@ -54,8 +56,18 @@ pinky_lane_agent:
       sector_deg: 35.0
       box_x: 0.18
       box_y: 0.10
-      us_stop: 0.20
+      us_stop: 0.10              # 초음파(앞면) 10 cm 이하면 정지 (2026-09-30 결정)
       us_min_valid: 0.03
       confirm_count: 2
       clear_seconds: 1.0
       lidar_offset_x: 0.0
+    maneuver:                    # 비전 미션 교차로 고정 동작 (maneuver.ManeuverParams). 속도는 관제 JunctionPlan 이 주면 그 값
+      linear_speed: 0.08
+      angular_speed: 0.5
+      min_linear: 0.03
+      min_angular: 0.15
+      slow_distance: 0.05
+      slow_angle_deg: 20.0
+      dist_tolerance: 0.005
+      yaw_tolerance_deg: 1.5
+      heading_kp: 1.5

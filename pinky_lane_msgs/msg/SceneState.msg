@@ -18,10 +18,15 @@ bool    barricade_detected
 int32   barricade_bottom_y
 float32 barricade_confidence
 
-bool    stop_line_raw                # 정지선 (교차로 진입 표시)
+bool    red_line_raw                # 빨간 선 (교차로 진입 표시)
+bool    red_line_detected
+int32   red_line_bottom_y
+float32 red_line_confidence
+
+bool    stop_line_raw               # 목적지 흰 정지선 (영상 처리)
 bool    stop_line_detected
 int32   stop_line_bottom_y
-float32 stop_line_confidence
+float32 stop_line_width_frac        # 가로 흰 띠 폭 / 화면 폭
 
 string  detector_name               # "lane=yolo11n-seg@lane_v3.pt" — 재현성
 float32 infer_ms

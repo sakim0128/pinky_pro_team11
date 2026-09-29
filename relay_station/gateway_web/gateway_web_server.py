@@ -1701,6 +1701,36 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                             code=code)
             return
 
+        # 3-B3. 비전 미션 시나리오 시작 (/api/fleet/scenario {"name": "s1"}) — 움직이는 명령(제어권 정책), --vision 일 때만
+        elif parsed.path == '/api/fleet/scenario':
+            if self._deny_if_cannot_move('remote fleet command scenario', {'command': 'scenario'}):
+                return
+            coord = GLOBAL_FLEET_COORDINATOR
+            if coord is None or not GLOBAL_ROBOT_SUB_NODE:
+                self._send_json(json.dumps({'success': False, 'reason': 'NO_FLEET_COORDINATOR', 'command': 'scenario',
+                                            'detail': FLEET_IMPORT_ERROR}, ensure_ascii=False).encode('utf-8'), code=503)
+                return
+            if not hasattr(coord, 'start_scenario'):
+                self._send_json(json.dumps({'success': False, 'reason': 'NOT_VISION_MODE', 'command': 'scenario',
+                                            'message': '비전 미션 모드가 아니다 — 게이트웨이를 --vision 으로 띄운다'},
+                                           ensure_ascii=False).encode('utf-8'), code=409)
+                return
+            name = str(req_json.get('name', '')).strip()
+            if name not in coord.vision_cfg.scenarios:
+                self._send_json(json.dumps({'success': False, 'reason': 'UNKNOWN_SCENARIO', 'command': 'scenario',
+                                            'message': '그런 시나리오가 없다: %r (있는 것: %s)'
+                                                       % (name, ', '.join(coord.vision_cfg.scenarios))},
+                                           ensure_ascii=False).encode('utf-8'), code=404)
+                return
+            payload = {'cmd': 'scenario', 'name': name}
+            seq0 = coord.control_seq
+            GLOBAL_ROBOT_SUB_NODE.send_fleet_control(payload)
+            code, body = applied_reply(wait_control_result(coord, seq0, 'scenario'),
+                                       {'command': 'scenario', 'payload': payload,
+                                        'message': '시나리오 %s 시작' % name})
+            self._send_json(json.dumps(body, ensure_ascii=False).encode('utf-8'), code=code)
+            return
+
         # 3-C. 관제국 멀티로봇 플릿 제어 API (/api/fleet/start, /api/fleet/stop, /api/fleet/estop, /api/fleet/resume, /api/fleet/assign)
         elif parsed.path in ('/api/fleet/start', '/api/fleet/stop', '/api/fleet/estop', '/api/fleet/resume', '/api/fleet/assign'):
             client_ip = self.client_address[0]
@@ -2835,6 +2865,9 @@ def main():
                         help="레거시 pull 폴백 주소. 비우면 안 쓴다")
     parser.add_argument('--map-yaml', type=str, default="$HOME/my_map.yaml", help="Path to my_map.yaml")
     parser.add_argument('--no-camera', action='store_true', help="Disable background camera ingest and relay")
+    parser.add_argument('--vision', nargs='?', const='default', default=None, metavar='VISION_MISSION_YAML',
+                        help="비전 미션 모드 — 위치추정 없이 차선 주행 + 교차로 통행권 + 시나리오 버튼 "
+                             "(기본 설정 pinky_lane_station/config/vision_mission.yaml)")
     args = parser.parse_args()
 
     app_log("================================================================")
@@ -2978,11 +3011,16 @@ def main():
     global GLOBAL_FLEET_COORDINATOR, FLEET_IMPORT_ERROR
     if RelayFleetCoordinator:
         try:
-            fleet_coord = RelayFleetCoordinator()
+            if args.vision:
+                # 비전 미션 모드 (2026-09-30): 같은 코디네이터를 물려받아 경로·예약 대신 시나리오·교차로 통행권을 쓴다
+                from fleet.vision_coordinator import VisionFleetCoordinator
+                fleet_coord = VisionFleetCoordinator(None if args.vision == 'default' else os.path.expanduser(args.vision))
+            else:
+                fleet_coord = RelayFleetCoordinator()
             executor.add_node(fleet_coord)
             GLOBAL_FLEET_COORDINATOR = fleet_coord
             sync_renderer_map()           # R-7: 저장된 좌표 프로파일의 화면 지도로
-            app_log("[Fleet] RelayFleetCoordinator initialized and added to executor on Domain 8")
+            app_log(f"[Fleet] {type(fleet_coord).__name__} initialized and added to executor")
         except Exception as e:
             FLEET_IMPORT_ERROR = f'init {type(e).__name__}: {e}'
             app_log(f"[Fleet] Could not initialize RelayFleetCoordinator: {e}")

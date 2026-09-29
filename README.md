@@ -86,6 +86,44 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 
 ---
 
+## 비전 미션 모드 (2026-09-30) — 위치추정 없이 카메라로 달리고 교차로만 고정 동작
+
+항공뷰 없이 돈다. 코스: T자 교차로 하나, 1번(오른쪽 위 끝) · 2번(왼쪽 아래) · 3번(아래 가운데, 교차로 오른쪽 가지).
+
+| 시나리오 | 로봇 | 경로 | 교차로 동작 (임시값) | 출발 | 도착 정지선 |
+|---|---|---|---|---|---|
+| s1 (교차로에서 만남) | pinky1 | 2 → 1 | 직진 0.35 m | 0 s | 통행권 순서로: 먼저 지난 로봇 2번째(앞), 나중 1번째(뒤) |
+| s1 | pinky2 | 3 → 1 | 직진 0.18 → 우회전 90° → 직진 0.10 | 0 s | 〃 |
+| s2 (순차 출발) | pinky1 | 1 → 2 | 직진 0.35 m | 0 s | 1번째 |
+| s2 | pinky2 | 1 → 3 | 직진 0.18 → 좌회전 90° → 직진 0.10 | 10 s | 1번째 |
+
+```
+로봇  차선 주행(카메라) → 빨간 테이프(YOLO red_line, 화면 하단 0.80·H) 앞 JUNCTION_STOP (1 s + 관제 허가 대기)
+관제  교차로 통행권 하나: 먼저 정지를 보고한 로봇 먼저, 0.5 s 안이면 domain_id 작은 쪽(pinky1=10)
+로봇  허가(CLEARANCE 1) → 고정 동작(odom, 장애물에 끊기면 남은 양만 이어서) → 차선 쌍이 보이면 주행, 안 보이면 방금 돈 쪽으로 탐색 회전
+관제  통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아간 순간 반납 → 다음 로봇 허가
+로봇  교차로 뒤 흰 정지선(영상 처리)을 N 번째 만나면 그 앞에서 도착. 출발 지점 정지선은 교차로 전이라 세지 않는다
+공통  장애물(라이다 상자 0.18 m = 앞면 8 cm + 10 cm, 초음파 0.10 m) 에서 정지, 치워지면 1 s 뒤 재출발
+```
+
+- 설정: 교차로 동작·시나리오 `pinky_lane_station/config/vision_mission.yaml`(관제), 흰 정지선 임계값 `detector_yolo.yaml` 의 `stop_line:`,
+  빨간 테이프는 모델 클래스 이름 `red_line`(`class_map`), 로봇 튜닝 `lane_agent.yaml`(`maneuver:` · `guard.us_stop` · `stop_line_min_gap`).
+- 현장 준비: 1번 지점 흰 정지선 두 개(간격 30 cm 이상), 2·3번에 하나씩. 로봇은 각 출발 지점에 차선 방향으로.
+
+```bash
+# 관제 PC (도메인 0 예) — 브리지 + 인식, 그리고 게이트웨이를 비전 모드로
+ros2 launch pinky_lane_station lane_station.launch.xml pinky1_domain:=10 pinky2_domain:=11
+python3 relay_station/gateway_web/gateway_web_server.py --port 8889 --map-yaml pinky_fleet_station/config/map5.yaml --no-camera --vision
+# 핑키 (각각) — lane_only, auto_start 없이 (관제가 계획·START 를 준다)
+ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 v_max:=0.15
+# 웹 http://<관제 PC>:8889/fleet_control_v2.html → 대시보드 "시나리오 1 시작" / "시나리오 2 시작" · 일시정지 · 재시작 · 비상정지
+```
+
+현장 조정 순서: 로봇 1대로 경로마다 교차로 동작 값 재기(`vision_mission.yaml` 고치고 게이트웨이만 재시작) → 시나리오 2 → 시나리오 1.
+인식 확인은 `python3 tools/view_image.py /pinky1/lane_debug/compressed` (상단 글자 `red=` `stop=`, 흰 정지선은 분홍 상자).
+
+---
+
 ## 운영 (웹에서 시작점·목적지 → 출발)
 
 브라우저 `http://<중계 PC>:8889/fleet_control_v2.html`

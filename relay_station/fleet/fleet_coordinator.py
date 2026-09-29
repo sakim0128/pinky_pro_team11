@@ -167,6 +167,7 @@ class RelayFleetCoordinator(Node):
     active_profile = None
     profile_note = None
     # R4 (관제 검수 §3.3): 제어 명령을 처리한 결과 — 게이트웨이가 "보냈다" 와 "적용됐다" 를 가를 수 있게
+    AUTO_ASSIGN = True      # 기동 때 미션 파일의 start/goal 로 경로를 배정한다 (비전 미션 모드는 끈다)
     control_seq = 0
     last_control = None     # L7: 비상정지 직전 상태 — 재개는 그리로 돌아간다(한 번도 시작 안 한 플릿을 출발시키지 않게)
     # 정지 확인의 증거 — 에이전트(route_chain)가 STOP 을 처리하면 LaneStatus.state_reason 이 이것 중 하나다.
@@ -328,9 +329,9 @@ class RelayFleetCoordinator(Node):
         self.timer_loop = self.create_timer(0.1, self._loop_tick)  # 10Hz
         self.timer_status = self.create_timer(0.5, self._publish_status)  # 2Hz
 
-        # 초기 기본 경로 자동 생성 및 배정
+        # 초기 기본 경로 자동 생성 및 배정 — 비전 미션 모드(vision_coordinator)는 경로를 내지 않는다(AUTO_ASSIGN = False)
         for name, ctx in self.robots.items():
-            if ctx.start_node and ctx.goal_node:
+            if self.AUTO_ASSIGN and ctx.start_node and ctx.goal_node:
                 self.assign_route(name, ctx.start_node, ctx.goal_node)
 
         # G-3·G-4·G-5: 프로파일을 읽고 경로를 배정한 **뒤** 멈추는 쪽 상태를 되살린다 — 배정이 ASSIGNED 로 덮지 않게.

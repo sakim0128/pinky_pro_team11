@@ -220,6 +220,13 @@ EOF
     from_domain: ${RELAY_DOMAIN}
     to_domain: ${d}
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  # 9) 비전 미션 (2026-09-30): 코디네이터 비전 모드가 내는 교차로 고정 동작·도착 정지선 수 (다운링크, 늦게 떠도 받게)
+  /pinky${n}/junction_plan:
+    type: pinky_lane_msgs/msg/JunctionPlan
+    from_domain: ${RELAY_DOMAIN}
+    to_domain: ${d}
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
 EOF
     fi
 

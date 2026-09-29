@@ -879,6 +879,7 @@
     renderConfig();
     renderProfile();
     renderAssign();
+    renderVision();
     renderControlExtras();
     drawMaps();
   }
@@ -926,6 +927,57 @@
       (Object.keys(p.held||{}).length ? `<div class="config-row"><span>로봇별 정지</span><strong>${Object.entries(p.held).map(([n,why])=>`<span class="status-pill warn">${esc(n)}</span> <span class="muted">${esc(why)}</span>`).join(" ")}</strong></div>` : "") +
       ((cur.warnings||[]).length ? `<div class="config-row"><span>미션 경고</span><strong class="muted">${esc(cur.warnings.join("; "))}</strong></div>` : "") + rows;
     ["profile-switch","profile-robot-maps","profile-initial-poses"].forEach(id=>{ if($(id)) $(id).disabled = !!blocker; });
+  }
+
+  // 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼과 교차로 통행권. /api/fleet/status 의 mode·vision 만 본다.
+  const VISION_STAGE = {"vision:approach": "교차로로 가는 중", "vision:junction": "교차로 동작 중",
+                        "vision:after_junction": "교차로 통과 — 목적지로", "vision:arrived": "도착"};
+  function renderVision() {
+    const panel = $("vision-panel");
+    if (!panel) return;
+    const f = state.fleet || {};
+    const v = f.mode === "vision" ? f.vision : null;
+    panel.hidden = !v;
+    if ($("summary-mode")) $("summary-mode").textContent = v ? "비전 차선 주행 + 교차로 통행권" : "Nav2 이동 + 도로망 예약";
+    if (!v) return;
+    const host = $("vision-scenarios");
+    const key = (v.scenarios || []).map(s => s.name).join(",");
+    if (host && host.dataset.key !== key) {                 // 버튼은 목록이 바뀔 때만 다시 만든다(OPS-4)
+      host.innerHTML = (v.scenarios || []).map(s =>
+        `<button class="btn primary" data-scenario="${esc(s.name)}" data-moving="1" title="${esc(s.label)}">${esc(s.label.split("—")[0].trim() || s.name)} 시작</button>`).join("");
+      host.querySelectorAll("[data-scenario]").forEach(b => b.addEventListener("click", () => scenarioAction(b.dataset.scenario, b.title)));
+      host.dataset.key = key;
+      applyViewOnly();
+    }
+    const run = v.run;
+    const st = $("vision-status");
+    if (st) {
+      if (!run) st.textContent = "시나리오 대기 — 버튼을 누르면 로봇에 교차로 계획을 보내고 출발한다";
+      else st.textContent = `${run.label} · 통행권: ${run.holder || "비어 있음"} · 대기: ${(run.queue || []).join(", ") || "없음"}`
+                            + ` · 통과 순서: ${(run.grant_order || []).join(" → ") || "—"}${run.done ? " · 완료" : ""}`;
+    }
+    const rows = $("vision-robots");
+    if (rows) {
+      rows.innerHTML = run ? Object.entries(run.robots || {}).map(([n, r]) => {
+        const stage = VISION_STAGE[r.stage] || r.stage || "—";
+        const depart = r.depart_in > 0 ? ` · 출발까지 ${r.depart_in}s` : "";
+        const sl = r.stop_line_count ? `${r.stop_line_count}번째 정지선` : "정지선 수 미정(통행권 순서로)";
+        return `<div class="config-row"><span>${esc(n)} ${esc(r.start)}→${esc(r.goal)}</span>`
+             + `<strong>${esc(stage)} · ${esc(ko("drive", r.drive_state))} · 통과 ${r.clearance ? "허가" : "대기"} · ${esc(sl)}${esc(depart)}</strong></div>`;
+      }).join("") : "";
+    }
+  }
+
+  async function scenarioAction(name, label) {
+    if (DEMO) return;
+    if (!window.confirm(`${label || name}\n로봇을 출발 지점에 놓았나요? 교차로 계획을 보내고 출발합니다.`)) return;
+    try {
+      const r = await postJson("/api/fleet/scenario", {name});
+      if (r.applied === null || r.success === false) alert(`⚠️ ${name}: ` + (r.message || "") + " (적용 여부 모름)");
+    } catch (e) {
+      alert("시나리오 시작 실패: " + e.message);
+    }
+    refresh();
   }
 
   // 웹 배정(2026-09-29): 시작·목적지를 관제 PC yaml 이 아니라 여기서 고른다. 드롭다운은 /api/fleet/profiles.graph.endpoints

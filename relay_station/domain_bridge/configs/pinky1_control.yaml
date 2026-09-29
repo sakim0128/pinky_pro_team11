@@ -131,7 +131,7 @@ topics:
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
   # 8) 차선 인식 (2026-09-29): 관제 PC 의 lane_pipeline_node(pinky_lane_station)가 **도메인 8** 에서 돈다.
-  #    로봇 camera_node 의 압축 영상(업링크, 이름·QoS 는 pinky_lane_station/config/bridge_lane.yaml 과 같다)과
+  #    로봇 camera_node 의 압축 영상(업링크, 이름·QoS 는 pinky_lane_station/config/bridge_pinkyN_up.yaml 과 같다)과
   #    파이프라인이 내는 LanePath(다운링크). 이 둘이 없으면 레인 로봇은 차선을 못 본다.
   /pinky1/camera/image/compressed:
     type: sensor_msgs/msg/CompressedImage
@@ -142,6 +142,13 @@ topics:
     from_domain: 8
     to_domain: 10
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  # 9) 비전 미션 (2026-09-30): 코디네이터 비전 모드가 내는 교차로 고정 동작·도착 정지선 수 (다운링크, 늦게 떠도 받게)
+  /pinky1/junction_plan:
+    type: pinky_lane_msgs/msg/JunctionPlan
+    from_domain: 8
+    to_domain: 10
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
 
   # 감싼 서비스 'led' — 로봇 위 topic_wrap.py 가 서비스를 이 토픽 쌍으로 바꿔 준다.
   # 이름 규칙의 주인은 topic_wrap.py 의 topic_names() 다.

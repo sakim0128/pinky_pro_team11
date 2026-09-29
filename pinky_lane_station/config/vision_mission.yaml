@@ -1,0 +1,38 @@
+# 비전 미션 (2026-09-30) — 위치추정 없이 카메라 차선 주행 + 교차로 고정 동작. 관제 코디네이터(relay, --vision) 가 읽는다.
+#
+# 코스: T자 교차로 하나. 1번 = 오른쪽 위 끝, 2번 = 왼쪽 아래, 3번 = 아래 가운데(교차로 오른쪽 가지).
+#   2 → 1 직진 · 3 → 1 우회전 · 1 → 2 직진 · 1 → 3 좌회전 (로봇 진행 방향 기준)
+# 로봇: 빨간 테이프(YOLO red_line) 앞에서 1 s 정지 → 관제 통행권(먼저 선 로봇, 같은 순간이면 domain_id 작은 쪽) →
+#       아래 고정 동작(odom) → 차선 주행 복귀(통행권 반납 = 다음 로봇 허가) → 흰 정지선 N 번째 앞에서 도착.
+#
+# 고정 동작 값은 **임시** — 현장에서 로봇 1대로 경로마다 재서 고친다. straight: m (+ 전진), turn: deg (+ 좌회전)
+# 값을 바꾸면 관제(게이트웨이)만 다시 띄운다.
+
+speeds:
+  linear: 0.08                    # 고정 동작 직진 m/s
+  angular: 0.5                    # 고정 동작 회전 rad/s
+tie_window: 0.5                   # 이 시간(s) 안에 들어온 교차로 정지 보고는 '같은 순간' — domain_id 작은 쪽이 먼저
+
+robots:                           # domain_id 는 통행 우선순위 동점 처리용 (작을수록 먼저)
+  pinky1: {domain_id: 10}
+  pinky2: {domain_id: 11}
+
+maneuvers:
+  straight_2_to_1: [{straight: 0.35}]
+  right_3_to_1:    [{straight: 0.18}, {turn: -90}, {straight: 0.10}]
+  straight_1_to_2: [{straight: 0.35}]
+  left_1_to_3:     [{straight: 0.18}, {turn: 90}, {straight: 0.10}]
+
+scenarios:
+  s1:
+    label: "시나리오 1 — 2·3번 → 1번 (교차로에서 만남, 먼저 선 로봇 먼저)"
+    # 1번 지점엔 정지선이 두 개(뒤·앞). 교차로를 먼저 지난 로봇은 둘째(앞) 정지선, 나중 로봇은 첫째(뒤) 정지선에서 선다
+    stop_lines_by_order: [2, 1]
+    robots:
+      pinky1: {start: 2, goal: 1, maneuver: straight_2_to_1, depart_delay: 0}
+      pinky2: {start: 3, goal: 1, maneuver: right_3_to_1, depart_delay: 0}
+  s2:
+    label: "시나리오 2 — 1번 → 2·3번 (순차 출발, 10 s 간격)"
+    robots:
+      pinky1: {start: 1, goal: 2, maneuver: straight_1_to_2, depart_delay: 0, stop_lines: 1}
+      pinky2: {start: 1, goal: 3, maneuver: left_1_to_3, depart_delay: 10, stop_lines: 1}

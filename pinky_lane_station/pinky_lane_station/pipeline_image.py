@@ -20,7 +20,7 @@ CLASS_COLORS = {
     'cone': (0, 140, 255),
     'traffic_light': (0, 140, 255),
     'barricade': (0, 0, 255),
-    'stop_line': (255, 0, 255),
+    'red_line': (255, 0, 255),
 }
 DEFAULT_COLOR = (200, 200, 200)
 TARGET_COLOR = (0, 0, 255)
@@ -44,7 +44,7 @@ def mask_top(img, frac=0.30, fill=0):
 
 
 def draw_debug(img_original, instances, result, mask_frac=0.30, infer_ms=0.0,
-               stop_row_frac=0.80, draw_polygons=False):
+               stop_row_frac=0.80, draw_polygons=False, stop_line=None):
     """원본 이미지 위에 검출 bbox·차선 중심점·샘플 행·마스크 경계를 그린 새 이미지."""
     if cv2 is None:
         raise RuntimeError('python3-opencv 가 필요합니다')
@@ -82,7 +82,14 @@ def draw_debug(img_original, instances, result, mask_frac=0.30, infer_ms=0.0,
         cv2.circle(dbg, (int(result.right_x), y), 5, POINT_COLOR, -1)
     if result.quality_name not in ('LOST', 'STALE'):
         cv2.circle(dbg, (int(result.target_x), y), 7, TARGET_COLOR, -1)   # 차선 중심점
+    if stop_line is not None and stop_line.bottom_y > 0:              # 목적지 흰 정지선 (영상 처리)
+        color = (255, 0, 255) if stop_line.detected else (200, 200, 200)
+        cv2.rectangle(dbg, (2, int(stop_line.top_y)), (W - 3, int(stop_line.bottom_y)), color, 2)
+        cv2.putText(dbg, f'stop_line {stop_line.width_frac:.2f}{" STOP" if stop_line.detected else ""}',
+                    (8, max(14, int(stop_line.top_y) - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    red = int(getattr(result, 'red_line_detected', False))
+    sl = int(bool(stop_line and stop_line.detected))
     cv2.putText(dbg, f'{result.quality_name} e={result.error_x:+.2f} cw={int(result.crosswalk_detected)} '
-                     f'half={result.half_lane_px:.0f}px {infer_ms:.0f}ms',
+                     f'red={red} stop={sl} half={result.half_lane_px:.0f}px {infer_ms:.0f}ms',
                 (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, TARGET_COLOR, 2)
     return dbg

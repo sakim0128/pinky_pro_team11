@@ -24,3 +24,7 @@ topics:
   /pinky2/overhead_pose:                      # overhead_tracker_node(항공뷰 ArUco) → pose_fuser_node
     type: geometry_msgs/msg/PoseStamped
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky2/junction_plan:                     # 관제 → lane_agent_node (비전 미션 교차로 동작·도착 정지선 수, 늦게 떠도 받게 transient_local)
+    type: pinky_lane_msgs/msg/JunctionPlan
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
