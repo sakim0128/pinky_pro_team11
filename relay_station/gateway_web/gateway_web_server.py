@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Field Gateway Web Streaming Server (with Live Gazebo Stream & Nav2 Click-to-Move)
+Field Gateway Web Streaming Server (with Live Gazebo Stream & Fleet Coordinator)
 - 현장 태블릿 카메라 스트림 1:N 팬아웃 (/video_feed)
 - 현장 관제 화면 스트림 1:N 팬아웃 (/control_feed)
 - Gazebo 실시간 3D 탑뷰 카메라 스트림 (/gazebo_feed) - ROS 2 /camera 토픽 30fps
-- 로봇 1, 2 온보드 카메라 스트림 (/robot_camera_feed?id=robot1 | robot2)
-- 로봇 1, 2 실시간 좌표 및 네비게이션 상태 API (/api/status)
-- 로봇 1 실시간 자율주행 목표 전송 API (/api/robot1/goal, /api/robot1/mission, /api/robot1/stop)
+- 로봇 1, 2 온보드 카메라 스트림 (/robot_camera_feed?id=pinky1 | pinky2)
+- 로봇 1, 2 실시간 좌표 및 플릿 상태 API (/api/status · /api/fleet/status)
+- 로봇별 정지·재개 API (/api/pinkyN/stop · /api/pinkyN/resume) — 플릿 코디네이터를 거친다
+- 시작·목적지 배정은 /api/fleet/assign (V2 "미션 배정" 카드) — 로봇은 lane_agent_node 뿐이라 Nav2 직접 목표(goal_pose·mission_cmd)는 없다
 - 실시간 로그 API (/api/logs) 및 gateway.log 파일 기록
 - 통합 반응형 웹 대시보드 서빙 (/)
 """
@@ -157,12 +158,11 @@ def _control_allow_path():
 
 CONTROL_POLICY = control_policy.ControlPolicy(LOCAL_CONTROL_IPS, control_policy.AllowList(_control_allow_path()))
 
-# D7 (2026-09-24): 로봇 정지·재개 경로 → 플릿 로봇 이름. `/api/stop`·`/api/nav/stop` 은 예전처럼 1호기다.
-ROBOT_STOP_PATHS = {
-    '/api/robot1/stop': 'pinky1', '/api/stop': 'pinky1', '/api/nav/stop': 'pinky1',
-    '/api/robot2/stop': 'pinky2',
-}
-ROBOT_RESUME_PATHS = {'/api/robot1/resume': 'pinky1', '/api/robot2/resume': 'pinky2'}
+# 플릿 로봇 이름 — 토픽(/pinkyN/…)·API 경로(/api/pinkyN/…)·화면 키 전부 이 이름 하나다(2026-09-29, robotN 별칭 없음).
+FLEET_ROBOT_NAMES = ('pinky1', 'pinky2')
+# D7 (2026-09-24): 로봇 정지·재개 경로 → 플릿 로봇 이름 (코디네이터 stop_robot · resume_robot)
+ROBOT_STOP_PATHS = {'/api/%s/stop' % n: n for n in FLEET_ROBOT_NAMES}
+ROBOT_RESUME_PATHS = {'/api/%s/resume' % n: n for n in FLEET_ROBOT_NAMES}
 # 멈추는 플릿 명령 — 원격에서도 받는다
 FLEET_STOP_COMMANDS = ('stop', 'estop')
 # 정지 응답의 "로봇 소식이 살아 있나" 문턱. 에이전트는 RobotState·LaneStatus 를 10 Hz 로 낸다.
@@ -239,51 +239,6 @@ def renderer_map_meta():
 # 정지 응답이 로봇의 멈춤 보고를 기다리는 한도 — LaneStatus 10 Hz 라 보통 0.2 s 안에 온다(HTTP 는 스레드 서버)
 STOP_CONFIRM_WAIT_SEC = 1.0
 STOP_CONFIRM_POLL_SEC = 0.05
-def parse_goal_body(req):
-    """(x, y, yaw) 또는 거부 이유(문자열). 움직이는 명령은 모자란 값을 0 으로 채우지 않는다."""
-    if not isinstance(req, dict):
-        return '본문이 JSON 객체가 아니다'
-    if 'x' not in req or 'y' not in req:
-        return 'x·y 가 없다'
-    out = []
-    for key, default in (('x', None), ('y', None), ('yaw', 0.0)):
-        v = req.get(key, default)
-        if isinstance(v, bool):
-            return '%s 가 수가 아니다' % key
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return '%s 가 수가 아니다: %r' % (key, v)
-        if not math.isfinite(f):
-            return '%s 가 유한한 수가 아니다: %r' % (key, v)
-        out.append(f)
-    return tuple(out)
-
-
-# 통합 검토 OPS-10: 미션 API 가 받는 값 → /robot1/mission_cmd 로 내는 명령. 옛 내비게이터(robot1_mission_navigator
-# `_cb_mission_cmd`)가 실제로 아는 명령만 둔다 — 이 API 는 늘 'mission' + 값을 냈으므로 끝까지 닿는 값은 1·2 뿐이었다
-# ('point1'·'mission1' 은 'missionpoint1'·'missionmission1' 이 되어 내비게이터가 버렸다 — 202 로 보냈다고만 했다).
-MISSION_COMMANDS = {'1': 'mission1', '2': 'mission2'}
-
-
-def parse_mission_body(req):
-    """(미션 값, None) 또는 (None, 거부 이유). 움직이는 명령은 빠진 값을 기본 미션으로 채우지 않는다."""
-    if not isinstance(req, dict):
-        return None, '본문이 JSON 객체가 아니다'
-    if 'mission' not in req:
-        return None, 'mission 이 없다'
-    v = req['mission']
-    if isinstance(v, bool) or not isinstance(v, (str, int)):
-        return None, 'mission 이 글자·정수가 아니다: %r' % (v,)
-    m = str(v).strip()
-    if m not in MISSION_COMMANDS:
-        return None, '모르는 미션 %r — 받는 값: %s (정지는 /api/robot1/stop)' % (m, ', '.join(sorted(MISSION_COMMANDS)))
-    return m, None
-
-
-# S1 (관제 검수 REVIEW_20260925 §3.2): 에이전트를 거치지 않고 bt_navigator 로 곧장 가는 목표·미션 경로.
-#   /robot1/goal_pose·mission_cmd → 브리지 → 로봇. 에이전트의 래치·체인을 하나도 안 거치므로 여기서 막는다.
-DIRECT_MOTION_PATHS = {'/api/robot1/goal': 'pinky1', '/api/goal': 'pinky1', '/api/robot1/mission': 'pinky1'}
 
 
 # 통합 검토 OPS-5: 로봇이 래치를 쥐고 있다는 LaneStatus.drive_state — ESTOP(8)·LINK_LOST(9). 에이전트는 그동안 목표를
@@ -318,106 +273,8 @@ def robot_latch_report(ctx):
     return reason if reason.startswith(RELEASE_HOLD_PREFIX) else None
 
 
-# 우회 이동 거부의 HTTP 코드 — 기본 409(지금은 안 된다). 판정 자체를 못 하는 것은 503(제3자 검수 G-1·G-10).
-MOTION_BLOCK_HTTP = {'NO_FLEET_COORDINATOR': 503, 'ROBOT_NOT_IN_FLEET': 503}
-
-
-def motion_block_reason(coord, robot):
-    """에이전트를 우회하는 이동 명령을 지금 받으면 안 되는 이유 (None = 받아도 된다).
-
-    ESTOP 래치·플릿 정지·로봇별 정지 중 목표가 들어가면 RESUME 이 `/estop false` 를 내는 순간 아무도 허가하지 않은
-    곳으로 달린다(S2) — 리그에서 ESTOP 중 `/api/robot1/goal` 이 200 을 돌려줬다(S1).
-    """
-    if coord is None:
-        # 제3자 검수 G-1: 예전엔 여기서 None(=받아도 된다)이라 코디네이터가 import·생성에 실패한 게이트웨이(실물이 09-26 까지
-        # 그랬다 — REPLY §14-3)에서 우회 목표·미션이 200 이었다. 래치·정지·HOLD 를 확인할 수 없으면 받지 않는다.
-        return 'NO_FLEET_COORDINATOR', '거부 — 플릿 코디네이터가 없어 비상정지·정지·로봇별 정지를 확인할 수 없다'
-    if coord.estop_latched or coord.mission_state == 'ESTOP':
-        return 'FLEET_ESTOP', '거부 — 플릿 비상정지 중이다. 해제는 /api/fleet/resume'
-    if coord.mission_state == 'STOPPED':
-        return 'FLEET_STOPPED', '거부 — 플릿이 정지 상태다. 재개 뒤에 보낸다'
-    if coord.mission_state == 'DONE':
-        # 미션 완료 뒤에도 코디네이터는 Nav2 로봇에 STOP 을 10 Hz 로 보낸다 — 에이전트가 이 목표를 곧바로 취소한다
-        return 'FLEET_DONE', '거부 — 미션 완료 상태라 코디네이터가 로봇을 세워 두고 있다. 새 배정·시작 뒤에 보낸다'
-    robots = getattr(coord, 'robots', None)
-    ctx = robots.get(robot) if isinstance(robots, dict) else None
-    if ctx is None:
-        # 제3자 검수 G-10: 예전엔 'pinky1' 을 못 찾으면(미션이 로봇 이름을 바꾸면) HOLD 검사를 조용히 건너뛰었다.
-        return 'ROBOT_NOT_IN_FLEET', '거부 — 플릿 코디네이터에 %s 가 없어 로봇별 정지를 확인할 수 없다' % robot
-    if ctx.held:
-        why = getattr(ctx, 'held_reason', '') or '로봇별 정지'
-        return 'ROBOT_HELD', '거부 — %s 가 로봇별 정지(HOLD: %s) 중이다. /api/%s/resume 뒤에 보낸다' % (
-            robot, why, robot.replace('pinky', 'robot'))
-    latched = robot_latch_report(ctx)
-    age = latch_report_age(coord, ctx) if latched else None
-    if latched and age is not None and age > LATCH_REPORT_FRESH_SEC:
-        # 통합 검토 UI-R1: 조용한 로봇의 옛 래치 보고로도 우회 목표는 계속 거부한다(움직이는 쪽은 닫힌 채로 — 에이전트가 없으면
-        # 래치도 취소도 지키는 쪽이 없다). 다만 '로봇 재개 뒤에' 라고 하지 않는다 — 로봇 재개는 옛 보고를 바꾸지 못한다.
-        return 'ROBOT_LATCHED', ('거부 — %s 의 마지막 보고(%.0f s 전): %s — 그 뒤로 보고가 없다(에이전트·링크 확인). '
-                                 '로봇이 래치가 풀렸다고 다시 보고해야 받는다' % (robot, age, latched))
-    if latched:
-        # 통합 검토 OPS-5: 예전엔 로봇이 ESTOP·링크유실 래치나 해제 보류를 보고하는 중에도 목표가 200 이었다 — 에이전트는
-        # 그 목표를 곧바로 취소한다(정지·래치·해제 대기 중 남의 goal 은 전부 취소). 받아 놓고 안 가는 것을 성공이라 하지 않는다.
-        return 'ROBOT_LATCHED', '거부 — %s 보고: %s — 에이전트가 이 목표를 곧 취소한다. %s' % (
-            robot, latched, '해제(Nav2 취소 확인)를 기다린 뒤 보낸다' if latched.startswith(RELEASE_HOLD_PREFIX)
-            else '로봇 재개(/api/%s/resume) 뒤에 보낸다' % robot.replace('pinky', 'robot'))
-    if coord.mission_state == 'RUNNING' and ctx.route is not None:
-        # 제3자 검수 G-6: 플릿 미션이 달리는 동안 경로가 있는 로봇에 우회 목표를 넣으면 예약(공유 구간 중재)을 거치지 않고
-        # Nav2 로 간다 — 두 대가 달릴 때 충돌 방지를 비켜 가는 길이다. IDLE·ASSIGNED(시작 전)는 그대로 받는다.
-        return 'FLEET_RUNNING', ('거부 — 플릿 미션이 달리는 중이고 %s 에 경로가 있다. 우회 목표는 예약(공유 구간 중재)을 '
-                                 '거치지 않는다 — 플릿이 시작 전(IDLE·ASSIGNED)일 때만 받는다' % robot)
-    return None
-
-
-def latched_robots(coord):
-    """지금 지도 교체(SET_MAP)를 보내면 에이전트가 거부할 로봇 — [(이름, 이유)] (통합 검토 OPS-3).
-
-    코디네이터가 링크유실·ESTOP 래치로 세워 둔 로봇, 또는 스스로 ESTOP·링크유실 래치를 **지금**(LATCH_REPORT_FRESH_SEC 안)
-    보고하는 로봇. 에이전트는 체인 래치(ESTOP·링크유실) 중 SET_MAP 을 REFUSED 한다 — 로봇 재개(LaneCommand RESUME)만 그
-    래치를 푼다.
-    """
-    out = []
-    with getattr(coord, '_coord_lock', None) or threading.RLock():
-        for name, ctx in coord.robots.items():
-            if ctx.held and ctx.held_reason in (HELD_LINK_LOST, HELD_ESTOP_RESTORED):
-                out.append((name, ctx.held_reason))
-                continue
-            ls = getattr(ctx, 'lane_status', None)
-            what = LATCHED_DRIVE_STATES.get(ls.drive_state) if ls is not None else None
-            age = latch_report_age(coord, ctx) if what else None
-            # 통합 검토 UI-R1: 예전엔 옛 보고도 셌다 — ESTOP·링크유실을 마지막으로 보고하고 조용해진 로봇(전원·배터리 교체·
-            # 에이전트 정지) 하나 때문에 ②·③ 이 플릿 전체에 409 였고, 로봇 재개는 옛 보고를 못 바꿔 풀 길이 없었다(54bb60b 는
-            # 성한 로봇에 보냈다). 조용한 로봇은 어차피 SET_MAP 을 못 받는다 — 막지 않고 보낸다(지도 대조가 그 로봇을 보인다).
-            if what and age is not None and age <= LATCH_REPORT_FRESH_SEC:
-                out.append((name, '%s 보고 %.1f s 전' % (what, age)))
-    return out
-
-
-def fleet_resume_target(coord):
-    """플릿 재개(resume_fleet)를 지금 누르면 갈 상태 — 코디네이터의 규칙(L7)을 읽기만 한다(통합 검토 OPS-6).
-
-    STOPPED 는 정지 직전 상태로 돌아간다: 달리던 플릿(RUNNING)만 다시 달리고, IDLE·ASSIGNED·DONE 은 그대로, 모르면
-    (재시작 뒤 복원한 STOPPED 등) 경로가 있으면 ASSIGNED 아니면 IDLE. DONE 은 DONE 에 남는다.
-    """
-    with getattr(coord, '_coord_lock', None) or threading.RLock():
-        back = coord.mission_state
-        if back == 'STOPPED':
-            back = getattr(coord, '_pre_stop_state', None)
-        if back in ('RUNNING', 'IDLE', 'ASSIGNED', 'DONE'):
-            return back
-        return 'ASSIGNED' if any(c.route is not None for c in coord.robots.values()) else 'IDLE'
-
-
-def motion_block_reply(blocked):
-    """(HTTP 코드, 본문) — 우회 이동 거부."""
-    body = {'success': False, 'reason': blocked[0], 'message': blocked[1], 'dispatched': False}
-    if blocked[0] == 'NO_FLEET_COORDINATOR':
-        body['detail'] = FLEET_IMPORT_ERROR
-    return MOTION_BLOCK_HTTP.get(blocked[0], 409), body
-
-
-# R-5: 진단을 받는 로봇 (브리지 업링크 /pinkyN/diag 가 있는 로봇 — robot1/2 한정)
-OPS_ROBOTS = ('pinky1', 'pinky2')
+# R-5: 진단을 받는 로봇 (브리지 업링크 /pinkyN/diag 가 있는 로봇 — pinky1/2 한정)
+OPS_ROBOTS = FLEET_ROBOT_NAMES
 
 
 class ObservationSession:
@@ -465,8 +322,8 @@ def read_fleet_domains():
     except Exception:
         pass
     for k in ("RELAY_DOMAIN_ID", "TEAM_DOMAIN_ID",
-              "ROBOT1_DOMAIN_ID", "ROBOT2_DOMAIN_ID",
-              "ROBOT3_DOMAIN_ID", "ROBOT4_DOMAIN_ID"):
+              "PINKY1_DOMAIN_ID", "PINKY2_DOMAIN_ID",
+              "PINKY3_DOMAIN_ID", "PINKY4_DOMAIN_ID"):
         if k in vals:
             try:
                 vals[k] = int(vals[k])
@@ -497,7 +354,7 @@ GLOBAL_FLEET_COORDINATOR = None
 # 연산 노드(태블릿)가 낸 좌표를 받는 자리. 신선도 판정은 이 저장소가 한다 —
 # 낡은 좌표를 화면에 계속 보여 주지 않는 것이 목적이다(vision_ingest 독스트링).
 GLOBAL_VISION = vision_ingest.VisionPoseStore()
-VISION_ROBOT_IDS = ('robot1', 'robot2')
+VISION_ROBOT_IDS = FLEET_ROBOT_NAMES
 LOG_BUFFER = []
 LOG_LOCK = threading.Lock()
 
@@ -596,16 +453,16 @@ class RobotCameraManager:
     def __init__(self):
         self._lock = threading.Lock()
         self._cameras = {
-            'robot1': {
-                'topic': '/robot1/camera/image_raw',
+            'pinky1': {
+                'topic': '/pinky1/camera/image_raw',
                 'stamp': 0.0,
-                'jpeg': self._make_placeholder('Pinky #1', '/robot1/camera/image_raw'),
+                'jpeg': self._make_placeholder('Pinky 1', '/pinky1/camera/image_raw'),
                 'connected': False
             },
-            'robot2': {
-                'topic': '/robot2/camera/image_raw',
+            'pinky2': {
+                'topic': '/pinky2/camera/image_raw',
                 'stamp': 0.0,
-                'jpeg': self._make_placeholder('Pinky #2', '/robot2/camera/image_raw'),
+                'jpeg': self._make_placeholder('Pinky 2', '/pinky2/camera/image_raw'),
                 'connected': False
             }
         }
@@ -646,9 +503,9 @@ class RobotCameraManager:
                 self._cameras[robot_id]['stamp'] = stamp
                 self._cameras[robot_id]['connected'] = True
 
-    def get_latest_jpeg(self, robot_id='robot1'):
+    def get_latest_jpeg(self, robot_id='pinky1'):
         with self._lock:
-            cam = self._cameras.get(robot_id, self._cameras['robot1'])
+            cam = self._cameras.get(robot_id, self._cameras['pinky1'])
             return cam['jpeg']
 
 
@@ -696,9 +553,9 @@ class NetworkLatencyMonitor:
             #    그 기기들의 도달 여부는 소스 자신이 말한다(activeUrl·receiveFps) -
             #    후보 목록을 시도해 **실제로 붙은 주소**를 아는 쪽이 더 정확하다.
             'router': ('198.51.100.1', '공유기 (Router)'),
-            'robot1': ('198.51.100.5', 'Robot #1 (Main)'),
-            'robot2': ('198.51.100.6', 'Robot #2 (Sub)'),
-            'robot3': ('198.51.100.8', 'Robot #3 (Add)'),
+            'pinky1': ('198.51.100.5', 'Pinky 1 (Main)'),
+            'pinky2': ('198.51.100.6', 'Pinky 2 (Sub)'),
+            'pinky3': ('198.51.100.8', 'Pinky 3 (Add)'),
             'internet': ('8.8.8.8', '외부 인터넷 (WAN)')
         }
         self.results = {
@@ -1427,85 +1284,10 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                             code=(200 if ok else CONTROL_POLICY.http_code(code)))
             return
 
-        # 1. 로봇 1호기 & Gazebo 목표 지점 전송 API (/api/robot1/goal, /api/goal)
-        if parsed.path in ('/api/robot1/goal', '/api/goal'):
-            client_ip = self.client_address[0]
-            if self._deny_if_cannot_move('remote goal dispatch'):
-                return
-
-            blocked = motion_block_reason(GLOBAL_FLEET_COORDINATOR, DIRECT_MOTION_PATHS[parsed.path])
-            if blocked:
-                code, body = motion_block_reply(blocked)
-                self._send_json(json.dumps(body, ensure_ascii=False).encode('utf-8'), code=code)
-                return
-            # 검수 R-script-1(게이트웨이 쪽): 예전엔 깨진 본문을 {} 로 받아 (0,0,0) 목표를 냈고, NaN·Infinity·1e999 도
-            # 그대로 받았다. 움직이는 명령은 본문이 온전한 객체이고 x·y 가 있고 x·y·yaw 가 유한한 수일 때만 낸다.
-            goal = parse_goal_body(req_json)             # 깨진 본문은 {} 가 되어 'x·y 가 없다' 로 거부된다
-            if isinstance(goal, str):
-                self._send_json(json.dumps({'success': False, 'reason': 'BAD_GOAL', 'message': '목표 거부 — ' + goal,
-                                            'dispatched': False}, ensure_ascii=False).encode('utf-8'), code=400)
-                return
-            x, y, yaw = goal
-            # 제3자 검수 G-11: 예전엔 ROS 노드가 없어 아무것도 안 냈어도 200 success 였다(보고만 거짓). 못 냈으면 503.
-            why = None
-            if not GLOBAL_ROBOT_SUB_NODE:
-                why = ('NO_ROS_NODE', '목표 불가 — 게이트웨이의 ROS 노드가 없어 아무것도 내지 않았다')
-            else:
-                try:
-                    GLOBAL_ROBOT_SUB_NODE.send_goal(x, y, yaw)
-                except Exception as exc:                      # noqa: BLE001 — 발행 실패는 응답으로 말한다
-                    why = ('PUBLISH_FAILED', f'목표 불가 — /robot1/goal_pose 발행 실패 ({type(exc).__name__}: {exc})')
-            if why:
-                self._send_json(json.dumps({'success': False, 'reason': why[0], 'message': why[1], 'dispatched': False,
-                                            'goal': [x, y, yaw]}, ensure_ascii=False).encode('utf-8'), code=503)
-                return
-            # 통합 검토 OPS-5: 예전 문구 'sent to Robot #1 & Gazebo' 는 로봇이 받아 달린다는 뜻으로 읽혔다. 이 응답이 아는 것은
-            # 발행했다는 것뿐이다(받는 쪽 수도 모른다) — 달리는지는 로봇 카드·LaneStatus 로 본다.
-            res = {'success': True, 'dispatched': True, 'confirmed': None, 'topic': '/robot1/goal_pose',
-                   'message': f'목표 ({x:.2f}, {y:.2f}) 를 /robot1/goal_pose 로 발행했다 — 로봇이 받아 달리는지는 '
-                              f'이 응답이 확인하지 않는다', 'goal': [x, y, yaw]}
-            self._send_json(json.dumps(res, ensure_ascii=False).encode('utf-8'))
-            return
-
-        # 2. 로봇 1호기 미션 실행 API (/api/robot1/mission)
-        elif parsed.path == '/api/robot1/mission':
-            client_ip = self.client_address[0]
-            if self._deny_if_cannot_move('remote mission trigger'):
-                return
-
-            blocked = motion_block_reason(GLOBAL_FLEET_COORDINATOR, DIRECT_MOTION_PATHS[parsed.path])
-            if blocked:
-                code, body = motion_block_reply(blocked)
-                self._send_json(json.dumps(body, ensure_ascii=False).encode('utf-8'), code=code)
-                return
-            # 통합 검토 OPS-10: 예전엔 빈 본문·깨진 본문·mission 없는 본문을 미션 '1'(움직이는 경로)로 받아 냈다 — 목표 API 가
-            # 그런 본문을 400 으로 막는 것(R-script-1)과 같은 규칙: 움직이는 명령은 본문이 말한 미션만 낸다.
-            mission, bad = parse_mission_body(req_json)     # 깨진 본문은 {} 가 되어 'mission 이 없다' 로 거부된다
-            if bad:
-                self._send_json(json.dumps({'success': False, 'reason': 'BAD_MISSION', 'dispatched': False,
-                                            'allowed': sorted(MISSION_COMMANDS), 'message': '미션 거부 — ' + bad},
-                                           ensure_ascii=False).encode('utf-8'), code=400)
-                return
-            if not GLOBAL_ROBOT_SUB_NODE:
-                self._send_json(json.dumps({'success': False, 'reason': 'NO_ROS_NODE', 'mission': mission,
-                                            'message': '미션 불가 — 게이트웨이의 ROS 노드가 없다'},
-                                           ensure_ascii=False).encode('utf-8'), code=503)
-                return
-            subs = GLOBAL_ROBOT_SUB_NODE.send_mission(MISSION_COMMANDS[mission])
-            # R3 (관제 검수 §3.3): 예전엔 받는 쪽이 0 인 토픽에 보내고 'triggered' 200 이었다. 도메인 8 구독자는
-            # 브리지일 수 있다(로봇의 옛 미션 내비게이터가 받는지는 여기서 모른다) — 보냈다고만 말한다.
-            self._send_json(json.dumps({
-                'success': False, 'dispatched': True, 'confirmed': None, 'mission': mission,
-                'topic': '/robot1/mission_cmd', 'd8_subscribers': subs,
-                'means': 'DOMAIN_8_SUBSCRIBER_EXISTS_INCLUDING_BRIDGE',
-                'message': (f'미션 {mission} 을 보냈다 — 받는 쪽이 있는지 모른다(도메인 8 구독자 {subs}, 브리지 포함)' if subs
-                            else f'미션 {mission} 을 보냈다 — 도메인 8 구독자 수를 세지 못했다(모른다)' if subs is None
-                            else f'미션 {mission} 을 보냈지만 도메인 8 에 받는 쪽이 0 이다'),
-            }, ensure_ascii=False).encode('utf-8'), code=202)
-            return
-
-        # 2-B. 관측 세션 켜기/끄기 (MCV-1C). 카메라를 실제로 여는 명령이므로 주행 명령과 같은 로컬 게이트.
-        elif parsed.path == '/api/observe':
+        # 1. 관측 세션 켜기/끄기 (MCV-1C). 카메라를 실제로 여는 명령이므로 움직이는 명령과 같은 로컬 게이트.
+        #    (예전 1·2 번 — /api/robot1/goal · /api/robot1/mission — 은 지웠다: 로봇은 lane_agent_node 뿐이라 Nav2 직접 목표를
+        #     받는 쪽이 없다. 시작·목적지는 /api/fleet/assign, 출발은 /api/fleet/start.)
+        if parsed.path == '/api/observe':
             client_ip = self.client_address[0]
             if client_ip not in LOCAL_CONTROL_IPS:
                 app_log(f"[SECURITY] Blocked remote observe toggle from {client_ip}")
@@ -1651,10 +1433,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     ensure_ascii=False).encode('utf-8'), code=400)
             return
 
-        # 3. 로봇 정지 API — D7 (2026-09-24): 플릿 경로로 보낸다.
-        #    🔴 예전엔 `/robot1/mission_cmd` "stop" 만 냈다. Nav2 에이전트·DriveCommandGate 는 그 토픽을
-        #       안 듣는다 → 주행 중 정지 **무효**(관제 팜 실측). 게다가 D8 구독자 1 은 **브리지**라
-        #       "정지 명령 전달 (수신자 1)" 이라는 거짓 성공을 냈다(R-A 와 같은 함정).
+        # 3. 로봇 정지 API — D7 (2026-09-24): 플릿 경로(코디네이터 stop_robot → LaneCommand STOP + FleetCommand STOP)로 보낸다.
+        #    🔴 예전엔 `/robot1/mission_cmd` "stop" 만 냈다 — 그 토픽은 이제 없다(2026-09-29, 받는 쪽도 브리지 항목도 없다).
         #    ⭐ 멈추는 명령은 어디서든 받는다 — 태블릿 화면의 정지가 403 이면 정지 버튼이 없는 것과 같다.
         elif parsed.path in ROBOT_STOP_PATHS:
             robot = ROBOT_STOP_PATHS[parsed.path]
@@ -1667,17 +1447,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             coord = GLOBAL_FLEET_COORDINATOR
             since = coord.now() if coord is not None else None
             GLOBAL_ROBOT_SUB_NODE.send_fleet_control({'cmd': 'stop_robot', 'robot': robot})
-            legacy = None
-            if robot == 'pinky1':
-                # 옛 내비게이터(robot1_mission_navigator)용으로 남긴다. 이 수는 **도메인 8** 구독자라
-                # 브리지를 센다 — 로봇이 받았다는 뜻이 아니다.
-                legacy = {'topic': '/robot1/mission_cmd', 'd8_subscribers': GLOBAL_ROBOT_SUB_NODE.send_mission('stop'),
-                          'means': 'DOMAIN_8_SUBSCRIBER_EXISTS_INCLUDING_BRIDGE'}
             if coord is None:
                 # 🔴 관제 검수 P2: 예전엔 받을 코디네이터가 없어도 success:true 200 이었다. 아무도 안 세운다.
                 self._send_json(json.dumps({
                     'success': False, 'dispatched': True, 'reason': 'NO_FLEET_COORDINATOR', 'robot': robot,
-                    'confirmed': None, 'legacy_mission_cmd': legacy, 'detail': FLEET_IMPORT_ERROR,
+                    'confirmed': None, 'detail': FLEET_IMPORT_ERROR,
                     'message': '플릿 코디네이터가 없어 정지 명령을 받을 곳이 없다',
                 }, ensure_ascii=False).encode('utf-8'), code=503)
                 return
@@ -1712,7 +1486,6 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 'confirm_wait_sec': STOP_CONFIRM_WAIT_SEC,
                 'robot_last_heard_sec': heard,
                 'robot_heard_recently': recently,
-                'legacy_mission_cmd': legacy,
                 'message': message,
             }, ensure_ascii=False).encode('utf-8'), code=code)
             return
@@ -2342,9 +2115,9 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     break
             return
 
-        # 4. 로봇 온보드 카메라 스트림 (/robot_camera_feed?id=robot1 | robot2)
+        # 4. 로봇 온보드 카메라 스트림 (/robot_camera_feed?id=pinky1 | pinky2)
         elif parsed.path == '/robot_camera_feed':
-            robot_id = query.get('id', ['robot1'])[0]
+            robot_id = query.get('id', ['pinky1'])[0]
             self.send_response(200)
             self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
             self.send_header('Cache-Control', 'no-cache, private')
@@ -2368,7 +2141,6 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         elif parsed.path == '/api/status':
             _, stamp, is_connected = GLOBAL_INGEST.get_latest_jpeg()
             robot_data = GLOBAL_CONTROL.get_robot_data()
-            nav_status = GLOBAL_ROBOT_SUB_NODE.latest_nav_status if GLOBAL_ROBOT_SUB_NODE else {}
             
             cpu_temp = None
             try:
@@ -2398,43 +2170,43 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             }
 
             net_status = GLOBAL_NETWORK_MONITOR.get_status() if GLOBAL_NETWORK_MONITOR else {}
-            r1_online = net_status.get('robot1', {}).get('online', False)
-            r2_online = net_status.get('robot2', {}).get('online', False)
-            r1_rtt = net_status.get('robot1', {}).get('rtt_ms', None)
-            r2_rtt = net_status.get('robot2', {}).get('rtt_ms', None)
+            r1_online = net_status.get('pinky1', {}).get('online', False)
+            r2_online = net_status.get('pinky2', {}).get('online', False)
+            r1_rtt = net_status.get('pinky1', {}).get('rtt_ms', None)
+            r2_rtt = net_status.get('pinky2', {}).get('rtt_ms', None)
 
             # MCV-0C: 아래 값들은 주장이 아니라 측정이다.
             relay_domain = os.environ.get("ROS_DOMAIN_ID")
             fleet_env = read_fleet_domains()
             _empty_link = {"linked": False, "total_publishers": 0, "publishers": {}}
             link = GLOBAL_ROBOT_SUB_NODE.get_link_status() if GLOBAL_ROBOT_SUB_NODE else {}
-            r1_link = link.get("robot1", _empty_link)
-            r2_link = link.get("robot2", _empty_link)
+            r1_link = link.get("pinky1", _empty_link)
+            r2_link = link.get("pinky2", _empty_link)
             observed_pubs = r1_link.get("total_publishers", 0) + r2_link.get("total_publishers", 0)
             any_linked = observed_pubs > 0
 
             fleet_comm = {
-                'control_mode': 'ROBOT1_SOLO',
+                'control_mode': 'FLEET_LANE',           # 두 로봇 다 lane_agent_node — 중계 코디네이터가 중재한다
                 'relay_domain': relay_domain,
                 'relay_domain_source': 'process env ROS_DOMAIN_ID (measured)',
                 'cross_talk_guard': 'SHARED_CONTROL_PLANE' if any_linked else 'UNVERIFIED_NO_ROBOT_PUBLISHERS',
                 'observed_robot_publishers': observed_pubs,
-                'robot1': {
+                'pinky1': {
                     'ip': '198.51.100.5',
                     'online': r1_online,
                     'rtt_ms': r1_rtt,
-                    'domain': fleet_env.get('ROBOT1_DOMAIN_ID'),
+                    'domain': fleet_env.get('PINKY1_DOMAIN_ID'),
                     'domain_source': 'fleet_domains.env (configured, not observed)',
                     'linked': r1_link.get('linked'),
                     'publishers': r1_link.get('publishers'),
                     'ssh_port': 2205,
-                    'nav_state': nav_status.get('state', 'IDLE')
+                    'state': 'LINKED' if r1_link.get('linked') else 'NO_PUBLISHERS'
                 },
-                'robot2': {
+                'pinky2': {
                     'ip': '198.51.100.6',
                     'online': r2_online,
                     'rtt_ms': r2_rtt,
-                    'domain': fleet_env.get('ROBOT2_DOMAIN_ID'),
+                    'domain': fleet_env.get('PINKY2_DOMAIN_ID'),
                     'domain_source': 'fleet_domains.env (configured, not observed)',
                     'linked': r2_link.get('linked'),
                     'publishers': r2_link.get('publishers'),
@@ -2466,7 +2238,6 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 #    vision_ingest 는 ROS 를 모르므로 여기서 합친다 — 그 모듈을 순수하게 둔다.
                 'visionPose': _with_vision_path(
                     GLOBAL_VISION.report(VISION_ROBOT_IDS, int(time.time() * 1000))),
-                'robot1_nav': nav_status,
                 'discrepancy': GLOBAL_ROBOT_SUB_NODE.get_discrepancy() if GLOBAL_ROBOT_SUB_NODE else {},
                 # ⚠️ 이 값들은 **하드코딩**이고 화면(index.html)·렌더러 기본값과
                 #    서로 다른 좌표계다(U-11). `source` 는 렌더러가 실제로 읽은 것을
@@ -2560,7 +2331,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
 
         # 8. 젠킨스 빌드 트리거 API (/api/jenkins/build)
         elif parsed.path == '/api/jenkins/build':
-            target = query.get('target', ['robot1'])[0]
+            target = query.get('target', ['pinky1'])[0]
             action = query.get('action', ['deploy'])[0]
             ok, msg = trigger_jenkins_build(target, action)
             res = {'success': ok, 'message': msg, 'target': target, 'action': action}
@@ -2631,7 +2402,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
 
 
 class RobotDataSubscriberNode(Node):
-    """로봇 1, 2 위치 및 Gazebo 실시간 카메라 토픽 구독자 & 네비게이션 목표 발행기"""
+    """로봇 1, 2(pinky1·pinky2) 위치·카메라 토픽 구독자, 비전 좌표·플릿 제어 발행기 (Nav2 직접 목표 발행은 없다)"""
     def __init__(self, control_renderer, robot_camera_manager, gazebo_camera_manager):
         super().__init__('robot_data_subscriber_node')
         self.control = control_renderer
@@ -2641,9 +2412,9 @@ class RobotDataSubscriberNode(Node):
 
         # 로봇 1 위치 구독
         self.sub_r1_odom = self.create_subscription(
-            Odometry, '/robot1/odom', self._cb_r1_odom, 10)
+            Odometry, '/pinky1/odom', self._cb_r1_odom, 10)
         self.sub_r1_pose = self.create_subscription(
-            PoseStamped, '/robot1/pose', self._cb_r1_pose, 10)
+            PoseStamped, '/pinky1/pose', self._cb_r1_pose, 10)
 
         # Gazebo 시뮬레이션 위치 구독 (/odom)
         self.sub_gz_odom = self.create_subscription(
@@ -2659,42 +2430,29 @@ class RobotDataSubscriberNode(Node):
         # 그 동안 발행자는 1 이고, 그걸 '보정 가능' 으로 읽으면 안 된다.
         # ⚠️ `latest_*_pose` 의 기본값 (0,0,0) 은 '안 왔다' 와 '원점에 있다' 가
         #    구분되지 않는다. 이 계수기가 그 구분을 만든다.
-        self.pose_msgs = {'robot1': 0, 'robot2': 0}
+        self.pose_msgs = {'pinky1': 0, 'pinky2': 0}
 
         # 로봇 2 위치 구독
         self.sub_r2_odom = self.create_subscription(
-            Odometry, '/robot2/odom', self._cb_r2_odom, 10)
+            Odometry, '/pinky2/odom', self._cb_r2_odom, 10)
         self.sub_r2_pose = self.create_subscription(
-            PoseStamped, '/robot2/pose', self._cb_r2_pose, 10)
+            PoseStamped, '/pinky2/pose', self._cb_r2_pose, 10)
 
         # 로봇 1 온보드 카메라 구독 (raw & compressed)
         self.sub_r1_cam = self.create_subscription(
-            RosImage, '/robot1/camera/image_raw', self._cb_r1_cam, 5)
+            RosImage, '/pinky1/camera/image_raw', self._cb_r1_cam, 5)
         self.sub_r1_comp = self.create_subscription(
-            CompressedImage, '/robot1/camera/image_raw/compressed', self._cb_r1_comp, qos_profile_sensor_data)
+            CompressedImage, '/pinky1/camera/image_raw/compressed', self._cb_r1_comp, qos_profile_sensor_data)
 
         # 로봇 2 온보드 카메라 구독 (raw & compressed)
         self.sub_r2_cam = self.create_subscription(
-            RosImage, '/robot2/camera/image_raw', self._cb_r2_cam, 5)
+            RosImage, '/pinky2/camera/image_raw', self._cb_r2_cam, 5)
         self.sub_r2_comp = self.create_subscription(
-            CompressedImage, '/robot2/camera/image_raw/compressed', self._cb_r2_comp, qos_profile_sensor_data)
+            CompressedImage, '/pinky2/camera/image_raw/compressed', self._cb_r2_comp, qos_profile_sensor_data)
 
         # Gazebo 3D 실시간 탑뷰 카메라 구독 (/camera 토픽)
         self.sub_gz_cam = self.create_subscription(
             RosImage, '/camera', self._cb_gz_cam, 5)
-
-        # 로봇 1 네비게이션 텔레메트리 구독 (/robot1/nav_status)
-        self.sub_nav_status = self.create_subscription(
-            String, '/robot1/nav_status', self._cb_nav_status, 10)
-        self.latest_nav_status = {}
-
-        # 로봇 1 자율주행 목표 및 미션 명령 발행기
-        # ⭐ 관제 평면(도메인 8)에서는 **로봇별 이름으로** 발행한다. 브리지가 해당
-        #    로봇 도메인 안에서만 표준 이름(goal_pose)으로 되돌린다. 접두어 없는
-        #    `/goal_pose` 는 로봇이 같은 도메인에 들어오는 순간 **4대 전부**에게 간다.
-        #    (robot1_control.yaml 의 다운링크 화이트리스트 주석이 막으려던 사고다.)
-        self.pub_goal = self.create_publisher(PoseStamped, '/robot1/goal_pose', 10)
-        self.pub_mission_cmd = self.create_publisher(String, '/robot1/mission_cmd', 10)
 
         # 연산 노드가 낸 좌표를 관제 평면으로 올리는 발행자 (로봇별 이름).
         # ⭐ 이름을 `vision_pose` 로 따로 둔다 — `amcl_pose`(로봇이 스스로 믿는 값)와
@@ -2703,15 +2461,14 @@ class RobotDataSubscriberNode(Node):
         #
         # 🔴 이름을 **리터럴로** 적는다. 포맷 문자열(`'/%s/vision_pose' % rid`)로 쓰면
         #    두 가지가 깨진다 — 2026-09-19 에 `test_control_topic_naming` 이 잡았다:
-        #      1) `grep '/robot1/vision_pose'` 에 안 걸린다. 이 레포는 "검색 가능한
+        #      1) `grep '/pinky1/vision_pose'` 에 안 걸린다. 이 레포는 "검색 가능한
         #         식별자" 를 규율로 두고 있고 토픽 이름도 그 대상이다.
-        #      2) 정적 검사가 브리지 설정과 대사할 수 없다. `goal_pose`·`mission_cmd` 도
-        #         같은 이유로 리터럴이다(바로 위 두 줄).
+        #      2) 정적 검사가 브리지 설정과 대사할 수 없다.
         #    ⚠️ 아래 dict 의 키는 `VISION_ROBOT_IDS` 와 **반드시 같아야** 한다.
         #       어긋나면 검증·발행이 서로 다른 로봇 집합을 보게 되므로 즉시 죽인다.
         self.pub_vision_pose = {
-            'robot1': self.create_publisher(PoseStamped, '/robot1/vision_pose', 10),
-            'robot2': self.create_publisher(PoseStamped, '/robot2/vision_pose', 10),
+            'pinky1': self.create_publisher(PoseStamped, '/pinky1/vision_pose', 10),
+            'pinky2': self.create_publisher(PoseStamped, '/pinky2/vision_pose', 10),
         }
         assert set(self.pub_vision_pose) == set(VISION_ROBOT_IDS), (
             "VISION_ROBOT_IDS 와 발행자 목록이 어긋났다: %s vs %s"
@@ -2750,7 +2507,7 @@ class RobotDataSubscriberNode(Node):
                                      lambda msg, n=_name: self._cb_diag(n, msg), 10)
         self.pub_vision_zone_event = self.create_publisher(String, '/vision/zone_event', 10)
 
-        app_log("[ROS2] RobotDataSubscriberNode started (/robot1, /odom, /robot2, /camera + Click-Nav Publisher + Fleet)")
+        app_log("[ROS2] RobotDataSubscriberNode started (/pinky1, /odom, /pinky2, /camera + Vision Pose + Fleet)")
 
     def _cb_diag(self, name, msg):
         try:
@@ -2783,8 +2540,8 @@ class RobotDataSubscriberNode(Node):
         구독자만 있어도 목록에는 나오므로, 판정은 count_publishers 로 한다.
         """
         probes = {
-            'robot1': ('/robot1/odom', '/robot1/pose', '/robot1/camera/image_raw', '/robot1/camera/image_raw/compressed', '/robot1/scan'),
-            'robot2': ('/robot2/odom', '/robot2/pose', '/robot2/camera/image_raw', '/robot2/camera/image_raw/compressed', '/robot2/scan'),
+            'pinky1': ('/pinky1/odom', '/pinky1/pose', '/pinky1/camera/image_raw', '/pinky1/camera/image_raw/compressed', '/pinky1/scan'),
+            'pinky2': ('/pinky2/odom', '/pinky2/pose', '/pinky2/camera/image_raw', '/pinky2/camera/image_raw/compressed', '/pinky2/scan'),
         }
         out = {}
         for name, topics in probes.items():
@@ -2797,7 +2554,7 @@ class RobotDataSubscriberNode(Node):
             total = sum(c for c in counts.values() if isinstance(c, int))
             # ⭐ pose 발행자를 **따로** 낸다. 합계(total_publishers)를 pose 칸에 쓰면
             #    카메라·scan 발행자가 "pose 발행자 없음" 을 가린다(2026-09-14 실측:
-            #    /robot1/pose 는 0 인데 /robot1/scan 1 때문에 publishers=1 이 나왔다).
+            #    /pinky1/pose 는 0 인데 /pinky1/scan 1 때문에 publishers=1 이 나왔다).
             # ⚠️ 못 쟀으면 None 이다 — 0 으로 떨어뜨리지 않는다.
             _pose_c = counts.get('/%s/pose' % name)
             # ⭐ 발행자 수 옆에 **실제로 받은 건수**를 같이 낸다. 판정 기준이
@@ -2843,31 +2600,8 @@ class RobotDataSubscriberNode(Node):
             'gz_sim': gz
         }
 
-    def _cb_nav_status(self, msg: String):
-        try:
-            st = json.loads(msg.data)
-            self.latest_nav_status = st
-            if self.control:
-                self.control.set_nav_status(st)
-        except Exception:
-            pass
-
-    def send_goal(self, x, y, yaw=0.0):
-        msg = PoseStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = 'map'
-        msg.pose.position.x = float(x)
-        msg.pose.position.y = float(y)
-        msg.pose.position.z = 0.0
-        msg.pose.orientation.z = math.sin(yaw / 2.0)
-        msg.pose.orientation.w = math.cos(yaw / 2.0)
-        self.pub_goal.publish(msg)
-        if self.control:
-            self.control.set_goal(x, y)
-        app_log(f"🎯 [Gateway] Published /robot1/goal_pose -> (x={x:.2f}, y={y:.2f})")
-
     def vision_pose_receivers(self, robot_id):
-        """도메인 8 의 `robotN/vision_pose` 구독자를 **누구인지까지** 센다.
+        """도메인 8 의 `pinkyN/vision_pose` 구독자를 **누구인지까지** 센다.
 
         🔴 `get_subscription_count()` 는 **수만** 준다. 그 수의 1 이 브리지면
            "로봇이 받는다" 가 아니라 "중간 다리까지 갔다" 다. 2026-09-19 에 그 오해가
@@ -2894,8 +2628,8 @@ class RobotDataSubscriberNode(Node):
     def publish_vision_pose(self, robot_id, x, y, yaw):
         """연산 노드 좌표를 관제 평면에 올리고 **그 순간의 구독자 수**를 돌려준다.
 
-        🔴 `send_mission` 과 같은 이유로 구독자 수를 함께 돌려준다 — 발행은 수신을
-           뜻하지 않는다. 호출자가 이 값을 응답에 실어야 "보냈다" 가 검증 가능해진다.
+        🔴 구독자 수를 함께 돌려준다 — 발행은 수신을 뜻하지 않는다(옛 mission_cmd API 가 그 함정이었다).
+           호출자가 이 값을 응답에 실어야 "보냈다" 가 검증 가능해진다.
         """
         pub = self.pub_vision_pose.get(robot_id)
         if pub is None:
@@ -2952,23 +2686,6 @@ class RobotDataSubscriberNode(Node):
             subs = None
         return True, subs
 
-    def send_mission(self, cmd_str):
-        """미션 명령을 발행하고 **그 순간의 구독자 수**를 돌려준다.
-
-        🔴 발행은 수신을 뜻하지 않는다. 2026-09-17 22:25 실측에서 도메인 10 의
-           `/robot1/mission_cmd` 구독자가 **0** 이었다 — 정지를 눌러도 아무 데도
-           안 갔는데 API 는 성공을 냈다. 그 거짓을 끊으려면 호출자가 이 값을 봐야 한다.
-        """
-        msg = String()
-        msg.data = cmd_str
-        self.pub_mission_cmd.publish(msg)
-        try:
-            subs = int(self.pub_mission_cmd.get_subscription_count())
-        except Exception:
-            subs = None        # 못 세면 모르는 것 — 0 으로 치지 않는다
-        app_log(f"🚩 [Gateway] Published /robot1/mission_cmd -> {cmd_str} (subscribers={subs})")
-        return subs
-
     def _gz_sync_worker(self):
         """실물 로봇 1번(pinky) 및 로봇 2번(pinky_sub)의 위치를 Gazebo 속 3D 로봇 위치로 실시간 동기화"""
         import math, subprocess
@@ -3019,15 +2736,15 @@ class RobotDataSubscriberNode(Node):
         pos = msg.pose.pose.position
         yaw = self._extract_yaw(msg.pose.pose.orientation)
         self.latest_r1_pose = {'x': round(pos.x, 3), 'y': round(pos.y, 3), 'yaw': round(yaw, 3)}
-        self.control.update_robot_pose('robot1', pos.x, pos.y, yaw)
+        self.control.update_robot_pose('pinky1', pos.x, pos.y, yaw)
         self._target_gz_r1 = (pos.x, pos.y, yaw)
 
     def _cb_r1_pose(self, msg):
-        self.pose_msgs['robot1'] += 1
+        self.pose_msgs['pinky1'] += 1
         pos = msg.pose.position
         yaw = self._extract_yaw(msg.pose.orientation)
         self.latest_r1_pose = {'x': round(pos.x, 3), 'y': round(pos.y, 3), 'yaw': round(yaw, 3)}
-        self.control.update_robot_pose('robot1', pos.x, pos.y, yaw)
+        self.control.update_robot_pose('pinky1', pos.x, pos.y, yaw)
         self._target_gz_r1 = (pos.x, pos.y, yaw)
 
     def _cb_gz_odom(self, msg):
@@ -3039,39 +2756,39 @@ class RobotDataSubscriberNode(Node):
     def _cb_r2_odom(self, msg):
         pos = msg.pose.pose.position
         yaw = self._extract_yaw(msg.pose.pose.orientation)
-        self.control.update_robot_pose('robot2', pos.x, pos.y, yaw)
+        self.control.update_robot_pose('pinky2', pos.x, pos.y, yaw)
         # self._target_gz_r2 = (pos.x, pos.y, yaw)  # [Solo Mode]
 
     def _cb_r2_pose(self, msg):
-        self.pose_msgs['robot2'] += 1
+        self.pose_msgs['pinky2'] += 1
         pos = msg.pose.position
         yaw = self._extract_yaw(msg.pose.orientation)
-        self.control.update_robot_pose('robot2', pos.x, pos.y, yaw)
+        self.control.update_robot_pose('pinky2', pos.x, pos.y, yaw)
         # self._target_gz_r2 = (pos.x, pos.y, yaw)  # [Solo Mode]
 
     def _cb_r1_cam(self, msg):
         try:
             cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            self.cam_mgr.update_frame('robot1', cv_img)
+            self.cam_mgr.update_frame('pinky1', cv_img)
         except Exception:
             pass
 
     def _cb_r1_comp(self, msg):
         try:
-            self.cam_mgr.update_compressed('robot1', msg.data)
+            self.cam_mgr.update_compressed('pinky1', msg.data)
         except Exception:
             pass
 
     def _cb_r2_cam(self, msg):
         try:
             cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            self.cam_mgr.update_frame('robot2', cv_img)
+            self.cam_mgr.update_frame('pinky2', cv_img)
         except Exception:
             pass
 
     def _cb_r2_comp(self, msg):
         try:
-            self.cam_mgr.update_compressed('robot2', msg.data)
+            self.cam_mgr.update_compressed('pinky2', msg.data)
         except Exception:
             pass
 
@@ -3148,11 +2865,11 @@ def main():
         # 나중에 넓어져도 관제 화면이 **실물 시점으로 조용히 승격되지 않게** 못 박는다.
         label='관제 화면', viewpoint=False))
     GLOBAL_REGISTRY.register(Source(
-        'robot1', _jpeg_only_provider(lambda: GLOBAL_ROBOT_CAMERAS.get_latest_jpeg('robot1')), ROS, TRUSTED,
-        label='로봇1 온보드'))
+        'pinky1', _jpeg_only_provider(lambda: GLOBAL_ROBOT_CAMERAS.get_latest_jpeg('pinky1')), ROS, TRUSTED,
+        label='pinky1 온보드'))
     GLOBAL_REGISTRY.register(Source(
-        'robot2', _jpeg_only_provider(lambda: GLOBAL_ROBOT_CAMERAS.get_latest_jpeg('robot2')), ROS, TRUSTED,
-        label='로봇2 온보드'))
+        'pinky2', _jpeg_only_provider(lambda: GLOBAL_ROBOT_CAMERAS.get_latest_jpeg('pinky2')), ROS, TRUSTED,
+        label='pinky2 온보드'))
 
     # pull 소스 — 폰·태블릿은 각자 :18082 로 서빙한다. push 슬롯만 두면 아무도 안 밀 때
     # 레지스트리가 비어 있다(2026-09-09 실측: 기기는 22.8/12.8 fps 인데 레지스트리 fps 0).

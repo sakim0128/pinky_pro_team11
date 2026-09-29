@@ -1165,7 +1165,7 @@ class RelayFleetCoordinator(Node):
         if self.mission_state == MISSION_ESTOP or self.estop_latched:
             # 🔴 관제 검수 P1: 로봇 재개가 LaneCommand RESUME 을 내면 에이전트는 **모든** 래치를 푼다
             #    (`/estop false`). 플릿 비상정지 중에 한 로봇만 풀리면 안 된다 — 비상정지 해제는
-            #    `resume_fleet` 한 곳뿐이다. `/api/robotN/resume` 과 D8 `/fleet/lane/control` 둘 다 여기를 지난다.
+            #    `resume_fleet` 한 곳뿐이다. `/api/pinkyN/resume` 과 D8 `/fleet/lane/control` 둘 다 여기를 지난다.
             self.get_logger().warn(f"⛔ [{name}] robot RESUME refused — fleet E-STOP engaged (use fleet resume)")
             return False
         ctx = self.robots[name]

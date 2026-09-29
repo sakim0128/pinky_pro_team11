@@ -2,7 +2,7 @@
 # =============================================================================
 # 🌉 도메인 브릿지 설치 · 기동 스크립트 (중계 관제 노트북 전용)
 #
-#   ./install_bridge.sh              # 설치 + robot1,robot2 + 미러 + 워치독 기동
+#   ./install_bridge.sh              # 설치 + pinky1,pinky2 + 미러 + 워치독 기동
 #   ./install_bridge.sh 1 2 3        # 기동할 로봇 번호 직접 지정
 #   ./install_bridge.sh status       # 현재 상태만 확인
 #   ./install_bridge.sh stop         # 전체 중지
@@ -41,7 +41,7 @@ G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'; B='\033[1m'; N='
 
 UNITS_FOR() {
     local -a u=()
-    for n in "$@"; do u+=("pinky-domain-bridge@robot${n}_control.service"); done
+    for n in "$@"; do u+=("pinky-domain-bridge@pinky${n}_control.service"); done
     u+=("pinky-domain-bridge@team_mirror.service" "pinky-bridge-watchdog.service")
     printf '%s\n' "${u[@]}"
 }
@@ -88,7 +88,7 @@ fi
 echo -e "${G}[2/5]${N} 브릿지 설정 생성"
 bash "$SCRIPT_DIR/generate_configs.sh" >/dev/null
 for n in "${ROBOTS[@]}"; do
-    f="$SCRIPT_DIR/configs/robot${n}_control.yaml"
+    f="$SCRIPT_DIR/configs/pinky${n}_control.yaml"
     [ -f "$f" ] || { echo -e "${R}설정 없음: $f${N}"; exit 1; }
 done
 

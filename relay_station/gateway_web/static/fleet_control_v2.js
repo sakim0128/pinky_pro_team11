@@ -140,29 +140,29 @@
   }
 
   function robotName(key) {
-    return key === "pinky1" || key === "robot1" ? "Pinky 1" : "Pinky 2";
+    return key === "pinky1" ? "Pinky 1" : "Pinky 2";
   }
 
   function robotKey(index) { return index === 1 ? "pinky1" : "pinky2"; }
 
   function fleetRobot(index) {
     const robots = state.fleet?.robots || {};
-    return robots[robotKey(index)] || robots["robot" + index] || null;
+    return robots[robotKey(index)] || null;
   }
 
   function navRobot(index) {
     const nav = state.ops.navigation?.robots || {};
-    return nav[robotKey(index)] || nav["robot" + index] || null;
+    return nav[robotKey(index)] || null;
   }
 
   function diagRobot(index) {
     const d = state.ops.diagnostics?.robots || {};
-    return d[robotKey(index)] || d["robot" + index] || null;
+    return d[robotKey(index)] || null;
   }
 
   function missionRobot(index) {
     const m = state.ops.mission?.robots || {};
-    return m[robotKey(index)] || m["robot" + index] || null;
+    return m[robotKey(index)] || null;
   }
 
   function deriveRobot(index) {
@@ -174,7 +174,7 @@
       index,
       known: Boolean(fleetRobot(index)),
       poseSource: (diagRobot(index) || {}).pose_source || null,
-      name: robotName("robot" + index),
+      name: robotName(robotKey(index)),
       localized: s.localized ?? !f.is_unlocalized,
       x: s.x,
       y: s.y,
@@ -518,7 +518,7 @@
     // 통합 검토 OPS-4: 멈추는 명령은 묻지 않는다(플릿 비상정지 버튼도 안 묻는다). 움직일 수 있는 재개만 확인을 받는다.
     if (cmd === "resume" && !window.confirm(`${r.name} 을(를) 재개합니다.\n로봇 재개는 이 로봇의 정지·ESTOP·링크유실 래치를 풉니다(Nav2 취소 확인 뒤). 플릿이 달리는 중이면 이 로봇도 다시 달립니다.\n계속할까요?`)) return;
     try {
-      const body = await postJson(`/api/robot${index}/${cmd}`, {});
+      const body = await postJson(`/api/${robotKey(index)}/${cmd}`, {});
       // 202 = 보냈지만 적용 여부를 모른다 — 성공이라 하지 않는다
       alert((body.success ? "✅ " : "⚠️ ") + `${r.name} ${what}: ` + (body.message || "") + (body.applied === null || body.success === false ? " (적용 여부 모름)" : ""));
     } catch (e) {
@@ -606,8 +606,8 @@
     $("communication-summary").innerHTML = [
       metric("Tablet → Relay", c.tablet_to_relay?.state || "미측정", c.tablet_to_relay?.latency || ""),
       metric("Domain Bridge", c.bridge?.state || "미측정", c.bridge?.detail || ""),
-      metric("Robot 1 Link", c.robot1?.state || "미측정", c.robot1?.latency || ""),
-      metric("Robot 2 Link", c.robot2?.state || "미측정", c.robot2?.latency || "")
+      metric("Pinky 1 Link", c.pinky1?.state || "미측정", c.pinky1?.latency || ""),
+      metric("Pinky 2 Link", c.pinky2?.state || "미측정", c.pinky2?.latency || "")
     ].join("");
     const links = c.links || [];
     $("link-health-body").innerHTML = links.length ? links.map(x=>`<tr><td>${esc(x.segment)}</td><td>${esc(x.message)}</td><td>${esc(x.rate ?? "미측정")}</td><td>${esc(x.last_seen ?? "미측정")}</td><td>${esc(x.latency ?? "미측정")}</td><td class="${statusClass(x.state)}">${esc(x.state ?? "미측정")}</td></tr>`).join("") : emptyRow(6,"통신 계측 API 구현 대기");
@@ -726,10 +726,12 @@
     const n = state.ops.navigation || {};
     // U-4: 지도 범위는 좌표 프로파일의 frame 을 따른다. 예전엔 옛 경기장 노드(START_A·START_B·GOAL_C)를 기본값으로 그려
     // 프로파일이 map4 여도 옛 노드가 보였다 — 프로파일이 안 말한 노드는 그리지 않는다.
-    const frame = state.profiles?.frame || state.fleet?.profile?.frame || (DEMO ? "team11_map4" : null);
-    const arena = n.arena || (frame === "team11_map4" ? {x_min:-1.175,x_max:1.175,y_min:-0.625,y_max:0.625}
-                            : frame === "legacy_bottom_left" ? {x_min:0,x_max:2.34,y_min:0,y_max:1.26}
-                            : {x_min:-1.175,x_max:1.175,y_min:-0.625,y_max:0.625});
+    const frame = state.profiles?.frame || state.fleet?.profile?.frame || (DEMO ? "team11_map5" : null);
+    // 지도 사각형은 프로파일이 싣는 지도 규격(state.profiles.map.bounds — map5: 원점 −0.01, 2.36 × 1.28)을 따른다. 없으면 map5 값.
+    const pb = state.profiles?.map?.bounds || null;
+    const arena = n.arena || (pb ? {x_min:pb.x_min,x_max:pb.x_max,y_min:pb.y_min,y_max:pb.y_max}
+                            : frame === "team11_map5" ? {x_min:-0.01,x_max:2.35,y_min:-0.01,y_max:1.27}
+                            : {x_min:-0.01,x_max:2.35,y_min:-0.01,y_max:1.27});
     return {
       arena,
       zones: n.zones || [],
@@ -781,34 +783,33 @@
     if($("map-empty")) $("map-empty").style.display = hasPath ? "none":"block";
   }
 
-  // U-4: 데모는 좌표 정본(팀11 map4 · 시나리오 1 BL→TC, BL→RE)으로. 예전 데모는 옛 경기장(START_A/GOAL_C · 2.34×1.26)이었고
+  // U-4: 데모는 좌표 정본(map5 임시 도로망 · pinky1 BL→TR, pinky2 BR→BL)으로. 예전 데모는 옛 경기장(START_A/GOAL_C · 2.34×1.26)이었고
   // 비전 값(ARUCO 2/2)은 없는 기능을 있는 것처럼 보였다 — 비전은 "미수신"(마커 ID 는 태블릿 설정 정본 30/31 · 40~43 그대로).
-  const DEMO_NODES = [{id:"BL",x:.95,y:-.45},{id:"JS",x:.7,y:-.15},{id:"JW",x:-.1,y:-.45},{id:"LM",x:-.45,y:-.45},{id:"CW1",x:-.75,y:-.45},{id:"TL",x:-1,y:-.45},{id:"TC",x:-1.08,y:-.05},
-                      {id:"RE",x:-.85,y:.42},{id:"TR",x:-1.05,y:.4},{id:"RM",x:-.1,y:.42},{id:"BR",x:.95,y:.4},{id:"CW2",x:.8,y:.05},{id:"MC",x:-.6,y:.05},{id:"JI",x:-.35,y:-.15}];
-  const DEMO_LABEL = "팀11 map4 — 14노드, 가운데 원점 2.35 × 1.25 · 시나리오 1 (BL→TC, BL→RE)";
+  const DEMO_NODES = [{id:"BL",x:.2,y:.2},{id:"BR",x:2.15,y:.2},{id:"TR",x:2.15,y:1.08},{id:"J",x:1.18,y:.64}];
+  const DEMO_LABEL = "팀11 map5 — 임시 도로망 4노드(BL·BR·TR·J), 좌하단 원점 2.36 × 1.28 · pinky1 BL→TR, pinky2 BR→BL";
   function demoData() {
     const P = id => DEMO_NODES.find(n => n.id === id);
     const path = ids => ids.map(P).map(n => ({x:n.x, y:n.y}));
-    const steps1 = [["배정","FLEET","done"],["출발(START 확인)","FLEET","done"],["구간 진행 BL→JS→JW","NAV2","done"],["공유 구간 대기/허가","FLEET","current"],["최종 접근","NAV2","pending"],["도착 확정","FLEET","pending"],["구역 이벤트(마커)","MARKER","na"]];
-    const steps2 = [["배정","FLEET","done"],["출발(START 확인)","FLEET","done"],["구간 진행 BL→JS","NAV2","wait"],["공유 구간 대기/허가","FLEET","pending"],["최종 접근","NAV2","pending"],["도착 확정","FLEET","pending"],["구역 이벤트(마커)","MARKER","na"]];
+    const steps1 = [["배정","FLEET","done"],["출발(START 확인)","FLEET","done"],["구간 진행 BL→J","LANE","done"],["교차로 허가","FLEET","current"],["최종 접근 J→TR","LANE","pending"],["도착 확정","FLEET","pending"],["구역 이벤트(마커)","MARKER","na"]];
+    const steps2 = [["배정","FLEET","done"],["출발(START 확인)","FLEET","done"],["구간 진행 BR→J","LANE","wait"],["교차로 허가","FLEET","pending"],["최종 접근 J→BL","LANE","pending"],["도착 확정","FLEET","pending"],["구역 이벤트(마커)","MARKER","na"]];
     return {
-      profiles:{active:"map4",frame:"team11_map4",robot_map_name:"map4",label:DEMO_LABEL,mission_state:"RUNNING",available:[{name:"map4",label:DEMO_LABEL,valid:true,warnings:[]}],robots:{pinky1:{state:"MATCH",robot_map_name:"map4"},pinky2:{state:"MATCH",robot_map_name:"map4"}}},
-      fleet:{mission_state:"RUNNING",estop_latched:false,control_note:null,warning:null,profile:{active:"map4",frame:"team11_map4",label:DEMO_LABEL},robots:{
-        pinky1:{start_node:"BL",goal_node:"TC",start:{acknowledged:true},clear_until_idx:23,waiting_for:"",blocked_by:"",is_stale:false,is_unlocalized:false,arrival_status:"NOT_ARRIVED",state:{x:-.28,y:-.45,yaw:3.1,localized:true},lane_status:{drive_state:1,state_reason:"주행 중 — LM 까지 허가"},comparator:{route_progress:.43,cross_track_error:.028}},
-        pinky2:{start_node:"BL",goal_node:"RE",start:{acknowledged:true},clear_until_idx:0,waiting_for:"BL_JS",blocked_by:"pinky1",is_stale:false,is_unlocalized:false,arrival_status:"NOT_ARRIVED",state:{x:.95,y:-.45,yaw:2.3,localized:true},lane_status:{drive_state:2,state_reason:"허가 대기 — BL_JS 를 pinky1 이 쥠"},comparator:{route_progress:0,cross_track_error:.012}}
+      profiles:{active:"team11_map5",frame:"team11_map5",robot_map_name:"map5",label:DEMO_LABEL,mission_state:"RUNNING",map:{bounds:{x_min:-0.01,x_max:2.35,y_min:-0.01,y_max:1.27}},available:[{name:"team11_map5",label:DEMO_LABEL,valid:true,warnings:[]}],robots:{pinky1:{state:"MATCH",robot_map_name:"map5"},pinky2:{state:"MATCH",robot_map_name:"map5"}}},
+      fleet:{mission_state:"RUNNING",estop_latched:false,control_note:null,warning:null,profile:{active:"team11_map5",frame:"team11_map5",label:DEMO_LABEL},robots:{
+        pinky1:{start_node:"BL",goal_node:"TR",start:{acknowledged:true},clear_until_idx:12,waiting_for:"",blocked_by:"",is_stale:false,is_unlocalized:false,arrival_status:"NOT_ARRIVED",state:{x:.75,y:.45,yaw:.42,localized:true},lane_status:{drive_state:1,state_reason:"주행 중 — J 까지 허가"},comparator:{route_progress:.28,cross_track_error:.028}},
+        pinky2:{start_node:"BR",goal_node:"BL",start:{acknowledged:true},clear_until_idx:8,waiting_for:"BL_J",blocked_by:"pinky1",is_stale:false,is_unlocalized:false,arrival_status:"NOT_ARRIVED",state:{x:1.9,y:.31,yaw:2.71,localized:true},lane_status:{drive_state:2,state_reason:"허가 대기 — BL_J 를 pinky1 이 쥠"},comparator:{route_progress:.12,cross_track_error:.012}}
       }},
       ops:{
         mission:{robots:{
-          pinky1:{state:"RUNNING",current_step:3,scenario:"시나리오 1 · BL → TC",steps:steps1.map(x=>({name:x[0],mode:x[1],status:x[2]}))},
-          pinky2:{state:"WAITING",current_step:2,scenario:"시나리오 1 · BL → RE (6 s 뒤 출발)",steps:steps2.map(x=>({name:x[0],mode:x[1],status:x[2]}))}
+          pinky1:{state:"RUNNING",current_step:3,scenario:"임시 미션 · BL → TR",steps:steps1.map(x=>({name:x[0],mode:x[1],status:x[2]}))},
+          pinky2:{state:"WAITING",current_step:2,scenario:"임시 미션 · BR → BL (J 앞 대기)",steps:steps2.map(x=>({name:x[0],mode:x[1],status:x[2]}))}
         }},
-        navigation:{arena:{x_min:-1.175,x_max:1.175,y_min:-.625,y_max:.625},zones:DEMO_NODES,robots:{
-          pinky1:{nav_status:"ACTIVE",action_state:"NAVIGATING",obstacle_state:"CLEAR",replan_count:0,path_points:31,scenario_mode:"FLEET_CLEARANCE",goal:{x:-.45,y:-.45},route_progress:.43,cross_track_error:.028,global_path:path(["BL","JS","JW","LM","CW1","TL","TC"]),external_vision:{state:"미수신",marker_id:30,x:null,y:null}},
-          pinky2:{nav_status:"HOLD",action_state:"WAITING",obstacle_state:"CLEAR",replan_count:0,path_points:28,scenario_mode:"WAIT_CLEARANCE",goal:null,route_progress:0,cross_track_error:.012,global_path:path(["BL","JS","CW2","BR","RM","RE"]),external_vision:{state:"미수신",marker_id:31,x:null,y:null}}
+        navigation:{arena:{x_min:-0.01,x_max:2.35,y_min:-0.01,y_max:1.27},zones:DEMO_NODES,robots:{
+          pinky1:{nav_status:"ACTIVE",action_state:"CRUISE",obstacle_state:"CLEAR",replan_count:0,path_points:22,scenario_mode:"FLEET_CLEARANCE",goal:{x:1.18,y:.64},route_progress:.28,cross_track_error:.028,global_path:path(["BL","J","TR"]),external_vision:{state:"미수신",marker_id:30,x:null,y:null}},
+          pinky2:{nav_status:"HOLD",action_state:"WAIT_CLEARANCE",obstacle_state:"CLEAR",replan_count:0,path_points:22,scenario_mode:"WAIT_CLEARANCE",goal:null,route_progress:.12,cross_track_error:.012,global_path:path(["BR","J","BL"]),external_vision:{state:"미수신",marker_id:31,x:null,y:null}}
         }},
         vision:{tracking:"미수신 — 태블릿 T-11·READY 전",reference_seen:0,reference_ids:[40,41,42,43],robot_marker_ids:{pinky1:30,pinky2:31},reproj_error:null,pipeline_latency:null,zone_events:[]},
         // 검토 P2: 태블릿 PoseFix 사슬(Y700→Relay→D10)은 아직 없다 — 데모에도 LIVE 로 두지 않는다(미측정). D8→D11 레인 명령만 실재
-        communications:{tablet_to_relay:{state:"미측정",latency:"태블릿 T-10 전"},bridge:{state:"미측정"},robot1:{state:"미측정"},robot2:{state:"미측정"},links:[
+        communications:{tablet_to_relay:{state:"미측정",latency:"태블릿 T-10 전"},bridge:{state:"미측정"},pinky1:{state:"미측정"},pinky2:{state:"미측정"},links:[
           {segment:"D8→D11",message:"LaneCommand",rate:"10.0 Hz",last_seen:"0.10 s",latency:"23 ms",state:"LIVE"}
         ],traces:[]},
         diagnostics:{robots:{
@@ -820,7 +821,7 @@
           {time:"20:18:39",type:"NAV2",robot:"Pinky 1",event:"목표 전송",detail:"웨이포인트 23 (LM 까지 허가)"},
           {time:"20:18:35",type:"MISSION",robot:"Pinky 1",event:"BL_JS 허가",detail:"공유 구간 예약 — pinky1 이 쥠, pinky2 대기"}
         ]},
-        config:{motion_mode:"NAV2",scenario_mode:"FLEET(예약) · 마커 미구현",field_status:"DEMO",map_frame:"team11_map4",arena:"2.35m × 1.25m (map4, 가운데 원점)",route_source:"Relay 도로망 + Nav2",estop_policy:"Robot safety layer",command_owner:"Fleet coordinator",link_loss_policy:"Fail-safe stop"}
+        config:{motion_mode:"LANE",scenario_mode:"FLEET(예약) · 마커 미구현",field_status:"DEMO",map_frame:"team11_map5",arena:"2.36m × 1.28m (map5, 좌하단 원점)",route_source:"Relay 도로망 + lane_agent_node",estop_policy:"Robot safety layer",command_owner:"Fleet coordinator",link_loss_policy:"Fail-safe stop"}
       }
     };
   }

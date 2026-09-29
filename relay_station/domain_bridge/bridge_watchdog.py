@@ -26,10 +26,10 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan, CompressedImage
 
 ROBOTS = {
-    'robot1': 10,
-    'robot2': 11,
-    'robot3': 12,
-    'robot4': 13,
+    'pinky1': 10,
+    'pinky2': 11,
+    'pinky3': 12,
+    'pinky4': 13,
 }
 
 # 이 시간 이상 소식이 없으면 끊긴 것으로 본다 (초)

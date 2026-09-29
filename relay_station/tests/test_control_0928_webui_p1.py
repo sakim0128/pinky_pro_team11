@@ -7,7 +7,7 @@ test_review_0926_ui2.py 의 Chrome 픽스처에 붙어 있다(격리 netns 에�
 U-1 보기 전용: :18081 · ?view=1 · /api/status.view_only 면 움직이는 조작만 숨고 멈추는 조작은 남는다.
 U-2 요약 띠: 한 문장 + 안전/진행/데이터 신호등 — /api/fleet/status 만으로, 값 없으면 미수신.
 U-3 대시보드 용어: 로봇 카드에 영문 상태 상수를 그대로 쓰지 않는다.
-U-4 데모 = map4: 옛 경기장 노드(START_A·START_B·GOAL_C)가 데모·기본값에 없다. 비전은 미수신.
+U-4 데모 = map5 임시 도로망(BL·BR·TR·J): 옛 경기장 노드(START_A·START_B·GOAL_C)가 데모·기본값에 없다. 비전은 미수신.
 U-5 영상 없음: <img data-media> 가 실패하면 문구로 바뀐다(검은 상자 금지).
 U-6 부제 = 프로파일 label · 경과 시간(화면 기준).
 """
@@ -146,10 +146,12 @@ def test_U4_데모와_지도_기본값에_옛_경기장_노드가_없다():
     demo = code[code.index("const DEMO_NODES"):code.index("async function refresh")]
     for old in ("START_A", "START_B", "GOAL_C", "JUNCTION_CORE", "2.34m", "ARUCO 2/2"):
         assert old not in demo, old
-    for node in ("BL", "JS", "JW", "LM", "CW1", "TL", "TC", "RE"):
+    for node in ("BL", "BR", "TR", "J"):
         assert '{id:"%s"' % node in demo, node
-    assert "x_min:-1.175,x_max:1.175,y_min:-.625,y_max:.625" in demo
-    assert 'start_node:"BL",goal_node:"TC"' in demo and 'start_node:"BL",goal_node:"RE"' in demo
+    for old_node in ("JS", "JW", "CW1", "TC", "RE", "MC"):                       # map4 도로망 노드는 데모에도 없다
+        assert '{id:"%s"' % old_node not in demo, old_node
+    assert "x_min:-0.01,x_max:2.35,y_min:-0.01,y_max:1.27" in demo                # map5: 원점 −0.01, 2.36 × 1.28
+    assert 'start_node:"BL",goal_node:"TR"' in demo and 'start_node:"BR",goal_node:"BL"' in demo
     assert 'tracking:"미수신' in demo and "zone_events:[]" in demo
     # 검토 P2: 없는 태블릿 PoseFix 사슬을 데모에서도 LIVE 로 두지 않는다 — 위치 출처는 AMCL
     for fake in ("PoseFix", "Y700", 'pose_source:"PoseFuser"', 'pose_fuser:"LIVE"', "tablet_to_relay:{state:\"LIVE\""):
@@ -157,7 +159,8 @@ def test_U4_데모와_지도_기본값에_옛_경기장_노드가_없다():
     assert demo.count('pose_source:"AMCL"') == 2 and "traces:[]" in demo
     m = _fn(code, "function collectMapData")
     assert "zones: n.zones || []" in m and "START_A" not in m
-    assert '"team11_map4" ? {x_min:-1.175' in m and '"legacy_bottom_left" ? {x_min:0,x_max:2.34' in m
+    assert "state.profiles?.map?.bounds" in m and '"team11_map5" ? {x_min:-0.01' in m       # 지도 규격은 프로파일이 싣는다
+    assert "team11_map4" not in m and "legacy_bottom_left" not in m
 
 
 def test_U4_데모_모드는_프로파일도_싣는다():

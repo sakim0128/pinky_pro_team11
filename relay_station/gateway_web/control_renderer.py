@@ -30,14 +30,14 @@ class ControlScreenRenderer:
 
         # 로봇 1, Gazebo Sim, 로봇 2 상태 관리
         # 🔴 좌표 기본값은 **None** 이다. 0.0 으로 두면 "아직 안 왔다" 와 "원점에
-        #    서 있다" 가 같은 숫자가 되고, robot2 처럼 아예 지어낸 값(1.5/-0.8/1.57)이
+        #    서 있다" 가 같은 숫자가 되고, pinky2 처럼 아예 지어낸 값(1.5/-0.8/1.57)이
         #    `/api/status.robots` 를 타고 화면에 실측처럼 찍힌다(2026-09-18 감사).
         #    같은 파일의 `get_discrepancy` 는 이미 "못 쟀으면 못 쟀다고 한다" 로
         #    고쳐져 있었고 이 경로만 빠져 있었다.
         self.robots = {
-            'robot1': {'x': None, 'y': None, 'yaw': None, 'color': (0, 140, 255), 'trail': [], 'name': 'Pinky #1 (Real)', 'active': True},
+            'pinky1': {'x': None, 'y': None, 'yaw': None, 'color': (0, 140, 255), 'trail': [], 'name': 'Pinky 1 (Real)', 'active': True},
             'gazebo_sim': {'x': None, 'y': None, 'yaw': None, 'color': (255, 230, 0), 'trail': [], 'name': 'Gazebo Sim', 'active': True},
-            'robot2': {'x': None, 'y': None, 'yaw': None, 'color': (200, 100, 255), 'trail': [], 'name': 'Pinky #2 (Sub)', 'active': False}
+            'pinky2': {'x': None, 'y': None, 'yaw': None, 'color': (200, 100, 255), 'trail': [], 'name': 'Pinky 2 (Sub)', 'active': False}
         }
 
         # 정밀 보정된 미션 경유지 1, 2, 3 (Gazebo & SLAM 맵 100% 일치 좌표)
@@ -80,19 +80,6 @@ class ControlScreenRenderer:
         if ok:
             self._latest_frame = canvas
             self._latest_jpeg = jpeg.tobytes()
-
-    def set_goal(self, x, y):
-        with self._lock:
-            self.current_goal = {'x': float(x), 'y': float(y), 'time': time.time()}
-
-    def set_nav_status(self, status):
-        with self._lock:
-            self.nav_status = status
-            target = status.get('current_target')
-            if target:
-                self.current_goal = {'x': target[0], 'y': target[1], 'time': time.time()}
-            elif status.get('state') in ('COMPLETED', 'STOPPED', 'IDLE'):
-                self.current_goal = None
 
     def set_map(self, map_yaml_path):
         """R-7 웹 전환: 좌표 프로파일이 바뀌면 화면 지도도 바꾼다. 못 읽으면 합성 지도(표시됨)로 떨어진다."""
@@ -282,7 +269,7 @@ class ControlScreenRenderer:
             cv2.line(canvas, (745, 130), (1215, 130), (50, 65, 85), 1)
 
             # 로봇 1 상태 박스
-            r1 = self.robots['robot1']
+            r1 = self.robots['pinky1']
             nav_state = self.nav_status.get('state', 'IDLE')
             nav_mission = self.nav_status.get('mission', '-')
             rem_dist = self.nav_status.get('remaining_dist', 0.0)
@@ -301,7 +288,7 @@ class ControlScreenRenderer:
                             (765, 270), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 100), 1)
 
             # 로봇 2 상태 박스
-            r2 = self.robots['robot2']
+            r2 = self.robots['pinky2']
             cv2.rectangle(canvas, (745, 295), (1215, 410), (32, 40, 52), -1)
             cv2.rectangle(canvas, (745, 295), (1215, 410), r2['color'], 2)
             cv2.putText(canvas, f"{r2['name']}", (765, 325), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)

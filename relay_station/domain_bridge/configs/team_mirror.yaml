@@ -11,8 +11,8 @@
 #    없는 보호를 있다고 적어 두는 것이 보호가 없는 것보다 나쁘므로 지운다.
 #
 #    지금의 보호는 "경로가 없다" 가 아니라 **"이름이 갈려 있다"** 이다:
-#      팀원 시뮬이 쓰는 robotN/cmd_vel        -> 아무 데도 안 간다 (여기에도 없다)
-#      조종기 전용 robotN/teleop/cmd_vel      -> 벌 2 가 나른다 (robotN_teleop_*.yaml)
+#      팀원 시뮬이 쓰는 pinkyN/cmd_vel        -> 아무 데도 안 간다 (여기에도 없다)
+#      조종기 전용 pinkyN/teleop/cmd_vel      -> 벌 2 가 나른다 (pinkyN_teleop_*.yaml)
 #    그리고 벌 2 는 **기본이 꺼짐**이라, 켜는 행위가 곧 "이 로봇을 넘긴다" 는 뜻이다.
 #
 # 이 미러는 여전히 **읽기 전용**이다. 여기 나열된 토픽이 팀원에게 노출되는 전부이고,
@@ -39,98 +39,82 @@ topics:
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  robot1/odom:
+  pinky1/odom:
     type: nav_msgs/msg/Odometry
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot1/pose:
+  pinky1/pose:
     type: geometry_msgs/msg/PoseStamped
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot1/scan:
+  pinky1/scan:
     type: sensor_msgs/msg/LaserScan
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
 
-  robot1/camera/image_raw/compressed:
+  pinky1/camera/image_raw/compressed:
     type: sensor_msgs/msg/CompressedImage
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
 
-  robot1/nav_status:
-    type: std_msgs/msg/String
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
-
-  robot1/battery_state:
+  pinky1/battery_state:
     type: sensor_msgs/msg/BatteryState
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  robot2/odom:
+  pinky2/odom:
     type: nav_msgs/msg/Odometry
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot2/pose:
+  pinky2/pose:
     type: geometry_msgs/msg/PoseStamped
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot2/scan:
+  pinky2/scan:
     type: sensor_msgs/msg/LaserScan
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
 
-  robot2/camera/image_raw/compressed:
+  pinky2/camera/image_raw/compressed:
     type: sensor_msgs/msg/CompressedImage
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
 
-  robot2/nav_status:
-    type: std_msgs/msg/String
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
-
-  robot2/battery_state:
+  pinky2/battery_state:
     type: sensor_msgs/msg/BatteryState
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  robot3/odom:
+  pinky3/odom:
     type: nav_msgs/msg/Odometry
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot3/pose:
+  pinky3/pose:
     type: geometry_msgs/msg/PoseStamped
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot3/scan:
+  pinky3/scan:
     type: sensor_msgs/msg/LaserScan
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
 
-  robot3/camera/image_raw/compressed:
+  pinky3/camera/image_raw/compressed:
     type: sensor_msgs/msg/CompressedImage
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
 
-  robot3/nav_status:
-    type: std_msgs/msg/String
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
-
-  robot3/battery_state:
+  pinky3/battery_state:
     type: sensor_msgs/msg/BatteryState
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  robot4/odom:
+  pinky4/odom:
     type: nav_msgs/msg/Odometry
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot4/pose:
+  pinky4/pose:
     type: geometry_msgs/msg/PoseStamped
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot4/scan:
+  pinky4/scan:
     type: sensor_msgs/msg/LaserScan
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
 
-  robot4/camera/image_raw/compressed:
+  pinky4/camera/image_raw/compressed:
     type: sensor_msgs/msg/CompressedImage
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
 
-  robot4/nav_status:
-    type: std_msgs/msg/String
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
-
-  robot4/battery_state:
+  pinky4/battery_state:
     type: sensor_msgs/msg/BatteryState
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}

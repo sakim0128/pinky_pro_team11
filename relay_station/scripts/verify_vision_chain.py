@@ -29,7 +29,7 @@
 ⚠️ 수락 2 의 `hasReceiver` 는 **그 순간 구독자가 있어야** 참이다. 지금 이 토픽의
 생산 소비자는 0 이므로, 재기 전에 구독자를 하나 띄워 둔다:
 
-    ROS_DOMAIN_ID=8 ros2 topic echo /robot1/vision_pose geometry_msgs/msg/PoseStamped
+    ROS_DOMAIN_ID=8 ros2 topic echo /pinky1/vision_pose geometry_msgs/msg/PoseStamped
 
 🔴 **타입을 반드시 붙인다.** 안 붙이면 첫 발행 전에는
 `WARNING: topic does not appear to be published yet / Could not determine the type`
@@ -79,7 +79,7 @@ def _vision_state(base, robot_id):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="영상→좌표→중계 사슬 판정")
     ap.add_argument("--base", default=DEFAULT_BASE, help="게이트웨이 주소")
-    ap.add_argument("--robot", default="robot1")
+    ap.add_argument("--robot", default="pinky1")
     ap.add_argument("--x", type=float, default=0.42)
     ap.add_argument("--y", type=float, default=-0.13)
     ap.add_argument("--yaw", type=float, default=1.57)

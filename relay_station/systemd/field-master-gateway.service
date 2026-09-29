@@ -24,7 +24,7 @@ StartLimitBurst=5
 Type=simple
 WorkingDirectory=%h
 
-# 화면·GL 환경. Gazebo GUI 와 relay_controller_gui 가 이 값을 쓴다.
+# 화면·GL 환경. Gazebo GUI 가 이 값을 쓴다.
 Environment=DISPLAY=:0
 Environment=WAYLAND_DISPLAY=wayland-0
 Environment=XDG_RUNTIME_DIR=/run/user/1000

@@ -6,7 +6,7 @@
    도메인 8 의 구독자이고, 로봇이 있는 도메인 10 은 **여기서 볼 수 없다.**
 
    2026-09-19 실측:
-       D8  /robot1/vision_pose   Pub 1 (게이트웨이) · Sub 1 (pinky_bridge_robot1_8)
+       D8  /pinky1/vision_pose   Pub 1 (게이트웨이) · Sub 1 (pinky_bridge_robot1_8)
        D10 /vision_pose          Pub 1 (브리지)     · Sub 0        ← 여기서 끊긴다
 
    연산 노드 세션이 그 값을 종단 근거로 쓸 뻔했고, 관제 세션과 함께
@@ -39,7 +39,7 @@ _GATEWAY = os.path.join(_REPO, "relay_station", "gateway_web", "gateway_web_serv
 
 def test_브리지만_있으면_consumer_가_0_이다():
     """🔴 이게 이 파일의 핵심이다. 수만 세면 1 이고, 그 1 을 '로봇이 받는다' 로 읽는다."""
-    r = vp.classify_receivers(["/pinky_bridge_robot1_8"], topic="/robot1/vision_pose")
+    r = vp.classify_receivers(["/pinky_bridge_robot1_8"], topic="/pinky1/vision_pose")
     assert r["total"] == 1
     assert r["bridge"] == 1
     assert r["consumer"] == 0, "브리지를 소비자로 세면 종단 판정이 거짓이 된다"
@@ -47,7 +47,7 @@ def test_브리지만_있으면_consumer_가_0_이다():
 
 
 def test_브리지가_아닌_구독자가_생기면_consumer_가_오른다():
-    r = vp.classify_receivers(["/pinky_bridge_robot1_8", "/robot1_vision_consumer"])
+    r = vp.classify_receivers(["/pinky_bridge_robot1_8", "/pinky1_vision_consumer"])
     assert (r["total"], r["bridge"], r["consumer"]) == (2, 1, 1)
 
 
@@ -59,7 +59,7 @@ def test_아무도_없으면_전부_0():
 
 def test_못_쟀으면_0_이_아니라_None_이다():
     """⚠️ 0 은 '없다' 는 **다른 주장**이다. 이 레포가 반복해 밟은 함정."""
-    r = vp.classify_receivers(None, topic="/robot1/vision_pose")
+    r = vp.classify_receivers(None, topic="/pinky1/vision_pose")
     assert r["measured"] is False
     assert r["total"] is None and r["bridge"] is None and r["consumer"] is None
     assert r["nodes"] is None
@@ -80,14 +80,14 @@ def test_이름이_비슷하기만_한_것은_브리지가_아니다():
 
 def test_계약이_잴_수_없는_것을_0_으로_적지_않는다():
     """🔴 `subscribers: 0` 으로 바꾸면 빨개진다 — 게이트웨이는 도메인 10 을 못 본다."""
-    c = vp.downstream_contract("robot1")
+    c = vp.downstream_contract("pinky1")
     assert c["subscribers"] is None and c["flowHz"] is None
     assert c["why"] == vp.NOT_OBSERVABLE
 
 
 def test_계약이_쓰는_쪽이_베낄_것을_다_갖는다():
     """이름·타입·프레임·QoS 중 하나라도 빠지면 빨개진다 — 소비자가 설정을 뒤지게 된다."""
-    c = vp.downstream_contract("robot1")
+    c = vp.downstream_contract("pinky1")
     for k in ("domain", "topic", "type", "frameId", "qos", "howToMeasure"):
         assert c.get(k), "계약에 %s 가 없다" % k
     assert str(c["domain"]) in c["howToMeasure"] and c["topic"] in c["howToMeasure"]
@@ -174,7 +174,7 @@ def test_재는_절차가_환경_세우기와_no_daemon_을_둘_다_갖는다():
     * `--no-daemon` 을 빼면 이미 떠 있는 `ros2 daemon` 이 호출자의 RMW 와 무관하게 캐시로
       답한다. 그래서 RMW 를 **틀리게 주고도 초록이 났다**.
     """
-    for rid in ("robot1", "robot2"):
+    for rid in ("pinky1", "pinky2"):
         how = vp.downstream_contract(rid)["howToMeasure"]
         assert vp.MEASURE_ENV in how, "환경을 안 세우면 프로파일이 어긋난다: %s" % how
         assert "--no-daemon" in how, "데몬이 캐시로 답해 거짓 초록이 난다: %s" % how
@@ -201,7 +201,7 @@ def test_계약의_RMW_가_브리지가_실제로_쓰는_것과_같다():
 
 def test_함정_설명이_응답에_실린다():
     """쓰는 쪽이 같은 자리에서 또 넘어지지 않게, 함정을 **응답이 들고 간다**."""
-    c = vp.downstream_contract("robot1")
+    c = vp.downstream_contract("pinky1")
     assert c["measureTrap"], "함정 설명이 비었다"
     for 조각 in ("daemon", "CYCLONEDDS_URI", "fastrtps"):
         assert 조각 in c["measureTrap"], "함정 %s 가 설명에서 빠졌다" % 조각

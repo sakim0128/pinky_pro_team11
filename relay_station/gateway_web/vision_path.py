@@ -11,7 +11,7 @@ ROS 없는 곳에서 import 되지 않는다 — **본체 안에 두면 유닛�
 그런데 게이트웨이는 **도메인 8 참여자**이고, 지금 도메인 8 에서 그 토픽을 구독하는 것은
 **브리지**다. 2026-09-19 실측:
 
-    D8 /robot1/vision_pose   Publisher 1 (게이트웨이) · Subscription 1 (pinky_bridge_robot1_8)
+    D8 /pinky1/vision_pose   Publisher 1 (게이트웨이) · Subscription 1 (pinky_bridge_pinky1_8)
     D10 /vision_pose         Publisher 1 (브리지)     · Subscription 0      ← 여기서 끊긴다
 
 즉 `hasReceiver: true` 는 참이지만 **"로봇이 받는다" 가 아니다.** 연산 노드 세션이 그 값을
@@ -28,13 +28,13 @@ ROS 없는 곳에서 import 되지 않는다 — **본체 안에 두면 유닛�
    `subscribers` 를 0 으로 적으면 "소비자가 없다" 는 **다른 주장**이 된다.
 """
 
-# 하류 계약. 출처는 `relay_station/domain_bridge/configs/robotN_control.yaml` 의
-# `robotN/vision_pose` 블록(`remap: vision_pose`, reliable/volatile/keep_last/1).
+# 하류 계약. 출처는 `relay_station/domain_bridge/configs/pinkyN_control.yaml` 의
+# `pinkyN/vision_pose` 블록(`remap: vision_pose`, reliable/volatile/keep_last/1).
 # 🔴 **리터럴로 적는다** — 포맷 문자열로 만들면 `grep '/vision_pose'` 에 안 걸리고,
 #    설정과 어긋났을 때 시험이 대사할 수 없다. 대사는 `test_vision_path` 가 한다.
 DOWNSTREAM = {
-    'robot1': {'domain': 10, 'topic': '/vision_pose'},
-    'robot2': {'domain': 11, 'topic': '/vision_pose'},
+    'pinky1': {'domain': 10, 'topic': '/vision_pose'},
+    'pinky2': {'domain': 11, 'topic': '/vision_pose'},
 }
 DOWNSTREAM_TYPE = 'geometry_msgs/msg/PoseStamped'
 DOWNSTREAM_FRAME = 'map'
@@ -44,7 +44,7 @@ DOWNSTREAM_QOS = {
 }
 
 # 도메인 8 구독자 중 **중간 다리**를 가리는 이름. 브리지 설정의 `name:` 에서 온다
-# (`pinky_bridge_robot1` → 도메인 접미사가 붙어 `pinky_bridge_robot1_8`).
+# (`pinky_bridge_pinky1` → 도메인 접미사가 붙어 `pinky_bridge_pinky1_8`).
 # ⚠️ 이름으로 가르는 것은 **편의**다. 진실은 `nodes` 목록이고 소비자는 그것을 봐야 한다.
 #    이름 규칙이 바뀌면 분류는 틀리지만 `nodes` 는 안 틀린다 — 그래서 둘 다 낸다.
 BRIDGE_NODE_PREFIX = 'pinky_bridge_'
@@ -108,7 +108,7 @@ def classify_receivers(node_names, topic=None, domain=8):
                 'total': None, 'bridge': None, 'consumer': None, 'nodes': None}
     names = sorted(node_names)
     # ⚠️ **노드 이름(마지막 칸)만** 본다. 전체 경로를 보면 네임스페이스가 붙은
-    #    `/ns/pinky_bridge_robot1_8` 을 놓치고, 놓치면 브리지가 **소비자로 집계**돼
+    #    `/ns/pinky_bridge_pinky1_8` 을 놓치고, 놓치면 브리지가 **소비자로 집계**돼
     #    "로봇이 받았다" 는 거짓 초록이 난다 — 틀리는 방향이 나쁜 쪽이다.
     #    (첫 판이 `lstrip('/')` 로 판정했고 이 파일의 시험이 배포 전에 잡았다)
     bridge = [n for n in names

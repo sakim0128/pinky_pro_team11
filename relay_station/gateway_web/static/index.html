@@ -512,15 +512,15 @@
         <div class="stream-header">
           <h2><span>🤖</span> Pinky #1 실물 온보드 카메라 (Live)</h2>
           <div style="display: flex; gap: 6px; align-items: center;">
-            <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectStream('r1-main-stream-img', '/robot_camera_feed?id=robot1')">🔄 새로고침</button>
+            <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectStream('r1-main-stream-img', '/robot_camera_feed?id=pinky1')">🔄 새로고침</button>
             <span class="badge green" id="r1-main-badge">15 FPS LIVE</span>
           </div>
         </div>
         <div class="video-viewport" style="height: 360px; background: #000; display: flex; align-items: center; justify-content: center;">
-          <img id="r1-main-stream-img" src="/robot_camera_feed?id=robot1" alt="Robot 1 Camera Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/robot_camera_feed?id=robot1')">
+          <img id="r1-main-stream-img" src="/robot_camera_feed?id=pinky1" alt="Robot 1 Camera Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/robot_camera_feed?id=pinky1')">
         </div>
         <div class="stream-footer">
-          <span>소스: /robot1/camera/image_raw (Raspberry Pi CSI Camera)</span>
+          <span>소스: /pinky1/camera/image_raw (Raspberry Pi CSI Camera)</span>
           <span>원격 저지연 MJPEG 실시간 스트림</span>
         </div>
       </div>
@@ -570,23 +570,23 @@
         </div>
 
         <!-- Robot #1 -->
-        <div class="latency-item" id="node-robot1">
+        <div class="latency-item" id="node-pinky1">
           <div class="latency-header">
             <span>🤖 Robot #1 (Main)</span>
-            <span class="badge" id="badge-robot1" style="background:#21262d;">측정 전</span>
+            <span class="badge" id="badge-pinky1" style="background:#21262d;">측정 전</span>
           </div>
-          <div class="latency-rtt" id="rtt-robot1">측정 전</div>
-          <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-robot1">주소 확인 중</div>
+          <div class="latency-rtt" id="rtt-pinky1">측정 전</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-pinky1">주소 확인 중</div>
         </div>
 
         <!-- Robot #2 -->
-        <div class="latency-item" id="node-robot2">
+        <div class="latency-item" id="node-pinky2">
           <div class="latency-header">
             <span>🤖 Robot #2 (Sub)</span>
-            <span class="badge" id="badge-robot2" style="background:#21262d;">측정 전</span>
+            <span class="badge" id="badge-pinky2" style="background:#21262d;">측정 전</span>
           </div>
-          <div class="latency-rtt" id="rtt-robot2">측정 전</div>
-          <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-robot2">주소 확인 중</div>
+          <div class="latency-rtt" id="rtt-pinky2">측정 전</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-pinky2">주소 확인 중</div>
         </div>
 
         <!-- ⭐ 태블릿 지연 카드를 뺐다. 들고 다니는 기기라 주소가 사이트마다
@@ -630,7 +630,7 @@
             <div>• IP / Port: <span style="color:#f0f6fc;">198.51.100.5 (:2205)</span></div>
             <div>• DDS 채널: <span style="color:#58a6ff;">ROS_DOMAIN_ID=<span class="ros-domain-live">확인 중</span></span></div>
             <div>• 지연(RTT): <span id="fleet-r1-rtt" style="color:#7ee787;">-- ms</span></div>
-            <div>• 주행 모드: <span id="fleet-r1-nav" style="color:#f2cc60;">IDLE (Map A* 대기)</span></div>
+            <div>• 주행: <span style="color:#f2cc60;">lane_agent_node — 허가·정지는 플릿 코디네이터(V2 화면)</span></div>
           </div>
         </div>
 
@@ -863,12 +863,6 @@
           <div id="drive-ready-reason" style="font-size:0.75rem; color:#8b949e; margin-top:5px;">프로세스 실행 여부를 DRIVE_READY로 추정하지 않음</div>
         </div>
         <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
-          <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">🧭 Robot #1 Navigation</div>
-          <div id="hud-nav-state" style="font-size:1.05rem; font-weight:700; color:#58a6ff;">미측정</div>
-          <div style="font-size:0.8rem; color:#8b949e; margin-top:4px;">남은 거리: <span id="hud-rem-dist">미측정</span></div>
-          <div style="font-size:0.8rem; color:#8b949e; margin-top:4px;">현재 목표: <span id="hud-goal-pos">미측정</span></div>
-        </div>
-        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
           <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">📏 Localization Error Meter</div>
           <div id="residual-summary" style="font-size:0.95rem; font-weight:700; color:#8b949e;">미측정 — residual 필드 미연결</div>
           <div id="residual-floor" style="font-size:0.75rem; color:#8b949e; margin-top:5px;">E1/E2/E3 값이 없으면 정상값으로 채우지 않음</div>
@@ -894,13 +888,12 @@
     <!-- 로봇 좌표 텔레메트리 블록 -->
     <div class="tab-card">
       <div class="tab-header">
-        <button class="tab-btn active" onclick="switchTelemetryTab('tab-robot1', this)">🤖 Robot #1 (Pinky Main)</button>
-        <button class="tab-btn" style="opacity: 0.55;" onclick="switchTelemetryTab('tab-robot2', this)">🤖 Robot #2 (Pinky Sub)</button>
-        <button class="tab-btn" onclick="switchTelemetryTab('tab-mission', this)">🚩 미션 경로 정의</button>
+        <button class="tab-btn active" onclick="switchTelemetryTab('tab-pinky1', this)">🤖 Robot #1 (Pinky Main)</button>
+        <button class="tab-btn" style="opacity: 0.55;" onclick="switchTelemetryTab('tab-pinky2', this)">🤖 Robot #2 (Pinky Sub)</button>
       </div>
 
       <!-- 탭 1: 로봇 1 좌표 -->
-      <div id="tab-robot1" class="tab-content active">
+      <div id="tab-pinky1" class="tab-content active">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <strong style="color: #ff9900; font-size: 1rem;">Pinky #1 (Main Robot)</strong>
           <span class="badge" id="r1-observed-badge" style="background:#21262d;">관측 상태 확인 중</span>
@@ -919,7 +912,7 @@
         </div>
         <div class="metric-row">
           <span class="metric-label">토픽 소스</span>
-          <span class="metric-value">/robot1/odom, /robot1/pose</span>
+          <span class="metric-value">/pinky1/odom, /pinky1/pose</span>
         </div>
         <div class="metric-row">
           <span class="metric-label">동작 모드</span>
@@ -928,7 +921,7 @@
       </div>
 
       <!-- 탭 2: 로봇 2 좌표 -->
-      <div id="tab-robot2" class="tab-content">
+      <div id="tab-pinky2" class="tab-content">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <strong style="color: #00d2ff; font-size: 1rem;">Pinky #2 (Sub Robot)</strong>
           <span class="badge" id="r2-observed-badge" style="background:#21262d;">관측 상태 확인 중</span>
@@ -947,7 +940,7 @@
         </div>
         <div class="metric-row">
           <span class="metric-label">토픽 소스</span>
-          <span class="metric-value">/robot2/odom, /robot2/pose</span>
+          <span class="metric-value">/pinky2/odom, /pinky2/pose</span>
         </div>
         <div class="metric-row">
           <span class="metric-label">동작 모드</span>
@@ -955,29 +948,6 @@
         </div>
       </div>
 
-      <!-- 탭 3: 미션 경로 안내 -->
-      <div id="tab-mission" class="tab-content">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <strong style="font-size: 1rem;">교육장 270cm×125cm 가상 공간 미션 경로</strong>
-          <span class="badge gold">WAYPOINTS</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">미션 1</span>
-          <span class="metric-value">도크(-0.04, 0.43) → 침실(-0.85, -0.10, 도어 경유) → 도크 복귀</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">미션 2</span>
-          <span class="metric-value">도크 → 침실 → 식당(0.35, -0.25) → 주방(1.00, -0.25, 칸막이벽 우회) → 도크 복귀</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">충돌 방지 조건</span>
-          <span class="metric-value" style="color: #3fb950;">침실 도어(-0.38, 0.20) & 주방 상단 입구(0.72, 0.25) 필수 경유, 외벽 방지</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">기준 좌표계</span>
-          <span class="metric-value">Roborock Digital Twin (2.70m × 1.25m, Origin: -1.35, -0.625, Res: 0.025m)</span>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -992,10 +962,10 @@
           <span class="badge green" id="r1-cam-badge">ONBOARD LIVE (15 FPS)</span>
         </div>
         <div class="video-viewport" style="height: 380px;">
-          <img src="/robot_camera_feed?id=robot1" alt="Robot 1 Camera Stream" style="width:100%; height:100%; object-fit:contain;">
+          <img src="/robot_camera_feed?id=pinky1" alt="Robot 1 Camera Stream" style="width:100%; height:100%; object-fit:contain;">
         </div>
         <div class="stream-footer">
-          <span>토픽: /robot1/camera/image_raw</span>
+          <span>토픽: /pinky1/camera/image_raw</span>
           <span>CSI Camera · 15.0 FPS</span>
         </div>
       </div>
@@ -1007,10 +977,10 @@
           <span class="badge cyan" id="r2-cam-badge">ONBOARD LIVE (15 FPS)</span>
         </div>
         <div class="video-viewport" style="height: 380px;">
-          <img src="/robot_camera_feed?id=robot2" alt="Robot 2 Camera Stream" style="width:100%; height:100%; object-fit:contain;">
+          <img src="/robot_camera_feed?id=pinky2" alt="Robot 2 Camera Stream" style="width:100%; height:100%; object-fit:contain;">
         </div>
         <div class="stream-footer">
-          <span>토픽: /robot2/camera/image_raw</span>
+          <span>토픽: /pinky2/camera/image_raw</span>
           <span>CSI Camera · 15.0 FPS</span>
         </div>
       </div>
@@ -2162,7 +2132,7 @@
 
     // 텔레메트리 탭 전환
     function switchTelemetryTab(tabId, btn) {
-      document.querySelectorAll('#tab-robot1, #tab-robot2, #tab-mission').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('#tab-pinky1, #tab-pinky2').forEach(el => el.classList.remove('active'));
       btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.getElementById(tabId).classList.add('active');
       btn.classList.add('active');
@@ -2205,11 +2175,11 @@
     let isNavDragging = false;
     let dragStartWorld = null;
     let dragCurrentCanvas = null;
-    let activeGoal = { x: -0.04, y: 0.43, yaw: -1.57 };
+    let activeGoal = null;   // Nav2 목표 표시는 없다 — 로봇은 lane_agent_node, 경로·허가는 V2 화면(플릿 상태)이 보인다
     let realRobotPose = null;
     let robot2Pose = null;
     let simRobotPose = null;
-    let visionRobotPoses = { robot1: null, robot2: null };
+    let visionRobotPoses = { pinky1: null, pinky2: null };
     let realTrail = [];
     let robot2Trail = [];
     let simTrail = [];
@@ -2269,7 +2239,7 @@
       //    화면은 멈췄다고 말했다(2026-09-18 감사). 없는 안전을 있다고 믿게 하는 쪽이
       //    안전이 없는 것보다 나쁘다.
       try {
-        const r = await fetch('/api/robot1/stop', { method: 'POST' });
+        const r = await fetch('/api/pinky1/stop', { method: 'POST' });
         let body = {};
         try { body = await r.json(); } catch (e) { body = {}; }
         // D7 뒤 응답: success = 로봇이 정지 뒤 멈춘 상태를 **보고**했다. dispatched = 보내기만 했다.
@@ -2428,7 +2398,7 @@
       }
 
       // 7. External vision pose — FRESH일 때만 링으로 표시한다.
-      [['robot1', '#3fb950'], ['robot2', '#39d0d8']].forEach(([rid, color]) => {
+      [['pinky1', '#3fb950'], ['pinky2', '#39d0d8']].forEach(([rid, color]) => {
         const vp = visionRobotPoses[rid];
         if (!vp) return;
         const p = worldToCanvas(vp.x, vp.y);
@@ -2464,45 +2434,6 @@
         navCtx.font = 'bold 11px sans-serif';
         navCtx.textAlign = 'center';
         navCtx.fillText('Pinky #1', rp.x, rp.y + 16);
-      }
-
-      // 9. 현재 Navigator 목표 마커 (읽기 전용)
-      if (activeGoal) {
-        const gp = worldToCanvas(activeGoal.x, activeGoal.y);
-        const pulse = 10 + 4 * Math.sin(Date.now() / 150);
-        navCtx.strokeStyle = '#ffcc00';
-        navCtx.lineWidth = 2;
-        navCtx.beginPath();
-        navCtx.arc(gp.x, gp.y, pulse, 0, Math.PI * 2);
-        navCtx.stroke();
-
-        navCtx.fillStyle = '#ff4444';
-        navCtx.beginPath();
-        navCtx.arc(gp.x, gp.y, 4, 0, Math.PI * 2);
-        navCtx.fill();
-
-        navCtx.strokeStyle = '#ffcc00';
-        navCtx.lineWidth = 1.5;
-        navCtx.beginPath();
-        navCtx.moveTo(gp.x - 14, gp.y); navCtx.lineTo(gp.x + 14, gp.y);
-        navCtx.moveTo(gp.x, gp.y - 14); navCtx.lineTo(gp.x, gp.y + 14);
-        navCtx.stroke();
-
-        if (activeGoal.yaw !== undefined) {
-          const gx = gp.x + 22 * Math.cos(activeGoal.yaw);
-          const gy = gp.y - 22 * Math.sin(activeGoal.yaw);
-          navCtx.strokeStyle = '#ffcc00';
-          navCtx.lineWidth = 2;
-          navCtx.beginPath();
-          navCtx.moveTo(gp.x, gp.y);
-          navCtx.lineTo(gx, gy);
-          navCtx.stroke();
-        }
-
-        navCtx.fillStyle = '#ffcc00';
-        navCtx.font = 'bold 10px sans-serif';
-        navCtx.textAlign = 'center';
-        navCtx.fillText('GOAL', gp.x, gp.y - 16);
       }
 
       // 10. 과거 드래그 상태 호환 표시 (현재 입력 이벤트 없음)
@@ -2545,8 +2476,8 @@
           const _setText = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
 
           // 1. 실물 로봇 좌표 갱신
-          if (_obs(data.robots && data.robots.robot1)) {
-            const r1 = data.robots.robot1;
+          if (_obs(data.robots && data.robots.pinky1)) {
+            const r1 = data.robots.pinky1;
             realRobotPose = { x: r1.x, y: r1.y, yaw: r1.yaw };
             realTrail.push({ x: r1.x, y: r1.y });
             if (realTrail.length > 80) realTrail.shift();
@@ -2599,16 +2530,16 @@
               : '좌표 없음 — stale/never 값은 표시하지 않음';
             if (ageEl) ageEl.textContent = (typeof v.ageMs === 'number') ? `age: ${v.ageMs} ms` : 'age: 미측정';
             visionRobotPoses[rid] = fresh ? {x:v.x, y:v.y, yaw:v.yaw} : null;
-            const pathEl = document.getElementById(rid === 'robot1' ? 'vision-r1-path' : 'vision-r2-path');
+            const pathEl = document.getElementById(rid === 'pinky1' ? 'vision-r1-path' : 'vision-r2-path');
             if (pathEl) {
               const d = v.downstream || {};
               const sub = (d.subscribers === null || d.subscribers === undefined) ? '미측정' : d.subscribers;
               const hz = (d.flowHz === null || d.flowHz === undefined) ? '미측정' : d.flowHz;
-              pathEl.textContent = `${rid === 'robot1' ? 'Robot #1' : 'Robot #2'}: D${d.domain ?? '?'} ${d.topic || '/vision_pose'} · consumer ${sub} · flow ${hz}`;
+              pathEl.textContent = `${rid === 'pinky1' ? 'Pinky 1' : 'Pinky 2'}: D${d.domain ?? '?'} ${d.topic || '/vision_pose'} · consumer ${sub} · flow ${hz}`;
             }
           }
-          updateVisionRobot('robot1', 'vision-r1', '#3fb950');
-          updateVisionRobot('robot2', 'vision-r2', '#39d0d8');
+          updateVisionRobot('pinky1', 'vision-r1', '#3fb950');
+          updateVisionRobot('pinky2', 'vision-r2', '#39d0d8');
 
           // Drive Stack API는 아직 계약되지 않았다. 필드가 생기기 전에는 READY를 추정하지 않는다.
           const drive = data.driveStack || data.drive_stack || data.driveStatus || null;
@@ -2628,7 +2559,7 @@
           }
 
           // Localization Error Meter 필드가 생기면 기존 /api/status 아래 값을 그대로 소비한다.
-          const residual = (vision.robot1 && vision.robot1.residual) || null;
+          const residual = (vision.pinky1 && vision.pinky1.residual) || null;
           const rs = document.getElementById('residual-summary');
           const rf = document.getElementById('residual-floor');
           if (residual) {
@@ -2706,31 +2637,9 @@
             }
           }
 
-          // 4. 네비게이션 미션 텔레메트리 갱신
-          if (data.robot1_nav) {
-            const st = data.robot1_nav;
-            const navStateEl = document.getElementById('hud-nav-state');
-            const remDistEl = document.getElementById('hud-rem-dist');
-            if (navStateEl) navStateEl.textContent = `${st.state || 'IDLE'} ${st.mission ? '(' + st.mission + ')' : ''}`;
-            // 🔴 QA Q-3 (2026-09-12): `|| 0` 은 여기서 **Q-1 과 같은 방향**으로 틀린다.
-            //    남은 거리 `0.00 m` 는 "도착했다" 로 읽힌다 — 안 온 값이 가장 좋은
-            //    소식으로 둔갑한다. 안 왔으면 숫자를 쓰지 않는다.
-            if (remDistEl) {
-              const rd = st.remaining_dist;
-              const has = (typeof rd === 'number' && isFinite(rd));
-              remDistEl.textContent = has ? `${rd.toFixed(2)} m` : '미측정';
-              remDistEl.style.color = has ? '' : '#8b949e';
-            }
-            if (st.current_target) {
-              activeGoal = { x: st.current_target[0], y: st.current_target[1], yaw: 0.0 };
-              const hGoalPos = document.getElementById('hud-goal-pos');
-              if (hGoalPos) hGoalPos.textContent = `X: ${st.current_target[0].toFixed(2)}m, Y: ${st.current_target[1].toFixed(2)}m`;
-            }
-          }
-
           // 로봇 2 좌표 갱신
-          if (_obs(data.robots && data.robots.robot2)) {
-            const r2 = data.robots.robot2;
+          if (_obs(data.robots && data.robots.pinky2)) {
+            const r2 = data.robots.pinky2;
             robot2Pose = { x: r2.x, y: r2.y, yaw: r2.yaw };
             robot2Trail.push({x:r2.x, y:r2.y}); if (robot2Trail.length > 80) robot2Trail.shift();
             _setText('r2-x', r2.x.toFixed(2) + ' m');
@@ -2766,27 +2675,22 @@
           // 실시간 네트워크 전달 속도 (Ping RTT) 갱신
           if (data.network_latency) {
             updateLatencyUI('router', data.network_latency.router);
-            updateLatencyUI('robot1', data.network_latency.robot1);
-            updateLatencyUI('robot2', data.network_latency.robot2);
+            updateLatencyUI('pinky1', data.network_latency.pinky1);
+            updateLatencyUI('pinky2', data.network_latency.pinky2);
             updateLatencyUI('internet', data.network_latency.internet);
           // 로봇 간 통신 상태 (Fleet Comm) UI 갱신
           if (data.fleet_comm) {
             const fc = data.fleet_comm;
-            if (fc.robot1) {
+            if (fc.pinky1) {
               const r1RttEl = document.getElementById('fleet-r1-rtt');
-              if (r1RttEl && fc.robot1.rtt_ms !== null && fc.robot1.rtt_ms !== undefined) {
-                r1RttEl.textContent = fc.robot1.rtt_ms.toFixed(1) + ' ms';
-              }
-              const r1NavEl = document.getElementById('fleet-r1-nav');
-              if (r1NavEl) {
-                r1NavEl.textContent = fc.robot1.nav_state + ' (Solo A*)';
-                r1NavEl.style.color = (fc.robot1.nav_state === 'NAVIGATING') ? '#3fb950' : '#f2cc60';
+              if (r1RttEl && fc.pinky1.rtt_ms !== null && fc.pinky1.rtt_ms !== undefined) {
+                r1RttEl.textContent = fc.pinky1.rtt_ms.toFixed(1) + ' ms';
               }
             }
-            if (fc.robot2) {
+            if (fc.pinky2) {
               const r2RttEl = document.getElementById('fleet-r2-rtt');
-              if (r2RttEl && fc.robot2.rtt_ms !== null && fc.robot2.rtt_ms !== undefined) {
-                r2RttEl.textContent = fc.robot2.rtt_ms.toFixed(1) + ' ms';
+              if (r2RttEl && fc.pinky2.rtt_ms !== null && fc.pinky2.rtt_ms !== undefined) {
+                r2RttEl.textContent = fc.pinky2.rtt_ms.toFixed(1) + ' ms';
               }
             }
             if (fc.p2p_link) {

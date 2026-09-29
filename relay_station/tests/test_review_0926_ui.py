@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """REVIEW_20260926 G 후속: 게이트웨이를 재기동하면 로봇이 링크유실로 래치되고 코디네이터가 그 로봇을
-"링크유실 래치 — 로봇 재개 필요" 로 세운다. 그런데 V2 에는 로봇 재개(`/api/robotN/resume`)가 없었다 →
+"링크유실 래치 — 로봇 재개 필요" 로 세운다. 그런데 V2 에는 로봇 재개(`/api/pinkyN/resume`)가 없었다 →
 웹만으로는 월요일 ② 로봇 지도 전환이 REFUSED 로 막혔다. 로봇 카드에 로봇 정지·재개와 세운 이유를 싣는다.
+경로는 /api/pinkyN/stop · /api/pinkyN/resume — 이름은 pinkyN 하나다(2026-09-29).
 """
 import os
 import sys
@@ -25,7 +26,7 @@ def test_V2_로봇_카드에_로봇_정지·재개가_있고_재개는_확인을
     비상정지 버튼처럼). 움직일 수 있는 재개만 묻는다(test_review_0926_ui2 가 실제 Chrome 에서 잰다)."""
     js, css = _v2()
     assert 'data-robot-cmd="stop"' in js and 'data-robot-cmd="resume"' in js
-    assert "`/api/robot${index}/${cmd}`" in js
+    assert "`/api/${robotKey(index)}/${cmd}`" in js and "/api/robot" not in js
     body = js[js.index("async function robotAction"):]
     body = body[:body.index("\n  }\n")]
     ask = 'if (cmd === "resume" && !window.confirm('
@@ -53,8 +54,9 @@ def test_V2_세운_이유를_카드에_보이고_세운_로봇은_초록이_아�
 def test_V2_카드_번호와_게이트웨이_로봇_재개·정지_경로가_맞는다():
     import gateway_web_server as g
     for i, name in ((1, "pinky1"), (2, "pinky2")):
-        assert g.ROBOT_RESUME_PATHS["/api/robot%d/resume" % i] == name
-        assert g.ROBOT_STOP_PATHS["/api/robot%d/stop" % i] == name
+        assert g.ROBOT_RESUME_PATHS["/api/%s/resume" % name] == name
+        assert g.ROBOT_STOP_PATHS["/api/%s/stop" % name] == name
+    assert not [p for p in list(g.ROBOT_STOP_PATHS) + list(g.ROBOT_RESUME_PATHS) if "robot" in p]
 
 
 def test_V2_코디네이터_경고를_알림_띠에_싣는다__끊겼으면_옛_경고라_싣지_않는다():

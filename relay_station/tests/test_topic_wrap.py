@@ -124,16 +124,16 @@ def test_오래된_기억은_버린다():
 # ---- ③ 이름 규칙 — 두 곳이 어긋나면 조용히 안 나른다 ------------------------------------
 
 def test_이름_규칙이_한_곳에서만_나온다():
-    assert tw.topic_names("robot1", "svc", "led") == {
-        "request": "robot1/svc/led/request", "result": "robot1/svc/led/result"}
-    assert set(tw.topic_names("robot1", "act", "nav")) == {
+    assert tw.topic_names("pinky1", "svc", "led") == {
+        "request": "pinky1/svc/led/request", "result": "pinky1/svc/led/result"}
+    assert set(tw.topic_names("pinky1", "act", "nav")) == {
         "goal", "cancel", "feedback", "result"}
 
 
 def test_팀원용은_teleop_밑으로_들어간다():
     """⭐ 벌 2 는 teleop 접두어만 나른다. 규칙을 깨는 대신 **그 밑으로 들어간다.**"""
-    t = tw.topic_names("robot1", "svc", "led", via_team=True)
-    assert t["request"] == "robot1/teleop/svc/led/request"
+    t = tw.topic_names("pinky1", "svc", "led", via_team=True)
+    assert t["request"] == "pinky1/teleop/svc/led/request"
     assert all("teleop/" in v for v in t.values())
 
 
@@ -152,10 +152,10 @@ def test_생성기와_어댑터가_같은_이름을_쓴다():
     for n in (1, 2, 3, 4):
         import yaml
         doc = yaml.safe_load(io.open(
-            os.path.join(CFG, "robot%d_control.yaml" % n), encoding="utf-8"))
+            os.path.join(CFG, "pinky%d_control.yaml" % n), encoding="utf-8"))
         topics = set(doc.get("topics") or {})
         for s in names:
-            want = tw.topic_names("robot%d" % n, "svc", s)
+            want = tw.topic_names("pinky%d" % n, "svc", s)
             for role, t in want.items():
                 assert t in topics, (
                     "브리지 설정에 %s 가 없다 (%s) — 어댑터는 이 이름으로 내놓는다"
@@ -167,7 +167,7 @@ def test_감싼_요청은_내려가고_응답은_올라온다():
     import yaml
     for n, d in ((1, 10), (2, 11), (3, 12), (4, 13)):
         doc = yaml.safe_load(io.open(
-            os.path.join(CFG, "robot%d_control.yaml" % n), encoding="utf-8"))
+            os.path.join(CFG, "pinky%d_control.yaml" % n), encoding="utf-8"))
         topics = doc["topics"]
         for t, spec in topics.items():
             if "/svc/" not in t:
@@ -188,13 +188,13 @@ def test_팀원에게_연_것이_없으면_벌2에도_없다():
     opened = team.group(1).split()
     import yaml
     doc = yaml.safe_load(io.open(
-        os.path.join(CFG, "robot1_teleop_in.yaml"), encoding="utf-8"))
+        os.path.join(CFG, "pinky1_teleop_in.yaml"), encoding="utf-8"))
     svc_topics = [t for t in (doc.get("topics") or {}) if "/svc/" in t]
     if not opened:
         assert not svc_topics, "아무것도 안 열었는데 벌 2 에 감싼 토픽이 있다: %s" % svc_topics
     else:
         for s in opened:
-            assert tw.topic_names("robot1", "svc", s, via_team=True)["request"] in svc_topics
+            assert tw.topic_names("pinky1", "svc", s, via_team=True)["request"] in svc_topics
 
 
 # ---- 한계를 적어 뒀는가 --------------------------------------------------------------
