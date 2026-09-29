@@ -364,21 +364,8 @@ def test_게이트웨이_로봇_지도·초기_위치(gw):
 STATIC = os.path.join(REPO, "relay_station", "gateway_web", "static")
 
 
-def test_V2_설정_탭에_전환_카드가_있고_버튼은_확인을_묻는다():
-    html = open(os.path.join(STATIC, "fleet_control_v2.html"), encoding="utf-8").read()
-    js = open(os.path.join(STATIC, "fleet_control_v2.js"), encoding="utf-8").read()
-    for i in ("profile-card", "profile-select", "profile-switch", "profile-robot-maps", "profile-initial-poses",
-              "summary-profile"):
-        assert 'id="%s"' % i in html, i
-    for url in ("/api/fleet/profiles", "/api/fleet/profile", "/api/fleet/robot_maps", "/api/fleet/initial_poses"):
-        assert url in js
-    assert "window.confirm" in js and "renderProfile" in js
 
 
-def test_index_html_지도_규격은_서버가_읽은_지도를_따른다():
-    html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
-    assert "fetch('/api/fleet/profile_map'" in html
-    assert re.search(r"let MAP_ORIGIN\s*=", html) and not re.search(r"const MAP_ORIGIN\s*=", html)
 
 
 def test_미션이_배정_거절될_로봇을_품으면_경고하고_전환_화면이_경로_없는_로봇을_보인다():
@@ -393,8 +380,6 @@ def test_미션이_배정_거절될_로봇을_품으면_경고하고_전환_화�
     assert st["unassigned"] == ["pinky2"]
     assert c.switch_profile("map4")
     assert c.profile_status()["unassigned"] == []
-    js = open(os.path.join(STATIC, "fleet_control_v2.js"), encoding="utf-8").read()
-    assert "p.unassigned" in js and "cur.warnings" in js
 
 
 def test_실행본_심링크_농장에서도_게이트웨이가_코디네이터를_찾는다(tmp_path):

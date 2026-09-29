@@ -405,23 +405,6 @@ def test_C_A5_duplicate_and_out_of_order_zone_event_reject():
 # C-A6: Legacy /api/vision/pose remains separate
 # =============================================================================
 
-def test_C_A6_legacy_vision_pose_endpoint_remains_separate():
-    """Verify /api/vision/pose and /api/vision/pose_fix are distinct routes."""
-    server_script = os.path.join(GATEWAY_DIR, "gateway_web_server.py")
-    with open(server_script, "r", encoding="utf-8") as f:
-        src = f.read()
-
-    # Both route branches must exist in do_POST
-    assert "elif parsed.path == '/api/vision/pose':" in src
-    assert "elif parsed.path == '/api/vision/pose_fix':" in src
-
-    # /api/vision/pose routes to publish_vision_pose -> /<robotId>/vision_pose
-    assert "GLOBAL_ROBOT_SUB_NODE.publish_vision_pose(" in src
-    assert "/vision_pose" in src
-
-    # /api/vision/pose_fix routes to publish_pose_fix -> /<robot_name>/pose_fix
-    assert "GLOBAL_ROBOT_SUB_NODE.publish_pose_fix(norm)" in src
-    assert "validate_pose_fix(" in src
 
 
 # =============================================================================

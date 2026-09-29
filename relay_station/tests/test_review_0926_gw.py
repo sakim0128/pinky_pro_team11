@@ -110,29 +110,10 @@ def test_G2_로봇_정지의_503_도_이유를_싣는다(g):
     assert code == 503 and body["reason"] == "NO_FLEET_COORDINATOR" and body["detail"] == IMPORT_ERR
 
 
-def test_G2_화면은_503_비상정지·정지를_실패로_보인다():
-    """V2 의 플릿 버튼은 postJson 이 !res.ok 에서 던지고 '명령 전송 실패' 창을 띄운다(초록 없음).
-    index.html 의 정지는 ok·success 가 아니면 빨강 '정지 불가'. (정적 검사 — 렌더링 검증 아님)"""
-    static = os.path.join(GATEWAY_DIR, "static")
-    js = io.open(os.path.join(static, "fleet_control_v2.js"), encoding="utf-8").read()
-    post = js[js.index("async function postJson"):js.index("function initTabs")]
-    assert "if (!res.ok) throw new Error(body.message" in post
-    ctl = js[js.index("function initControls"):js.index("function robotName")]
-    assert 'postJson("/api/fleet/" + cmd' in ctl and 'alert("명령 전송 실패: "' in ctl
-    html = io.open(os.path.join(static, "index.html"), encoding="utf-8").read()
-    stop = html[html.index("async function stopNavigation"):html.index("function renderNavCanvas")]
-    assert "if (r.ok && body.success)" in stop and "#f85149" in stop.split("} else if (msgEl) {")[1]
 
 
 # ==== G-1 · 코디네이터가 없으면 우회 목표·미션도 503 ===================================================================
 
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-def test_G1_코디네이터가_없으면_우회_목표·미션은_503_이고_보내지_않는다(g, path):
-    gws, node = g
-    code, body = _post(gws, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5, "mission": "1"}')
-    assert code == 503 and body["reason"] == "NO_FLEET_COORDINATOR" and body["detail"] == IMPORT_ERR
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
 
 
 def test_G1_기동_검사가_플릿_코디네이터_import_를_본다__이_레포는_된다():
@@ -217,80 +198,22 @@ def test_GW_R2_런처는_게이트웨이를_띄우는_폴더를_검사에_넘긴
 
 # ==== G-11 · 아무것도 안 냈으면 200 이 아니다 ============================================================================
 
-def test_G11_ROS_노드가_없으면_목표는_503_이고_성공이라_하지_않는다(g, monkeypatch):
-    gws, _ = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    monkeypatch.setattr(gws, "GLOBAL_ROBOT_SUB_NODE", None)
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 503 and body["success"] is False and body["reason"] == "NO_ROS_NODE"
 
 
-def test_G11_발행이_실패하면_503(g, monkeypatch):
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    node.send_goal.side_effect = RuntimeError("publisher destroyed")
-    code, body = _post(gws, "/api/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 503 and body["reason"] == "PUBLISH_FAILED" and "publisher destroyed" in body["message"]
 
 
-def test_G11_평소에는_보낸다(g, monkeypatch):
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 200 and body["success"] is True and node.send_goal.called
 
 
 # ==== G-6 · 플릿이 달리는 동안 경로 있는 로봇의 우회 목표는 예약을 비켜 간다 ========================================
 
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-def test_G6_플릿_RUNNING_중_경로가_있는_로봇의_우회_목표는_409_FLEET_RUNNING(g, monkeypatch, path):
-    gws, node = g
-    c = _coord(state="RUNNING")
-    assert c.robots["pinky1"].route is not None
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5, "mission": "1"}')
-    assert code == 409 and body["reason"] == "FLEET_RUNNING"
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
 
 
-@pytest.mark.parametrize("state,route", [("IDLE", True), ("ASSIGNED", True), ("RUNNING", False)],
-                         ids=["idle", "assigned", "running-no-route"])
-def test_G6_시작_전이거나_경로가_없는_로봇은_그대로_받는다(g, monkeypatch, state, route):
-    gws, node = g
-    c = _coord(state=state)
-    if not route:
-        c.robots["pinky1"].route = None
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, _ = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 200 and node.send_goal.called
 
 
 # ==== G-10 · 로봇을 못 찾으면 건너뛰지 않는다 ============================================================================
 
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-def test_G10_코디네이터에서_로봇을_못_찾으면_HOLD_검사를_건너뛰지_않고_503(g, monkeypatch, path):
-    gws, node = g
-    c = _coord(state="ASSIGNED")
-    c.robots = {"pinky_a": c.robots["pinky1"], "pinky_b": c.robots["pinky2"]}   # 미션이 이름을 바꿨다
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5, "mission": "1"}')
-    assert code == 503 and body["reason"] == "ROBOT_NOT_IN_FLEET"
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
 
 
-def test_G10_HOLD_거부는_이유를_말한다(g, monkeypatch):
-    gws, _ = g
-    c = _coord(state="ASSIGNED")
-    c.stop_robot("pinky1")
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "ROBOT_HELD" and FC.HELD_BY_OPERATOR in body["message"]
-    c.resume_robot("pinky1")
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 110.0, "관제 링크 유실")      # 재기동 뒤 링크유실 래치
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "ROBOT_HELD" and FC.HELD_LINK_LOST in body["message"]
 
 
 # ==== G-13 · 변이 M1 — resume_fleet 이 비상정지 권한을 잡지 않으면 ======================================================
@@ -421,10 +344,7 @@ def test_G5_비상정지_래치는_로봇_보고_전에도_재시작을_넘는�
     _reset(c2)
     assert c2.resume_robot("pinky1") is False
     assert _sent(c2.lane_cmd_pubs["pinky1"]) == []
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c2)
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "FLEET_ESTOP" and not node.send_goal.called
+    assert c2.get_fleet_status_dict()["estop_latched"] is True     # 개편 2단계: 우회 목표 경로는 없다 — 상태로 잰다
     c2._publish_lane_commands()
     assert _sent(c2.lane_cmd_pubs["pinky1"])[-1].command == LaneCommand.CMD_ESTOP
 
@@ -461,9 +381,7 @@ def test_G4_플릿_정지는_재시작을_넘고_배정이_ASSIGNED_로_덮지_�
     c.stop_fleet()
     c2 = _restart(tmp_path)
     assert c2.mission_state == "STOPPED"
-    gws, _ = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c2)
-    assert _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')[1]["reason"] == "FLEET_STOPPED"
+    assert c2.get_fleet_status_dict()["mission_state"] == "STOPPED"   # 개편 2단계: 우회 목표 경로는 없다 — 상태로 잰다
     _reset(c2)
     c2._publish_lane_commands()
     assert _sent(c2.lane_cmd_pubs["pinky1"])[-1].command == LaneCommand.CMD_STOP
@@ -543,9 +461,7 @@ def test_G3_로봇별_정지는_이유와_함께_재시작을_넘고_start_가_�
     c2.start_fleet()
     assert _sent(c2.lane_cmd_pubs["pinky1"]) == []
     assert [m.command for m in _sent(c2.lane_cmd_pubs["pinky2"])] == [LaneCommand.CMD_START]
-    gws, _ = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c2)
-    assert _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b"{}")[1]["reason"] == "ROBOT_HELD"
+    assert c2.get_fleet_status_dict()["robots"]["pinky1"]["held"] is True   # 개편 2단계: 우회 목표 경로 대신 상태로
     c2.resume_robot("pinky1")
     assert _file(tmp_path)["held"] == {}
     assert not _restart(tmp_path).robots["pinky1"].held
@@ -843,11 +759,6 @@ def test_G_S6_복원_HOLD_도_이유가_있다():
     assert c.get_fleet_status_dict()["robots"]["pinky2"]["held_reason"] == FC.HELD_ESTOP_RESTORED
 
 
-def test_G_전환_카드가_세워_둔_로봇과_이유를_보인다():
-    js = io.open(os.path.join(GATEWAY_DIR, "static", "fleet_control_v2.js"), encoding="utf-8").read()
-    card = js[js.index("function renderProfile"):js.index("async function profileAction")]
-    assert "(Object.keys(p.held||{}).length ? `<div class=\"config-row\"><span>로봇별 정지</span>" in card
-    assert "Object.entries(p.held).map(([n,why])" in card and "${esc(why)}" in card
 
 
 # ==== 실제 생성자 — 경로 배정 뒤에 복원한다 (격리 도메인 하위 프로세스) ================================================

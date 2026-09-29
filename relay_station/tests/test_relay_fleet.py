@@ -514,13 +514,11 @@ def test_R_A18_gateway_web_http_thread_decoupling():
 
     # Must have publishers on RobotDataSubscriberNode
     assert "self.pub_fleet_control" in src
-    assert "self.pub_vision_zone_event" in src
     assert "send_fleet_control" in src
-    assert "send_vision_zone_event" in src
 
-    # HTTP POST handler must route through send_fleet_control / send_vision_zone_event
+    # HTTP POST handler must route through send_fleet_control (개편 2단계: 비전 구역 이벤트 POST 는 지웠다)
     assert "GLOBAL_ROBOT_SUB_NODE.send_fleet_control(payload)" in src
-    assert "GLOBAL_ROBOT_SUB_NODE.send_vision_zone_event(req_json)" in src
+    assert "/api/vision/zone_event" not in src
 
 
 # =============================================================================

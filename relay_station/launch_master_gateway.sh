@@ -271,10 +271,10 @@ pkill -f "relay_controller_gui.py" 2>/dev/null || true
 sleep 0.5
 
 cd "$SCRIPT_DIR"
-# 현장 중계 장비 전용 로봇 제어 콘솔 GUI 기동
-pkill -f "relay_controller_gui.py" 2>/dev/null || true
-nohup python3 "$SCRIPT_DIR/relay_controller_gui.py" >/tmp/relay_gui.log 2>&1 &
-echo "  - 현장 중계 장비 로봇 제어 콘솔 창(GUI)이 화면에 팝업되었습니다."
+# 개편 2단계(2026-09-29): 데스크톱 GUI 는 없앴다. 중계 콘솔 = http://localhost:8889/ (버스·제어권·①②③·멈춤·폰 영상),
+# 주 대시보드 = 팀11 live 웹 :8080 (relay_station/launch_live_web.sh 로 따로 띄운다).
+pkill -f "relay_controller_gui.py" 2>/dev/null || true     # 예전 판이 남긴 창이 있으면 닫는다
+echo "  - 중계 콘솔: http://localhost:8889/  ·  주 대시보드: relay_station/launch_live_web.sh → :8080"
 
 # MCV-1C: 로컬 캠은 필요할 때만 열린다(lazy open + idle release) - LED 는 유휴에 꺼진다.
 # 장치를 절대 열지 않으려면 인자로 --no-camera 를 준다. pull 소스는 그 플래그와 무관하다.

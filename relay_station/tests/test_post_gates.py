@@ -104,14 +104,6 @@ def test_로컬_게이트가_한_곳에_정의돼_있다():
     assert src.count("'127.0.0.1', '::1', 'localhost'") == 1
 
 
-def test_캘리브레이션_POST_는_주행_명령과_같은_게이트를_쓴다():
-    for paths, branch in _post_branches():
-        if not any(p.startswith('/api/calibration') for p in paths):
-            continue
-        assert "LOCAL_CONTROL_IPS" in _names_in(branch), \
-            "%s 에 로컬 게이트가 없다 - 원격에서 좌표계를 바꿀 수 있다" % paths
-        return
-    pytest.fail("캘리브레이션 POST 가지를 못 찾았다")
 
 
 def test_게이트_없는_POST_경로가_새로_생기지_않았다():
@@ -139,91 +131,21 @@ def test_정지_계열이_아직_무인증이라는_사실이_기록돼_있다()
 
 # ---- 프레임 크기는 클라이언트가 말하는 값이 아니다 -----------------------------------
 
-def test_영수증의_프레임_크기를_요청에서_받지_않는다():
-    """⭐ 클라이언트가 보낸 크기를 믿으면 영수증이 거짓이 된다.
-
-    /status.resolution 이 설정값이라 거짓이었던 것과 같은 실수다 - 이번엔 우리가 안 한다.
-    """
-    src = _source()
-    assert "req_json.get('frameSize')" not in src
-    assert "req_json.get('frame_size')" not in src
-    assert "_calib_frame_facts" in src
 
 
-def test_프레임_크기를_곁표에서_읽는다():
-    fn = _func("_calib_frame_facts")
-    body = ast.dump(fn)
-    assert "clock_info" in body, "크기를 곁표(clock_info)가 아닌 데서 가져오고 있다"
-    assert "frameWidth" in body and "frameHeight" in body
 
 
-def test_set_points_에_넘기는_크기가_실측에서_온다():
-    """⭐ 문자열 검사만으로는 `req_json.get('size')` 같은 변형을 놓친다.
-
-    그래서 **자료 흐름**을 본다: set_points 의 3번째 인자가 _calib_frame_facts 가
-    묶어 준 이름인가. 다른 데서 온 이름이면 실패한다.
-    """
-    post = _func("do_POST")
-    measured = set()
-    for node in ast.walk(post):
-        if not isinstance(node, ast.Assign):
-            continue
-        call = node.value
-        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
-                and call.func.id == "_calib_frame_facts"):
-            for tgt in node.targets:
-                for n in ast.walk(tgt):
-                    if isinstance(n, ast.Name):
-                        measured.add(n.id)
-    assert measured, "do_POST 가 _calib_frame_facts 로 실측을 안 가져온다"
-    found = False
-    for node in ast.walk(post):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "set_points"):
-            found = True
-            assert len(node.args) >= 3, "set_points 인자가 모자란다"
-            third = node.args[2]
-            assert isinstance(third, ast.Name) and third.id in measured,                 "프레임 크기가 실측이 아닌 데서 온다: %s" % ast.dump(third)
-    assert found, "set_points 호출을 못 찾았다"
 
 
 # ---- 미리보기 -----------------------------------------------------------------
 
-def test_미리보기가_y축을_뒤집는다():
-    """화면은 위가 0, 아레나는 아래가 0. 안 뒤집으면 거꾸로인 그림을 정합이라 부른다."""
-    src = _source()
-    assert "out_h - targets[c][1] * scale" in src
 
 
-def test_미리보기가_정착_전에도_되지만_행렬을_내주지는_않는다():
-    """찍으면서 확인하는 화면이다. 그렇다고 그 값이 관측 좌표가 되지는 않는다."""
-    fn = _func("_calib_preview")
-    names = _names_in(fn)
-    assert "STATE_SETTLED" not in names, "미리보기가 정착을 요구하면 찍는 중에 못 본다"
-    src = _source()
-    assert "def _calib_preview" in src
-    # 관측용 행렬은 여전히 store 의 fail-closed 경로로만 나간다
-    assert "homography_for" not in src.split("def _calib_preview", 1)[1][:2000]
 
 
-def test_아레나가_없으면_미리보기가_거절한다():
-    fn = _func("_calib_preview")
-    assert "'NO_ARENA'" in ast.dump(fn)
 
 
 # ---- 읽기 표면 ----------------------------------------------------------------
 
-@pytest.mark.parametrize("path", [
-    '/api/calibration', '/api/calibration/receipts',
-    '/api/calibration/still', '/api/calibration/preview',
-])
-def test_읽기_엔드포인트가_있다(path):
-    assert "parsed.path == '%s'" % path in _source()
 
 
-def test_상태_API_가_문구를_내지_않는다():
-    """R-6 규약: 서버는 코드와 숫자만 낸다. 말은 UI 가 소유한다."""
-    src = _source()
-    block = src.split("if parsed.path == '/api/calibration':", 1)[1][:900]
-    for word in ("정합", "완료", "실패했습니다", "하세요"):
-        assert word not in block, "상태 API 가 문구(%s)를 내고 있다" % word

@@ -558,15 +558,6 @@ def test_지도_칸__RES_2__미션_로봇_이름이_글자가_아니어도_목�
     assert p.valid and _occ_warnings(p)["C_D"].endswith(" — %s 경로" % shown)
 
 
-def test_지도_칸__V2_카드가_읽는_available_에_실리고_카드는_cur_warnings_를_그린다():
-    c = _pcoord()
-    assert c.switch_profile("map4")
-    st = c.profile_status()
-    cur = next(a for a in st["available"] if a["name"] == st["active"])
-    assert cur["valid"] and any(w.startswith("지도 칸: 엣지 JW_JS") and w.endswith("pinky1 경로") for w in cur["warnings"])
-    js = open(os.path.join(STATIC, "fleet_control_v2.js"), encoding="utf-8").read()
-    assert 'esc(cur.warnings.join("; "))' in js                        # 카드의 "미션 경고" 줄
-    assert "a.valid&&(a.warnings||[]).length" in js                    # 목록의 "(경고)" 표시 — 고를 수는 있다
 
 
 def test_지도_칸__게이트웨이_api_fleet_profiles_가_카드에_경고를_싣는다(gw):

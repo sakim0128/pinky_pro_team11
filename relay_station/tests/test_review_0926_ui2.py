@@ -168,35 +168,8 @@ def test_OPS1_18081_경로로_온_요청은_보기는_되고_움직이는_명령
 
 # ==== OPS-5 · 래치·해제 보류를 보고하는 로봇에 우회 목표·미션을 받지 않는다 ================================================
 
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-@pytest.mark.parametrize("state,reason", [
-    (LaneStatus.DRIVE_ESTOP, "ESTOP"),
-    (LaneStatus.DRIVE_LINK_LOST, "관제 링크 유실"),
-    (LaneStatus.DRIVE_IDLE, RELEASE_HOLD),
-    (LaneStatus.DRIVE_IDLE, "해제 보류 — Nav2 취소 미확인"),
-], ids=["estop", "link-lost", "release-hold-unknown", "release-hold"])
-def test_OPS5_래치나_해제_보류를_보고하는_로봇에는_우회_목표·미션을_409_ROBOT_LATCHED_로_거부한다(g, monkeypatch, path,
-                                                                                         state, reason):
-    gws, node = g
-    c = _coord(state="ASSIGNED")
-    c.robots["pinky1"].lane_status = _ls(state, reason)          # 코디네이터가 아직 세우지 않았어도(held=False)
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5, "mission": "1"}')
-    assert code == 409 and body["reason"] == "ROBOT_LATCHED" and body["dispatched"] is False
-    assert "pinky1" in body["message"]
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
 
 
-def test_OPS5_평소_보고면_목표를_보내고__200_은_발행했다고만_말한다(g, monkeypatch):
-    gws, node = g
-    c = _coord(state="ASSIGNED")
-    c.robots["pinky1"].lane_status = _ls(LaneStatus.DRIVE_IDLE, "경로 수신 — START 대기")
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 200 and body["success"] is True and node.send_goal.called
-    assert body["dispatched"] is True and body["confirmed"] is None
-    assert "발행했다" in body["message"] and "sent to Robot" not in body["message"]
 
 
 def test_OPS5_래치_판정은_에이전트가_싣는_상태_번호·해제_보류_문구와_같다():
@@ -307,22 +280,6 @@ def test_UIR1_로봇_스스로의_래치_보고는_최근_것만_센다(g, monke
     assert [call[0][0] for call in node.send_fleet_control.call_args_list] == [{"cmd": "robot_maps"}]
 
 
-@pytest.mark.parametrize("reason", ["E-STOP", RELEASE_HOLD], ids=["estop", "release-hold"])
-def test_UIR1_조용한_로봇의_옛_래치_보고로도_우회_목표는_거부하되_로봇_재개로_풀린다고_하지_않는다(g, monkeypatch, reason):
-    """움직이는 쪽은 닫힌 채로 — 에이전트가 조용하면 래치도 취소도 지키는 쪽이 없다. 다만 처방은 정직하게."""
-    gws, node = g
-    c = _coord(state="ASSIGNED")
-    ctx = c.robots["pinky1"]
-    ctx.lane_status = _ls(LaneStatus.DRIVE_ESTOP if reason == "E-STOP" else LaneStatus.DRIVE_IDLE, reason)
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", c)
-    ctx.lane_status_time = c._t - 30.0
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "ROBOT_LATCHED" and body["dispatched"] is False
-    assert "마지막 보고(30 s 전)" in body["message"] and "/api/robot1/resume" not in body["message"]
-    ctx.lane_status_time = c._t - 0.5
-    code, body = _post(gws, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == "ROBOT_LATCHED" and "마지막 보고" not in body["message"]
-    node.send_goal.assert_not_called()
 
 
 # ==== OPS-6 · 로봇 재개는 플릿 재개가 실제로 무엇을 할지로 말한다 ========================================================
@@ -355,46 +312,10 @@ def test_OPS6_로봇_재개_문구는_플릿_재개가_실제로_갈_상태와_�
 
 # ==== OPS-10 · 미션 API 는 본문이 말한, 내비게이터가 아는 미션만 낸다 ===================================================
 
-@pytest.mark.parametrize("raw", [
-    b"", b"{not json", b'{"x": 1}', b"[1]", b'["mission"]', b'"1"', b'{"mission": ""}', b'{"mission": null}', b'{"mission": true}',
-    b'{"mission": 1.0}', b'{"mission": "3"}', b'{"mission": "mission1"}', b'{"mission": "point1"}', b'{"mission": "stop"}',
-])
-def test_OPS10_미션이_없거나_모르는_본문은_400_BAD_MISSION_이고_보내지_않는다(g, monkeypatch, raw):
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    code, body = _post(gws, "/api/robot1/mission", ip="127.0.0.1", body=raw)
-    assert code == 400 and body["reason"] == "BAD_MISSION" and body["dispatched"] is False
-    assert body["message"].startswith("미션 거부 — ")
-    if raw in (b'{"mission": true}', b'{"mission": 1.0}', b'{"mission": null}'):
-        assert "글자·정수가 아니다" in body["message"]                  # 참·실수를 '1' 로 읽지 않는다
-    node.send_mission.assert_not_called()
 
 
-@pytest.mark.parametrize("raw,cmd", [
-    (b'{"mission": "1"}', "mission1"), (b'{"mission": "2"}', "mission2"), (b'{"mission": 2}', "mission2"),
-    (b'{"mission": " 1 "}', "mission1"),
-])
-def test_OPS10_아는_미션은_내비게이터_명령으로_보낸다(g, monkeypatch, raw, cmd):
-    gws, node = g
-    monkeypatch.setattr(gws, "GLOBAL_FLEET_COORDINATOR", _coord(state="ASSIGNED"))
-    code, body = _post(gws, "/api/robot1/mission", ip="127.0.0.1", body=raw)
-    assert code == 202 and body["dispatched"] is True
-    node.send_mission.assert_called_once_with(cmd)
 
 
-@pytest.mark.skip(reason='대사 대상(원 저장소 robots/robot1/services/robot1_mission_navigator.py)이 이 레포에 없다 — hybrid_robot.launch.xml 의 로봇은 mission_cmd 문자열이 아니라 FleetCommand·LaneCommand 로 움직인다. 400 BAD_MISSION 검증은 위 두 시험이 잰다')
-def test_OPS10_받는_미션은_내비게이터가_아는_명령이고_GUI_는_그_값을_보낸다():
-    import gateway_web_server as gws
-    nav = io.open(os.path.join(REPO, "robots", "robot1", "services", "robot1_mission_navigator.py"), encoding="utf-8").read()
-    handler = nav[nav.index("def _cb_mission_cmd"):nav.index("def plan_and_navigate_to")]
-    for cmd in gws.MISSION_COMMANDS.values():
-        assert "'%s'" % cmd in handler, cmd
-    gui = io.open(os.path.join(GATEWAY_DIR, "relay_controller_gui.py"), encoding="utf-8").read()
-    assert "json.dumps({'mission': str(mission_num)})" in gui
-    sent = set(re.findall(r"self\._send_mission\((\d+)\)", gui))
-    assert sent and sent <= set(gws.MISSION_COMMANDS), sent
-    for page in ("fleet_control_v2.js", "index.html"):               # 웹 화면은 미션 API 를 부르지 않는다
-        assert "/api/robot1/mission" not in io.open(os.path.join(STATIC, page), encoding="utf-8").read(), page
 
 
 # ==== OPS-2·4·7·8·N1 · V2 화면 (정적 검사) ===============================================================================
@@ -408,38 +329,10 @@ def _fn(js, head):
     return body[:body.index("\n  }\n")]
 
 
-def test_OPS2_V2_는_코디네이터_없음·못_받음을_초록으로_보이지_않는다__정적():
-    js = _js()
-    link = _fn(js, "function fleetLink")
-    assert '"FLEET_COORDINATOR_UNAVAILABLE") return "no_coordinator"' in link and 'return "ok"' in link
-    ren = _fn(js, "function renderLink")
-    assert 'setPill($("backend-status"), "COORDINATOR 없음", "bad")' in ren
-    assert 'else if (link === "ok") setPill($("backend-status"), "RELAY CONNECTED", "ok")' in ren
-    ref = _fn(js, "async function refresh")
-    # 받은 때만 lastUpdate 를 찍는다(예전엔 실패해도 찍어 옛 값이 새 값으로 보였다) — DEMO 한 곳 + 플릿 성공 한 곳
-    assert ref.count("state.lastUpdate=Date.now()") == 2
-    assert 'if(key==="fleet") { state.fleet=val; state.fleetError=null; state.lastUpdate=Date.now(); }' in ref
-    assert 'if(key==="fleet") state.fleetError =' in ref
 
 
-def test_OPS4_V2_로봇_버튼은_한_번만_만들고_정지는_묻지_않는다__정적():
-    js = _js()
-    cards = _fn(js, "function renderDashboardRobots")
-    assert cards.count("data-robot-cmd=") == 2 and 'if (!host.querySelector("[data-robot-card]"))' in cards
-    assert cards.index("data-robot-cmd=") < cards.index("[1,2].forEach")        # 버튼은 갱신 고리 밖에서 만든다
-    act = _fn(js, "async function robotAction")
-    assert 'if (cmd === "resume" && !window.confirm(' in act and act.count("window.confirm(") == 1
 
 
-def test_OPS7_OPS8_N1_V2_알림_띠·202·해제_보류__정적():
-    js = _js()
-    assert "state.fleet?.control_note" in _fn(js, "function renderLink")
-    html = io.open(os.path.join(STATIC, "fleet_control_v2.html"), encoding="utf-8").read()
-    assert html.index('id="alert-banner"') < html.index('id="tab-dashboard"')   # 탭 밖 — 어느 탭에서도 보인다
-    ctl = js[js.index("function initControls"):js.index("function robotName")]
-    assert "body.applied === null" in ctl and "(적용 여부 모름)" in ctl
-    tone = _fn(js, "function toneForRobot")
-    assert 'if (r.reason.startsWith("해제 보류")) return "warn";' in tone and tone.index("해제 보류") < tone.index('return "ok"')
 
 
 # ==== OPS-2·4·7·8·N1 · V2 화면 (실제 Chrome 에서 — 격리 네트워크에서만) ===================================================
@@ -540,110 +433,26 @@ class _Chrome:
         os.close(self.r)
 
 
-@pytest.fixture(scope="module")
-def v2(tmp_path_factory):
-    exe = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
-    if not exe:
-        pytest.skip("Chrome 없음")
-    if not _isolated_net():
-        pytest.skip("격리 네트워크(unshare -rn)에서만 Chrome 을 띄운다")
-    d = tmp_path_factory.mktemp("v2")
-    html = io.open(os.path.join(STATIC, "fleet_control_v2.html"), encoding="utf-8").read()
-    html = html.replace("<head>", "<head>" + _STUB, 1)
-    html = html.replace('href="/fleet_control_v2.css"', 'href="file://%s/fleet_control_v2.css"' % STATIC)
-    html = html.replace('src="/fleet_control_v2.js"', 'src="file://%s/fleet_control_v2.js"' % STATIC)
-    page = d / "v2.html"
-    page.write_text(html, encoding="utf-8")
-    ch = _Chrome(exe, str(d / "profile"), "file://" + str(page))
-    yield ch
-    ch.close()
 
 
 _PILL = '[document.getElementById("backend-status").textContent, document.getElementById("backend-status").className]'
 _CARDS = '[...document.querySelectorAll("#dashboard-robots .robot-head .status-pill")].map(e => e.className)'
 
 
-def test_OPS2_V2_코디네이터가_없으면_빨강_COORDINATOR_없음(v2):
-    v2.mode("{nocoord: true}")
-    text, cls = v2.ev(_PILL)
-    assert text == "COORDINATOR 없음" and cls.endswith(" bad")
-    assert "코디네이터 없음" in v2.ev('document.getElementById("alert-banner").innerText')
 
 
-def test_OPS2_V2_게이트웨이에_닿지_않으면_끊김·옛_값이고_카드도_초록이_아니다(v2):
-    v2.mode("{}")
-    assert v2.ev(_PILL) == ["RELAY CONNECTED", "status-pill ok"]
-    v2.mode("{netdown: true}")
-    text, cls = v2.ev(_PILL)
-    assert "끊김" in text and "마지막 수신" in text and cls.endswith(" bad")
-    assert all(c.endswith(" bad") for c in v2.ev(_CARDS)), v2.ev(_CARDS)
-    assert "옛 값" in v2.ev('document.getElementById("mission-status").textContent')
-    v2.mode("{}")
-    assert v2.ev(_PILL) == ["RELAY CONNECTED", "status-pill ok"]                    # 다시 받으면 돌아온다
 
 
-def test_OPS2_V2_응답이_매달려도_몇_초_뒤에는_끊김으로_본다(v2):
-    """게이트웨이가 연결은 받고 답을 안 하면 갱신이 끝나지 않는다 — 그래도 1 s 시계가 옛 값이라고 말한다."""
-    v2.mode("{}")
-    assert v2.ev(_PILL) == ["RELAY CONNECTED", "status-pill ok"]
-    v2.mode("{hang: true}")
-    end = time.time() + 9
-    while time.time() < end and "끊김" not in v2.ev(_PILL)[0]:
-        time.sleep(0.25)
-    assert "끊김" in v2.ev(_PILL)[0] and all(c.endswith(" bad") for c in v2.ev(_CARDS))
-    v2.mode("{}")
-    assert v2.ev(_PILL) == ["RELAY CONNECTED", "status-pill ok"]
 
 
-def test_N1_V2_해제_보류_로봇은_초록이_아니다(v2):
-    v2.mode("{ls1: {drive_state: 0, state_reason: %s}}" % json.dumps(RELEASE_HOLD, ensure_ascii=False))
-    assert v2.ev(_CARDS)[0].endswith(" warn")
 
 
-def test_OPS7_V2_control_note_는_대시보드에서_보인다(v2):
-    v2.mode('{note: "제어 상태 파일을 깨졌다 — 시험"}')
-    assert v2.ev('document.querySelector(".nav-item.active").dataset.tab') == "dashboard"
-    assert "제어 상태 파일을 깨졌다 — 시험" in v2.ev("document.body.innerText")   # innerText = 보이는 글자만
-    v2.mode("{}")
-    assert "제어 상태 파일을 깨졌다" not in v2.ev("document.body.innerText")
 
 
-def test_OPS8_V2_플릿_버튼은_202_를_적용_여부_모름으로_말한다(v2):
-    v2.mode('{post: () => J(202, {success: false, applied: null, dispatched: true, message: "보냈다 — 모른다"})}')
-    v2.ev('document.querySelector("[data-command=start]").click(); 0')
-    time.sleep(0.5)
-    alerts = v2.ev("window.__alerts.slice()")
-    assert len(alerts) == 1 and alerts[0].startswith("⚠️ 주행 시작: ") and "(적용 여부 모름)" in alerts[0]
-    v2.mode("{}")
-    v2.ev('document.querySelector("[data-command=start]").click(); 0')
-    time.sleep(0.5)
-    assert v2.ev("window.__alerts.slice()") == []                                    # 적용된 200 은 조용하다
 
 
-def test_OPS4_V2_로봇_정지는_묻지_않고_재개는_묻는다(v2):
-    v2.mode("{}")
-    v2.ev('document.querySelector(\'[data-robot-cmd="stop"][data-robot="1"]\').click(); 0')
-    time.sleep(0.4)
-    assert v2.ev("window.__confirms.length") == 0 and v2.ev("window.__posts.slice()") == ["/api/robot1/stop"]
-    v2.mode("{}")
-    v2.ev('document.querySelector(\'[data-robot-cmd="resume"][data-robot="1"]\').click(); 0')
-    time.sleep(0.4)
-    assert v2.ev("window.__confirms.length") == 1 and v2.ev("window.__posts.slice()") == ["/api/robot1/resume"]
 
 
-def test_OPS4_V2_누르는_사이_갱신이_껴도_로봇_정지가_나간다(v2):
-    """실제 마우스(누름 → 갱신 → 뗌). 예전엔 갱신이 버튼을 새로 만들어 뗄 때의 click 이 아무 데도 안 갔다."""
-    v2.mode("{}")
-    sel = '[data-robot-cmd="stop"][data-robot="2"]'
-    x, y = v2.ev('(() => { const b = document.querySelector(\'%s\'); b.scrollIntoView({block: "center"}); '
-                 'const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()' % sel)
-    v2.mouse("mouseMoved", x, y)
-    v2.mouse("mousePressed", x, y)
-    v2.ev("document.getElementById('refresh-events').click(); 0")                  # 누르고 있는 사이 갱신
-    time.sleep(0.5)
-    v2.mouse("mouseReleased", x, y)
-    time.sleep(0.5)
-    assert v2.ev("window.__posts.slice()") == ["/api/robot2/stop"]
 
 
 # ==== E2E-3 · 실제 게이트웨이는 SIGTERM·SIGINT 에 HTTP 를 닫고 곧 끝난다 ================================================
@@ -695,70 +504,13 @@ _VIS = '(s => [...document.querySelectorAll(s)].map(e => e.offsetParent !== null
 _DISP = '(s => [...document.querySelectorAll(s)].map(e => getComputedStyle(e).display))'
 
 
-def test_U1_V2_서버가_view_only_를_말하면_움직이는_조작만_숨고_멈추는_조작과_알약은_남는다(v2):
-    v2.mode("{gateway: {view_only: true}}")
-    assert v2.ev('document.body.classList.contains("view-only")') is True
-    assert v2.ev('document.getElementById("view-only-pill").offsetParent !== null') is True
-    # 움직이는 조작 8개(플릿 시작·재시작 · 로봇 재개 ×2 · 프로파일 선택·①②③) — 설정 탭은 안 열려 있어도 computed display 로 잰다
-    moving = "[data-command=start], [data-command=resume], [data-robot-cmd=resume], #profile-select, #profile-switch, #profile-robot-maps, #profile-initial-poses"
-    assert v2.ev('document.querySelectorAll("%s").length' % moving) == 8
-    assert v2.ev(_DISP + '("%s")' % moving) == ["none"] * 8
-    assert v2.ev(_VIS + '("[data-command=stop], [data-command=estop], [data-robot-cmd=stop]")') == [True] * 4
-    v2.mode("{}")
-    assert v2.ev('document.body.classList.contains("view-only")') is False
-    assert v2.ev('document.getElementById("view-only-pill").offsetParent') is None       # 다시 숨는다(inline-flex 가 hidden 을 못 이긴다)
-    assert v2.ev(_VIS + '("[data-command=start]")') == [True]
-    assert "none" not in v2.ev(_DISP + '("[data-command=start], [data-command=resume], [data-robot-cmd=resume]")')
 
 
-def test_U2_V2_요약_띠는_출발_대기를_한_문장으로_말하고_신호등은_초록_기본값이_없다(v2):
-    v2.mode("{}")                                                                       # ASSIGNED · pinky1 "경로 수신 — START 대기"
-    sentence = v2.ev('document.getElementById("summary-sentence").textContent')
-    assert "시험 프로파일" in sentence and "출발 대기" in sentence and "Pinky 1" in sentence and "Pinky 2" in sentence and "미수신" not in sentence
-    lights = v2.ev('[...document.querySelectorAll(".light")].map(e => e.className)')
-    assert lights[0] == "light ok" and lights[1] == "light neutral" and lights[2] == "light ok", lights   # 안전 초록 · 진행은 출발 대기 · 데이터 최근
-    assert "시험 프로파일" in v2.ev('document.getElementById("subtitle").textContent')
-    v2.mode("{nocoord: true}")
-    assert "코디네이터 없음" in v2.ev('document.getElementById("summary-sentence").textContent')
-    assert v2.ev('document.getElementById("light-data").className') == "light bad"
-    v2.mode("{}")                                                                       # 다시 받은 뒤 끊긴다 — 옛 값
-    v2.mode("{netdown: true}")
-    assert "옛 값" in v2.ev('document.getElementById("summary-sentence").textContent')
-    assert v2.ev('document.getElementById("light-safety").className') == "light neutral"   # 끊기면 안전을 칠하지 않는다
-    assert v2.ev('document.getElementById("light-data").className') == "light bad"
-    v2.mode("{}")
 
 
-def test_U2_V2_비상정지·링크유실_로봇이면_안전_신호등이_빨강이고_문장에_이유가_있다(v2):
-    v2.mode("{ls1: {drive_state: 9, state_reason: \"링크유실 래치 — 로봇 재개 필요\"}}")
-    assert v2.ev('document.getElementById("light-safety").className') == "light bad"
-    assert "연결 끊김" in v2.ev('document.getElementById("summary-sentence").textContent')
-    v2.mode("{}")
 
 
-def test_U2_V2_응답이_오래된_로봇은_주행_중이라_말하지_않고_신호등도_초록이_아니다(v2):
-    """검토 P1: 코디네이터는 설정된 로봇을 늘 싣는다(known 은 늘 참) — is_stale 이면 '응답 없음' 이고 안전·진행은 회색."""
-    v2.mode('{mission: "RUNNING", stale1: true, ls1: {drive_state: 1, state_reason: "주행 중"}}')
-    sentence = v2.ev('document.getElementById("summary-sentence").textContent')
-    assert "Pinky 1 응답 없음" in sentence and "Pinky 1 주행 중" not in sentence
-    assert v2.ev('document.getElementById("light-safety").className') == "light neutral"
-    assert v2.ev('document.getElementById("light-progress").className') == "light neutral"
-    pill = v2.ev('document.querySelector(\'[data-robot-card="1"] .robot-head .status-pill\').textContent')
-    assert pill.startswith("끊김 · 옛 값") and "주행 중" in pill
-    v2.mode("{}")
 
 
-def test_U2_V2_주행_중_로봇별_정지가_있으면_진행_신호등은_초록이_아니다(v2):
-    """검토 P1: 예전엔 waiting_for 만 보고 '전부 주행·도착' 초록이었다 — 정지·대기·출발 전 로봇이 있으면 안 된다."""
-    v2.mode('{mission: "RUNNING", held2: true, ls1: {drive_state: 1, state_reason: "주행 중"}}')
-    assert v2.ev('document.getElementById("light-progress").className') == "light bad"
-    assert "Pinky 2 정지" in v2.ev('document.getElementById("light-progress").textContent')
-    v2.mode('{mission: "RUNNING", ls1: {drive_state: 1, state_reason: "주행 중"}}')      # pinky2 는 drive 0(출발 전)
-    assert v2.ev('document.getElementById("light-progress").className') == "light warn"
-    v2.mode("{}")
 
 
-def test_U5_V2_스트림이_없으면_img_가_영상_없음_문구로_바뀐다(v2):
-    assert v2.ev('document.querySelectorAll("img[data-media]").length') == 0
-    assert v2.ev('document.querySelectorAll(".media-missing").length') >= 3
-    assert "영상 없음" in v2.ev('document.querySelector(".media-missing").textContent')

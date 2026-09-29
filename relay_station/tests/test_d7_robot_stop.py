@@ -546,48 +546,13 @@ def test_검토P1_플릿_비상정지_래치_중이면_start_와_로봇_재개�
 
 # ---- 관제 검수 REVIEW_20260925 S1 · 에이전트를 거치지 않는 목표·미션 경로 ----------------------------------
 
-@pytest.mark.parametrize("path", ["/api/robot1/goal", "/api/goal", "/api/robot1/mission"])
-@pytest.mark.parametrize("setup,reason", [
-    (lambda c: setattr(c, "estop_latched", True), "FLEET_ESTOP"),
-    (lambda c: setattr(c, "mission_state", "ESTOP"), "FLEET_ESTOP"),
-    (lambda c: setattr(c, "mission_state", "STOPPED"), "FLEET_STOPPED"),
-    (lambda c: setattr(c, "mission_state", "DONE"), "FLEET_DONE"),
-    (lambda c: setattr(c.robots["pinky1"], "held", True), "ROBOT_HELD"),
-], ids=["latched", "estop", "stopped", "done", "held"])
-def test_S1_래치·정지·HOLD_중_우회_목표와_미션은_409_이고_보내지_않는다(gw, path, setup, reason):
-    g, node, coord = gw
-    coord.robots = {"pinky1": FleetRobotContext("pinky1", 10), "pinky2": FleetRobotContext("pinky2", 11)}
-    setup(coord)
-    code, body = _post(g, path, ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 409 and body["reason"] == reason
-    node.send_goal.assert_not_called()
-    node.send_mission.assert_not_called()
-
-
-def test_S1_평소에는_목표를_보낸다(gw):
-    g, node, coord = gw
-    coord.robots = {"pinky1": FleetRobotContext("pinky1", 10)}
-    code, _ = _post(g, "/api/robot1/goal", ip="127.0.0.1", body=b'{"x": 1.0, "y": 0.5}')
-    assert code == 200 and node.send_goal.called
-
-
-@pytest.mark.parametrize("subs", [0, 1])
-def test_R3_미션은_받는_쪽을_모르면_성공이라_하지_않는다(gw, subs):
-    g, node, coord = gw
-    coord.robots = {"pinky1": FleetRobotContext("pinky1", 10)}
-    node.send_mission.return_value = subs
-    code, body = _post(g, "/api/robot1/mission", ip="127.0.0.1", body=b'{"mission": "1"}')
-    assert code == 202 and body["success"] is False and body["dispatched"] is True
-    assert body["d8_subscribers"] == subs and body["means"] == "DOMAIN_8_SUBSCRIBER_EXISTS_INCLUDING_BRIDGE"
 
 
 
-def test_R3_구독자_수를_못_세면_0_이_아니라_모른다(gw):
-    g, node, coord = gw
-    coord.robots = {"pinky1": FleetRobotContext("pinky1", 10)}
-    node.send_mission.return_value = None
-    _, body = _post(g, "/api/robot1/mission", ip="127.0.0.1", body=b'{"mission": "1"}')
-    assert "모른다" in body["message"] and "0 이다" not in body["message"]
+
+
+
+
 
 
 def test_검토S_경로_없는_Nav2_로봇은_start_에서_FleetCommand_RESUME_으로_STOP_이_풀린다():

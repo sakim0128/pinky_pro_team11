@@ -288,21 +288,6 @@ def test_pose_발행자를_못_쟀으면_0_으로_적지_않는다():
 # ⚠️ gateway_web_server.py 는 rclpy 를 module-level 로 import 하므로 여기서 import 할 수 없다.
 #    **AST 로 읽는다.** 부분문자열로 보면 주석에 걸린다.
 
-def test_게이트웨이가_pose_발행자를_따로_넘긴다():
-    """🔴 두 자리에 같은 식을 넣으면 빨개진다 — 그게 2026-09-14 의 결함 그대로다."""
-    import ast, io, os
-    gw = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                      "gateway_web", "gateway_web_server.py")
-    tree = ast.parse(io.open(gw, encoding="utf-8").read())
-    calls = [n for n in ast.walk(tree)
-             if isinstance(n, ast.Call)
-             and getattr(n.func, "id", None) == "readiness"]
-    assert len(calls) == 1, "readiness 호출은 한 곳이어야 한다. 실제 %d" % len(calls)
-    kw = {k.arg: k.value for k in calls[0].keywords}
-    assert "robot_publishers" in kw, "로봇 발행자를 안 넘긴다"
-    assert "pose_publishers" in kw, "pose 발행자를 따로 안 넘긴다 — 옛 결함이 되살아났다"
-    assert ast.dump(kw["robot_publishers"]) != ast.dump(kw["pose_publishers"]), \
-        "두 자리에 **같은 식**을 넣었다 — 수량을 다시 뭉갰다"
 
 
 def test_get_link_status_가_못_잰_pose_발행자를_0_으로_안_적는다():
