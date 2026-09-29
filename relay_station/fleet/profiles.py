@@ -19,7 +19,7 @@ import tempfile
 
 import yaml
 
-from .road_graph import RoadGraph
+from pinky_lane_station.road_graph import RoadGraph
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 MANIFEST = os.path.join(PKG_DIR, 'config', 'profiles', 'profiles.yaml')

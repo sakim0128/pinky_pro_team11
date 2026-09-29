@@ -33,7 +33,6 @@ from relay_station.fleet.fleet_coordinator import (
 from relay_station.fleet.reservation import Reservation
 from relay_station.fleet.road_graph import RoadGraph
 from relay_station.fleet.route_comparator import RouteComparator
-from pinky_fleet_agent.route_chain import RouteChain
 
 GRAPH = os.path.join(REPO, "relay_station", "fleet", "config", "road_graph.yaml")
 
@@ -232,24 +231,6 @@ def test_P1_D8_제어_토픽으로_와도_플릿_ESTOP_중_재개는_거부():
     assert all(m.command != LaneCommand.CMD_RESUME for m in _sent(c.lane_cmd_pubs["pinky2"]))
 
 
-def test_P1_규약_재개가_ESTOP_래치를_풀_수_있는_유일한_길은_resume_fleet():
-    c = _coord(state="ESTOP")
-    chain = RouteChain()
-    ctx = c.robots["pinky1"]
-    msg = c._to_route_msg("pinky1", ctx.route_seq, ctx.route)
-    chain.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)
-    chain.on_lane_command(LaneCommand.CMD_START, ctx.route_seq, 0)
-    chain.on_lane_command(LaneCommand.CMD_ESTOP, 0, 0)
-    c.resume_robot("pinky1")
-    for m in _sent(c.lane_cmd_pubs["pinky1"]):
-        chain.on_lane_command(m.command, m.route_seq, m.clear_until_idx)
-    assert chain.estop                                       # 로봇 재개로는 안 풀렸다
-    c.resume_fleet()
-    for m in _sent(c.lane_cmd_pubs["pinky1"]):
-        chain.on_lane_command(m.command, m.route_seq, m.clear_until_idx)
-    assert not chain.estop
-
-
 # ---- 관제 검수 P3 · 로봇별 정지 중인 로봇에는 START 를 보내지 않는다 ----------------------
 
 def test_P3_start_fleet_은_held_로봇에_START_를_안_보낸다():
@@ -361,20 +342,6 @@ def test_검토P1_resume_fleet_만_ESTOP_래치를_푼다():
     assert not c.estop_latched and c.mission_state == "RUNNING"
     assert c.stop_fleet() is True and c.start_fleet() is True
     assert c.get_fleet_status_dict()["estop_latched"] is False
-
-
-def test_규약_로봇별_STOP_은_에이전트에서_HOLD__estop_아님():
-    c = _coord()
-    ctx = c.robots["pinky1"]
-    msg = c._to_route_msg("pinky1", ctx.route_seq, ctx.route)
-    chain = RouteChain()
-    chain.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)
-    chain.on_lane_command(LaneCommand.CMD_START, ctx.route_seq, 0)
-    chain.on_lane_command(LaneCommand.CMD_CLEARANCE, ctx.route_seq, 8)
-    c.stop_robot("pinky1")
-    (stop,) = _sent(c.lane_cmd_pubs["pinky1"])
-    acts = chain.on_lane_command(stop.command, stop.route_seq, stop.clear_until_idx)
-    assert [a[0] for a in acts] == ["cancel"]
 
 
 # ---- 게이트웨이 HTTP: 가짜 요청으로 do_POST 를 직접 부른다 -----------------

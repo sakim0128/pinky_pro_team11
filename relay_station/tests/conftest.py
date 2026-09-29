@@ -23,12 +23,13 @@ for _p in (_RELAY, _GATEWAY_WEB, _HERE):
         sys.path.insert(0, _p)
 
 
-# ---- 팀11 레포 구조 (내보내기가 덧붙인다) --------------------------------------------------
-# 에이전트는 pinky_fleet_agent 패키지다(원 저장소의 robot_onboard/pinky_fleet_agent). 에이전트 시험 헬퍼
-# (test_hybrid_agent_review) 는 pinky_fleet_agent/test 에 있다. 비전 API 키는 코드에 기본값이 없으므로
+# ---- 팀11 레포 구조 --------------------------------------------------------------------------
+# 에이전트는 pinky_fleet_agent 패키지, 도로망(road_graph)은 pinky_lane_station 패키지다 — 둘 다 소스에서 바로
+# import 한다(실물 중계 PC 에서는 install/setup.bash 가 같은 이름을 준다). 비전 API 키는 코드에 기본값이 없으므로
 # 시험에서만 넣는다(fail-closed 규칙은 test_team11_export.py 가 따로 잰다).
 _T11_REPO = os.path.dirname(_RELAY)
-for _p in (os.path.join(_T11_REPO, "pinky_fleet_agent", "test"), os.path.join(_T11_REPO, "pinky_fleet_agent")):
+for _p in (os.path.join(_T11_REPO, "pinky_fleet_agent", "test"), os.path.join(_T11_REPO, "pinky_fleet_agent"),
+           os.path.join(_T11_REPO, "pinky_lane_station")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 os.environ.setdefault("RELAY_VISION_API_KEY", "test-only-vision-key")

@@ -33,7 +33,7 @@ from pinky_fleet_msgs.msg import FleetCommand, RobotState
 from pinky_lane_msgs.msg import LaneCommand, LaneStatus, Route as RouteMsg
 
 from .reservation import DEFAULT_CONFIRM_UPDATES, DEFAULT_UPDATE_PERIOD, Reservation
-from .road_graph import RoadGraph, Route
+from pinky_lane_station.road_graph import RoadGraph, Route
 from . import profiles as profiles_mod
 from .route_comparator import RouteComparator
 
@@ -125,7 +125,7 @@ class FleetRobotContext:
         # 재전송을 다 쓰고도 ack 가 없으면 참. 예전엔 조용히 멈췄다 — 화면이 "왜 안 가나" 에 답하게 드러낸다
         self.start_gave_up: bool = False
         self.start_armed: bool = False                # START 를 한 번이라도 무장했나 — 안 했으면 '포기' 로그를 안 낸다(L7)
-        # D7: 로봇별 정지(`/api/robotN/stop`). 플릿이 RUNNING 이어도 이 로봇만 STOP 을 계속 받는다.
+        # D7: 로봇별 정지(`/api/pinkyN/stop`). 플릿이 RUNNING 이어도 이 로봇만 STOP 을 계속 받는다.
         self.held: bool = False
         self.held_reason: str = ''                  # 왜 세워 뒀나 — HELD_* (제3자 검수 G-3 · REVIEW_20260926 G)
         # 이 로봇에 LaneCommand RESUME 을 보낸 코디네이터 시각 — 그 사이 날아오던 옛 LINK_LOST 보고로 방금 푼 로봇을 다시
@@ -220,7 +220,8 @@ class RelayFleetCoordinator(Node):
                     if note:
                         self.get_logger().warn(f"profile: {note}")
         if not config_path:
-            config_path = os.path.join(pkg_dir, 'config', 'lane_mission.yaml')
+            # 프로파일 목록이 없거나 전부 깨졌을 때 — 기본 프로파일의 미션 파일 그대로
+            config_path = os.path.join(pkg_dir, 'config', 'profiles', 'team11_map5', 'lane_mission.yaml')
         self.config_path = config_path
 
         if os.path.isfile(self.config_path):
@@ -261,8 +262,8 @@ class RelayFleetCoordinator(Node):
         robots_cfg = self.config.get('robots', [])
         if not robots_cfg:
             robots_cfg = [
-                {'name': 'pinky1', 'domain_id': 10, 'start': 'START_A', 'goal': 'GOAL_C'},
-                {'name': 'pinky2', 'domain_id': 11, 'start': 'START_B', 'goal': 'GOAL_C'},
+                {'name': 'pinky1', 'domain_id': 10, 'start': 'BL', 'goal': 'TR'},
+                {'name': 'pinky2', 'domain_id': 11, 'start': 'BR', 'goal': 'BL'},
             ]
 
         for r in robots_cfg:
@@ -701,11 +702,7 @@ class RelayFleetCoordinator(Node):
                 if session_id:
                     self._zone_event_session[seq_key] = str(session_id)
 
-            ctx = self.robots.get(robot_name)
-            if not ctx:
-                alias = {'robot1': 'pinky1', 'robot2': 'pinky2'}.get(robot_name)
-                if alias:
-                    ctx = self.robots.get(alias)
+            ctx = self.robots.get(robot_name)          # 이름은 pinkyN 하나 — robotN 별칭 표는 없다(2026-09-29)
 
             if ctx:
                 recv_now = self._now()
@@ -1044,34 +1041,8 @@ class RelayFleetCoordinator(Node):
 
     def _assign_conflict(self, robot_name: str, goal_node: str,
                          start_node: Optional[str] = None) -> Optional[Tuple[str, str]]:
-        """(부딪히는 로봇, 이유) 또는 None. 도착한 로봇은 목표 노드를 **계속** 잡으므로(예약 mark_arrived) 그 자리를
-        누가 지나가야 하면 영영 못 간다 — 그런 배정은 여기서 거절한다.
-
-        L3 (관제 검수 §3.1): 같은 목표 노드. 직렬 검토(L3 후속): 목표가 다른 로봇의 경로 **위**이거나, 새 경로가 다른
-        로봇의 목표·도착해 선 자리를 **지나면** 한쪽이 서는 순간 다른 쪽이 경고도 없이 영구 대기했다.
-        """
-        name = self._resolve(robot_name) or robot_name
-        for other, slot in self.reservation.robots.items():
-            if other == name:
-                continue
-            if slot.route.node_ids[-1] == goal_node:
-                return other, f'{other} 가 이미 목표 노드 {goal_node} 로 간다(도착한 로봇은 목표 노드를 계속 잡는다)'
-            if not slot.finished and goal_node in slot.route.node_ids[1:-1]:
-                return other, (f'목표 {goal_node} 가 {other} 의 경로 위다 — 여기 도착해 서면 {other} 가 지나가지 못한다')
-        holder = self.reservation.node_holder.get(goal_node)
-        if holder not in (None, name):
-            return holder, f'{holder} 가 목표 노드 {goal_node} 를 잡고 있다'
-        if start_node:
-            try:
-                path = self.graph.shortest_route(start_node, goal_node, step=0.10).node_ids
-            except Exception:                                   # noqa: BLE001 — 경로가 없으면 assign_route 가 말한다
-                return None
-            # 도착한 로봇이 잡는 노드는 제 목표뿐이다(mark_arrived) — 목표만 보면 도착해 선 자리도 걸린다
-            for nid in path[1:-1]:
-                for other, slot in self.reservation.robots.items():
-                    if other != name and slot.route.node_ids[-1] == nid:
-                        return other, (f'경로가 {other} 의 목표 {nid} 를 지난다 — {other} 가 도착해 서면 지나가지 못한다')
-        return None
+        """(부딪히는 로봇, 이유) 또는 None — 규칙은 Reservation.assign_conflict 한 곳에 있다(ROS 없이 시험한다)."""
+        return self.reservation.assign_conflict(robot_name, goal_node, start_node)
 
     @_locked
     def assign_conflict(self, robot_name: str, goal_node: str, start_node: Optional[str] = None) -> Optional[str]:
@@ -1154,13 +1125,11 @@ class RelayFleetCoordinator(Node):
         return msg
 
     # -------------------------------------------------------------------------
-    # D7: 로봇별 정지·재개 (`/api/robotN/stop` · `/api/robotN/resume`)
+    # D7: 로봇별 정지·재개 (`/api/pinkyN/stop` · `/api/pinkyN/resume`)
     # -------------------------------------------------------------------------
-    ROBOT_ALIASES = {'robot1': 'pinky1', 'robot2': 'pinky2'}
-
     def _resolve(self, robot_name: str) -> Optional[str]:
-        name = self.ROBOT_ALIASES.get(robot_name, robot_name)
-        return name if name in self.robots else None
+        """플릿에 있는 로봇 이름이면 그대로, 아니면 None. 별칭 표(robotN→pinkyN)는 없다 — 이름은 pinkyN 하나다(2026-09-29)."""
+        return robot_name if robot_name in self.robots else None
 
     def _send_hold(self, name: str, ctx: FleetRobotContext):
         lane = LaneCommand()

@@ -11,31 +11,34 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 FLEET = os.path.join(REPO, 'relay_station', 'fleet')
 
 
-def _load_fleet_modules():
-    """relay_station.fleet 의 __init__ 은 rclpy 를 끌어온다 — 패키지 껍데기만 만들고 road_graph·reservation 을 파일로 읽는다."""
+sys.path.insert(0, os.path.join(REPO, 'pinky_lane_station'))
+from pinky_lane_station import road_graph as RG  # noqa: E402 — 도로망 구현은 이것 하나다
+
+
+def _load_reservation():
+    """relay_station.fleet 의 __init__ 은 rclpy 를 끌어온다 — 패키지 껍데기만 만들고 reservation 을 파일로 읽는다."""
     pkg = 'relay_fleet_for_junction_test'
     if pkg not in sys.modules:
         shell = types.ModuleType(pkg)
         shell.__path__ = [FLEET]
         sys.modules[pkg] = shell
-        for name in ('road_graph', 'reservation'):
-            spec = importlib.util.spec_from_file_location(f'{pkg}.{name}', os.path.join(FLEET, name + '.py'))
-            mod = importlib.util.module_from_spec(spec)
-            sys.modules[f'{pkg}.{name}'] = mod
-            spec.loader.exec_module(mod)
-    return sys.modules[f'{pkg}.road_graph'], sys.modules[f'{pkg}.reservation']
+        spec = importlib.util.spec_from_file_location(f'{pkg}.reservation', os.path.join(FLEET, 'reservation.py'))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[f'{pkg}.reservation'] = mod
+        spec.loader.exec_module(mod)
+    return sys.modules[f'{pkg}.reservation']
 
 
-RG, RES = _load_fleet_modules()
-GRAPH = os.path.join(FLEET, 'config', 'profiles', 'team11_map4', 'road_graph.yaml')
+RES = _load_reservation()
+GRAPH = os.path.join(REPO, 'pinky_lane_station', 'config', 'road_graph.yaml')
 
 
 def _setup():
     g = RG.RoadGraph.load(GRAPH)
     r = RES.Reservation(g)
-    # 시나리오 2: pinky1 MC→BL (JI→RM→…→JS→BL), pinky2 RE→TC (TR 을 지난다) — 둘 다 분기 노드를 지난다
-    r1 = g.shortest_route('BL', 'TC', step=0.10)      # BL→JS→JW→…   첫 분기 JS
-    r2 = g.shortest_route('RE', 'TC', step=0.10)      # RE→TR→TC     첫 분기 TR
+    # map5 임시 미션: pinky1 BL→TR, pinky2 BR→BL — 둘 다 분기 노드 J 를 지난다
+    r1 = g.shortest_route('BL', 'TR', step=0.10)      # BL→J→TR
+    r2 = g.shortest_route('BR', 'BL', step=0.10)      # BR→J→BL
     r.register('pinky1', 10, r1)
     r.register('pinky2', 11, r2)
     return g, r, r1, r2

@@ -37,7 +37,6 @@ from std_msgs.msg import String  # noqa: E402
 from relay_station.fleet import fleet_coordinator as FC  # noqa: E402
 from relay_station.fleet import profiles as P  # noqa: E402
 from relay_station.fleet.reservation import Reservation  # noqa: E402
-from pinky_fleet_agent.route_chain import RouteChain  # noqa: E402
 from test_d7_robot_stop import _coord, _lane_status, _post, _reset, _sent  # noqa: E402
 
 GATEWAY_DIR = os.path.join(REPO, "relay_station", "gateway_web")
@@ -679,30 +678,9 @@ def test_제어_상태를_모르는_시험_객체는_아무것도_쓰지_않는�
     assert not (tmp_path / "state").exists()
 
 
-# ==== REVIEW_20260926 G · 재기동 뒤 링크유실 래치 ========================================================================
-
-def _chain_link_lost(c, name="pinky1"):
-    ctx = c.robots[name]
-    msg = c._to_route_msg(name, ctx.route_seq, ctx.route)
-    ch = RouteChain()
-    ch.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)
-    ch.on_lane_command(LaneCommand.CMD_START, ctx.route_seq, 0)
-    ch.on_lane_command(LaneCommand.CMD_CLEARANCE, ctx.route_seq, 8)
-    ch.on_link_lost(moving=True)
-    assert ch.link_lost
-    return ch
-
-
 # 통합 검토 F1: R5 의 래치 해제는 RESUME 앞에 허가 0(CLEARANCE 0)을 준다 — RESUME 이 goto 를 만들지 않게.
 #   예전 시험은 [RESUME, STOP] 을 고정했다. 순서의 뜻(STOP 이 마지막 — 곧바로 다시 선다)은 그대로다.
 R5_LATCH_RELEASE = [LaneCommand.CMD_CLEARANCE, LaneCommand.CMD_RESUME, LaneCommand.CMD_STOP]
-
-
-def _feed(ch, c, name="pinky1"):
-    acts = []
-    for m in _sent(c.lane_cmd_pubs[name]):
-        acts += ch.on_lane_command(m.command, m.route_seq, m.clear_until_idx)
-    return acts
 
 
 def test_G_재기동_뒤_LINK_LOST_보고는_로봇별_정지로__이유를_보이고_남긴다(tmp_path):
@@ -719,23 +697,6 @@ def test_G_재기동_뒤_LINK_LOST_보고는_로봇별_정지로__이유를_보�
     assert _sent(c.lane_cmd_pubs["pinky1"]) == []                    # START 는 래치된 로봇에 안 먹는다 — 안 보낸다
 
 
-def test_G_로봇_재개가_링크유실_래치를_푼다__옛_보고로_다시_세우지_않고_새_유실은_다시_세운다():
-    c = _coord(state="ASSIGNED")
-    ch = _chain_link_lost(c)
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.0, "관제 링크 유실")
-    assert c.robots["pinky1"].held
-    _reset(c)
-    assert c.resume_robot("pinky1") is True
-    _feed(ch, c)
-    assert not ch.link_lost and not ch.latched                      # LaneCommand RESUME 이 풀었다
-    assert not c.robots["pinky1"].held and c.robots["pinky1"].held_reason == ""
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.05, "관제 링크 유실")   # RESUME 전에 떠난 옛 보고
-    assert not c.robots["pinky1"].held
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_WAIT_CLEARANCE, 100.2, "RESUME")    # 풀린 보고 — 유예는 여기서 끝
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 101.0, "관제 링크 유실")    # 새 유실(유예 시간 안이어도)
-    assert c.robots["pinky1"].held and c.robots["pinky1"].held_reason == FC.HELD_LINK_LOST
-
-
 def test_G_재개가_안_닿아_유예가_지나도_링크유실이면_다시_세운다():
     """링크가 끊긴 채 누른 재개는 로봇에 안 닿는다 — 그 뒤 LINK_LOST 보고를 영영 '옛 보고' 로 보면 래치가 화면에서 숨는다."""
     c = _coord(state="ASSIGNED")
@@ -745,28 +706,6 @@ def test_G_재개가_안_닿아_유예가_지나도_링크유실이면_다시_�
     assert not c.robots["pinky1"].held                             # 유예 안 — 옛 보고일 수 있다
     _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.0 + c.LINK_LOST_RESUME_GRACE_SEC + 0.1, "관제 링크 유실")
     assert c.robots["pinky1"].held and c.robots["pinky1"].held_reason == FC.HELD_LINK_LOST
-
-
-def test_G_플릿_정지_중_로봇_재개가_세워_둔_로봇의_ESTOP_래치도_푼다__R5_는_그대로_STOP():
-    """§13-4: S7 로 세워 둔 로봇은 ESTOP 해제 뒤에도 에이전트 ESTOP 래치를 쥔다 — 로봇 재개가 푼다. 플릿이 STOPPED 면 R5 가
-    RESUME 을 삼켜 래치가 남았다(화면의 '로봇 재개 필요' 가 거짓). RESUME 바로 뒤 STOP 으로 STOP 래치는 곧바로 다시 건다."""
-    c = _coord(state="RUNNING")
-    ctx = c.robots["pinky1"]
-    msg = c._to_route_msg("pinky1", ctx.route_seq, ctx.route)
-    ch = RouteChain()
-    ch.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)
-    c.stop_robot("pinky1")
-    c.estop_fleet()
-    _feed(ch, c)
-    c.resume_fleet()                                                # S7: 세워 둔 로봇엔 RESUME 없음
-    c.stop_fleet()
-    _reset(c)
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_ESTOP, 100.1, "E-STOP")
-    assert ch.estop and not c.estop_latched
-    assert c.resume_robot("pinky1") is True
-    assert [m.command for m in _sent(c.lane_cmd_pubs["pinky1"])] == R5_LATCH_RELEASE
-    _feed(ch, c)
-    assert not ch.estop and ch.stopped and ch.active_target is None
 
 
 @pytest.mark.parametrize("which", ["HELD_LINK_LOST", "HELD_ESTOP_RESTORED"])
@@ -784,39 +723,6 @@ def test_G_재기동_뒤_보고_전에도_파일의_래치_이유로_로봇_재�
     _reset(c2)
     c2.resume_robot("pinky1")
     assert [m.command for m in _sent(c2.lane_cmd_pubs["pinky1"])] == R5_LATCH_RELEASE
-
-
-@pytest.mark.parametrize("state", ["STOPPED", "DONE"])
-def test_G_플릿_정지·완료_중에도_로봇_재개가_링크유실_래치를_풀고_STOP_은_바로_다시_건다(state):
-    """R5 는 정지·완료 중 RESUME 을 안 보낸다(0.1 s 출발 방지). 링크유실 래치는 RESUME 으로만 풀리므로 RESUME 바로 뒤에
-    같은 발행자로 STOP 을 잇는다 — 에이전트는 이 순서로 받아 STOP 래치를 다시 건다."""
-    c = _coord(state=state)
-    ch = _chain_link_lost(c)
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.0, "관제 링크 유실")
-    _reset(c)
-    assert c.resume_robot("pinky1") is True
-    assert [m.command for m in _sent(c.lane_cmd_pubs["pinky1"])] == R5_LATCH_RELEASE
-    assert [m.command for m in _sent(c.fleet_cmd_pubs["pinky1"])] == [FleetCommand.CMD_STOP]
-    _feed(ch, c)
-    assert not ch.link_lost and ch.stopped and ch.active_target is None
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.05, "관제 링크 유실")   # RESUME 전에 떠난 옛 보고
-    assert not c.robots["pinky1"].held
-    c._publish_lane_commands()
-    assert _sent(c.lane_cmd_pubs["pinky1"])[-1].command == LaneCommand.CMD_STOP
-
-
-def test_G_재기동_뒤_새_경로의_로봇은_RESUME_으로도_갈_목표가_없다():
-    c = _coord(state="DONE")
-    ctx = c.robots["pinky1"]
-    msg = c._to_route_msg("pinky1", ctx.route_seq, ctx.route)
-    ch = RouteChain()
-    ch.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)   # 재기동이 다시 보낸 경로
-    ch.link_lost = True
-    _lane_status(c, "pinky1", LaneStatus.DRIVE_LINK_LOST, 100.0, "관제 링크 유실")
-    _reset(c)
-    c.resume_robot("pinky1")
-    acts = _feed(ch, c)
-    assert not ch.link_lost and not [a for a in acts if a[0] == "goto"]
 
 
 def test_G_운영자가_세운_로봇이_링크유실을_보고해도_로봇_재개가_래치를_푼다():

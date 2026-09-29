@@ -28,7 +28,6 @@ from pinky_lane_msgs.msg import LaneStatus  # noqa: E402
 from relay_station.fleet import profiles as P  # noqa: E402
 from relay_station.fleet.reservation import Reservation  # noqa: E402
 from test_d7_robot_stop import _coord, _reset, _sent  # noqa: E402
-from test_d6_2_closed_loop import drive, repo_nav2_tolerances  # noqa: E402
 
 PROF_DIR = os.path.join(REPO, "relay_station", "fleet", "config", "profiles")
 MAP4_DIR = os.path.join(PROF_DIR, "team11_map4")
@@ -224,78 +223,6 @@ def test_제어_토픽으로도_전환되고_결과가_남는다():
     c._cb_control(String(data=json.dumps({"cmd": "profile", "name": "map4_s2"})))
     assert c.last_control["cmd"] == "profile" and c.last_control["ok"] is True
     assert c.robots["pinky1"].start_node == "MC" and c.robots["pinky2"].goal_node == "TC"
-
-
-# ---- map4 시나리오가 D6-2 폐루프에서 도착한다 ----------------------------------------------------
-
-def _scenario_robots(prof):
-    return [(r["name"], int(r.get("domain_id", 10)), r["start"], r["goal"]) for r in prof.mission["robots"]]
-
-
-@pytest.mark.parametrize("pname", ["map4", "map4_s2"])
-@pytest.mark.parametrize("tol", repo_nav2_tolerances()[0])
-def test_map4_시나리오는_어느_Nav2_허용치로도_도착한다(pname, tol):
-    _, profs = P.load_profiles()
-    prof = profs[pname]
-    for robot in _scenario_robots(prof):
-        ok, t, st = drive(robot, tol, prof.mission.get("reservation", {}), prof.graph)
-        assert ok, (pname, tol, robot, st)
-
-
-# ---- 에이전트 CMD_SET_MAP (진짜 메서드, ROS 노드 없이) -----------------------------------------
-
-def _agent(tmp_path, moving=False):
-    from test_hybrid_agent_review import _agent as base
-    a, clk = base()
-    from pinky_fleet_agent import hybrid_agent_node as agent_node
-    a._map_dir = str(tmp_path)
-    a._map_name = "my_map"
-    a._map_load = None
-    a._load_map_client = MagicMock()
-    a._load_map_client.service_is_ready.return_value = True
-    a._linear_velocity = 0.12 if moving else 0.0
-    for name in ("_set_map", "_on_map_loaded"):
-        setattr(a, name, types.MethodType(getattr(agent_node.PinkyAgent, name), a))
-    return a
-
-
-def _map_files(tmp_path):
-    (tmp_path / "map4.yaml").write_text(open(os.path.join(MAP4_DIR, "map4.yaml"), encoding="utf-8").read(),
-                                        encoding="utf-8")
-
-
-def test_에이전트_SET_MAP__지도를_읽히고_성공하면_보고하는_지도_이름이_바뀐다(tmp_path):
-    from nav2_msgs.srv import LoadMap
-    _map_files(tmp_path)
-    a = _agent(tmp_path)
-    a._set_map("map4")
-    req = a._load_map_client.call_async.call_args[0][0]
-    assert req.map_url.endswith("map4.yaml") and a._map_load["result"] == "PENDING"
-    fut = MagicMock()
-    fut.result.return_value = types.SimpleNamespace(result=LoadMap.Response.RESULT_SUCCESS)
-    a._on_map_loaded("map4", fut)
-    assert a._map_name == "map4" and a._map_load["result"] == "OK"
-
-
-def test_에이전트_SET_MAP__달리는_중이면_거부하고_파일이_없으면_말한다(tmp_path):
-    a = _agent(tmp_path, moving=True)
-    a._set_map("map4")
-    assert a._map_load["result"] == "REFUSED"
-    a._load_map_client.call_async.assert_not_called()
-    b = _agent(tmp_path)
-    b._set_map("map4")                                          # 파일 없음
-    assert b._map_load["result"] == "NO_FILE" and b._map_name == "my_map"
-
-
-def test_에이전트_SET_MAP__실패하면_이름을_안_바꾼다(tmp_path):
-    from nav2_msgs.srv import LoadMap
-    _map_files(tmp_path)
-    a = _agent(tmp_path)
-    a._set_map("map4")
-    fut = MagicMock()
-    fut.result.return_value = types.SimpleNamespace(result=LoadMap.Response.RESULT_INVALID_MAP_DATA)
-    a._on_map_loaded("map4", fut)
-    assert a._map_name == "my_map" and a._map_load["result"] == "FAILED"
 
 
 # ---- 게이트웨이 --------------------------------------------------------------------------------

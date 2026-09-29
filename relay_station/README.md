@@ -2,7 +2,8 @@
 
 rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 옮긴 것이다(원 저장소 main `f8fc97d` + 제어권 정책 `1eed3f8`, 2026-09-28 저녁).
 **colcon 패키지가 아니다** — `COLCON_IGNORE` 가 있어 `colcon build` 는 이 폴더를 건너뛴다. 순수 Python 과 셸이며,
-실행에는 ROS 2 Jazzy 와 이 레포의 `pinky_fleet_msgs` · `pinky_lane_msgs` 가 필요하다.
+실행에는 ROS 2 Jazzy 와 이 레포의 `pinky_fleet_msgs` · `pinky_lane_msgs` · **`pinky_lane_station`**(도로망 `road_graph` 구현은
+그 패키지 하나다 — `fleet/` 가 `pinky_lane_station.road_graph` 를 import 한다)이 필요하다. 셋 다 `colcon build` 뒤 `install/setup.bash` 로 준다.
 
 ## 무엇인가
 
@@ -57,7 +58,7 @@ rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent && source install/setup.bash
+colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_lane_station pinky_fleet_agent && source install/setup.bash
 cd <이 레포>/relay_station && python3 -m pytest tests -q        # numpy · opencv-python · psutil · pyyaml 필요
 ```
 

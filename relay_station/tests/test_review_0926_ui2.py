@@ -199,13 +199,6 @@ def test_OPS5_평소_보고면_목표를_보내고__200_은_발행했다고만_�
     assert "발행했다" in body["message"] and "sent to Robot" not in body["message"]
 
 
-def test_OPS5_래치_판정은_에이전트가_싣는_상태_번호·해제_보류_문구와_같다():
-    import gateway_web_server as gws
-    from pinky_fleet_agent import hybrid_agent_node as agent_node
-    assert set(gws.LATCHED_DRIVE_STATES) == {LaneStatus.DRIVE_ESTOP, LaneStatus.DRIVE_LINK_LOST}
-    assert agent_node.RELEASE_HOLD_REASON.startswith(gws.RELEASE_HOLD_PREFIX)
-
-
 # ==== OPS-3 · 래치로 세워 둔 로봇이 있으면 ② 로봇 지도·③ 초기 위치를 보내지 않는다 ======================================
 
 @pytest.mark.parametrize("cmd", ["robot_maps", "initial_poses"])

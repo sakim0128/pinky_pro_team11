@@ -34,7 +34,6 @@ from pinky_fleet_msgs.msg import RobotState  # noqa: E402
 from relay_station.fleet import profiles as P  # noqa: E402
 from relay_station.fleet import reservation as R  # noqa: E402
 from relay_station.fleet.road_graph import RoadGraph  # noqa: E402
-from test_d6_2_closed_loop import _pos  # noqa: E402
 from test_fleet_profiles import _pcoord, gw  # noqa: E402,F401 — gw 는 게이트웨이 조립 fixture
 
 MAP4_DIR = os.path.join(REPO, "relay_station", "fleet", "config", "profiles", "team11_map4")
@@ -42,6 +41,16 @@ MAP4_GRAPH = os.path.join(MAP4_DIR, "road_graph.yaml")
 LEGACY_GRAPH = os.path.join(REPO, "relay_station", "fleet", "config", "road_graph.yaml")
 NAV2_FLEET = os.path.join(REPO, "pinky_fleet_agent", "params", "nav2_params_fleet.yaml")
 STATIC = os.path.join(REPO, "relay_station", "gateway_web", "static")
+
+
+def _pos(route, cum, s):
+    """경로 위 호길이 s 의 (x, y)."""
+    import bisect
+    pts = route.waypoints
+    i = max(0, min(len(pts) - 2, bisect.bisect_right(cum, s) - 1))
+    seg = cum[i + 1] - cum[i]
+    t = 0.0 if seg <= 0 else (s - cum[i]) / seg
+    return (pts[i][0] + t * (pts[i + 1][0] - pts[i][0]), pts[i][1] + t * (pts[i + 1][1] - pts[i][1]))
 BL = (0.95, -0.45)
 
 
