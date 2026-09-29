@@ -185,3 +185,25 @@ Overhead 카드와 P′ 위치를 연결한다.
 검증(rkd1rjs2 노트북, rclpy 없는 Windows — 정적·순수만): `test_team11_export.py` 7 · `test_no_baked_addresses.py` · `test_control_policy.py` 12 ·
 `test_control_0928_control_policy_wiring.py` 8 · `test_control_0928_webui_p1.py` 11 · `test_v2_front_honesty.py` 6 통과. rclpy 가 필요한 나머지는
 컨테이너 재측정 전이다(README "시험" 절의 1425/22 는 이 변경 **전** 수치).
+
+## 2026-09-29 — 중계 브리지 개편: 주 대시보드 = live 웹 (rkd1rjs2 팀원)
+
+완료한 변경(브랜치 `mini_project_integration`, `be5256a` 1단계 · `47ee78b` 2단계):
+
+- 주 대시보드는 `pinky_fleet_station` live 웹(`:8080`). 중계 PC 에서 도메인 8 로 띄운다(`relay_station/launch_live_web.sh`) — live 웹의
+  미션 버튼·상태가 그대로 중계 코디네이터(`/fleet/lane/control` · `/fleet/lane/status`)와 이어진다. **live 웹 코드는 바꾸지 않았다.**
+- 1단계(계약): 중계 브리지에 `/pinkyN/amcl_pose` · `/pinkyN/camera/image/compressed` 업링크, 코디네이터 상태에 `mission` 문자열,
+  `hybrid_robot.launch.xml` 에 팀11 `camera_node`(use_camera, lane_robot 과 같은 기본값), 게이트웨이 런처의 DDS 설정 경로 수정.
+- 2단계(걷어내기): 중계 화면 V2 · 옛 `index.html` · 데스크톱 GUI · 태블릿 비전 월드·캘리브레이션 · 단일 로봇 목표/미션 API 삭제(-14k 줄).
+  새로 `relay_console.html`(버스 상태 · 제어권 · ①②③ · 멈춤 · 폰 영상) 과 `GET /api/relay/health`. 남은 HTTP 경로는 시험이 목록으로 잠근다.
+- 안내: [`relay_station.md`](relay_station.md).
+
+확인할 사항:
+
+- live 웹 미션 버튼은 제어 문을 지나지 않아 기본 꺼짐(`LIVE_WEB_CONTROL=true` 는 중계 PC 자신이 쓸 때만). 팀원 노트북이 한 화면에서
+  움직이게 하려면 live 웹 버튼이 `:8889` 제어권을 거치도록 바꾸는 협의가 필요하다(설계 "열린 결정 1" (b)).
+- map4 ↔ map5: live 웹 차선 도면은 map5 기준 — 중계가 map4 프로파일이면 로봇 위치는 맞고 도면만 조금 어긋난다.
+- 실물 확인 전이다. 중계 PC 에서 `launch_live_web.sh` → 로봇 카드 · 지도 위 P · 전방 카메라 · 미션 문자열이 보이는지.
+
+검증(ROS 2 Jazzy 컨테이너): 중계 986 passed / 6 skipped(failed 0) · 에이전트 320 passed · hybrid_robot 런치 수락 · E2E(중계 코디네이터 +
+live 웹 한 도메인: 미션 ASSIGNED → 시작 RUNNING → 일시정지 STOPPED) · 실제 게이트웨이 기동(`/` = 콘솔, 지운 경로 404).

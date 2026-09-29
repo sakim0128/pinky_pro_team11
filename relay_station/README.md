@@ -1,4 +1,4 @@
-# relay_station — 중계 관제국 (웹 관제 · 플릿 코디네이터 · 도메인 브리지)
+# relay_station — 중계 브리지 (도메인 브리지 · 플릿 코디네이터 · 제어 문 · 영상 중계)
 
 rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 옮긴 것이다(원 저장소 main `f8fc97d` + 제어권 정책 `1eed3f8`, 2026-09-28 저녁).
 **colcon 패키지가 아니다** — `COLCON_IGNORE` 가 있어 `colcon build` 는 이 폴더를 건너뛴다. 순수 Python 과 셸이며,
@@ -8,7 +8,7 @@ rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 
 
 | 폴더 | 역할 |
 | :--- | :--- |
-| `gateway_web/` | 웹 관제 서버 `:8889` (`gateway_web_server.py`) — 로봇 상태·지도·목표 API, 플릿 제어 화면(`static/fleet_control_v2.*`), 영상 중계 |
+| `gateway_web/` | 중계 게이트웨이 `:8889` (`gateway_web_server.py`) — 중계 콘솔(`static/relay_console.html`) · 중계 상태 `/api/relay/health` · 제어권 · 플릿 제어 API · 영상 중계. **주 대시보드는 팀11 live 웹 `:8080`**(`launch_live_web.sh`) |
 | `fleet/` | 플릿 코디네이터 — 도로망(`road_graph`) 위 경로 배정, 구간 예약(`reservation`), `LaneCommand`(START·CLEARANCE·STOP·ESTOP·RESUME) · `Route` 발행 |
 | `domain_bridge/` | 관제 도메인(8) ↔ 로봇 도메인(10·11) 토픽 브리지 설정·생성기·systemd 유닛 |
 | `configs/` | DDS 프로파일(`cyclonedds*.xml`) · 로봇 도메인 표(`fleet_domains.env`) · 영상 소스 · 경기장 · 영상 가림 정책 · **제어권 허용 목록(`control_allow.json`)** |
@@ -41,8 +41,8 @@ rkd1rjs2/robot_mini_project_pinky 의 `relay_station/` 을 이 레포 구조로 
 
 - **비전 API 키**: 원 저장소는 기본 키를 코드에 두고, 키가 비면 인증을 **통과**시켰다. 여기서는 기본값을 없애고 키가 비면 **거절**한다.
 - **신원**: 현장·tailnet IP → 위 자리표시자, 개인 홈 경로 → `$HOME` 기준(systemd 는 `%h`), 어댑터 MAC 이 든 NIC 이름 → 자리표시자,
-  원 저장소 운영 환경을 가리키는 낱말은 중립어("외부 사이트" · "다른 배포 체계")로. 화면(`index.html`)의 접속 주소 안내는 박힌 주소 대신
-  **지금 연 주소**(`location.origin`)를 보이고 "원격(`:18081`)은 보기 전용" 한 줄만 남겼다.
+  원 저장소 운영 환경을 가리키는 낱말은 중립어("외부 사이트" · "다른 배포 체계")로.
+- **개편(2026-09-29)**: 화면 · 태블릿 비전 월드 · 캘리브레이션 · 단일 로봇 목표/미션 API 를 지웠다 — `docs/integration/relay_station.md` "개편에서 지운 것".
 - **경로**: 에이전트 `robot_onboard/pinky_fleet_agent` → `pinky_fleet_agent`(`agent_node` → `hybrid_agent_node`),
   메시지 `shared_msgs/pinky_*_msgs` → `pinky_*_msgs`, 레포 루트 `configs/` → `relay_station/configs/`.
 - **싣지 않은 것**: 원 저장소의 도커 복제본(외부 사이트용 운영 환경, `docker/` — 카메라 발행기 `docker/host_camera_publisher.py` 하나만 남겼다, 시험이 대사한다),
@@ -61,14 +61,14 @@ colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agen
 cd <이 레포>/relay_station && python3 -m pytest tests -q        # numpy · opencv-python · psutil · pyyaml 필요
 ```
 
-기대(ROS 2 Jazzy 컨테이너, 2026-09-28 export): **1425 passed, 22 skipped** — skip 은 통과가 아니다. 22 = 환경(Chrome 16 · 격리 네트워크
-`unshare -rn` 2 · socat 1 · tailscale0 1) 18 + 이 레포에 대사 대상이 없어 사유를 적어 둔 4(`test_relay_fleet.py::test_R_A13_*`,
-`test_control_topic_naming.py::test_로봇_온보드는_*`, `test_review_0926_ui2.py::test_OPS10_받는_미션은_*`,
-`test_v2_front_honesty.py::test_데모_마커_ID_*`). 환경을 갖추면 18 은 돌아야 하고, failed 가 1 이라도 있으면 보고한다.
-2026-09-28 저녁 제어권 정책으로 시험 20 이 늘었다(`test_control_policy.py` 12 · `test_control_0928_control_policy_wiring.py` 8 — rclpy 없이 돈다).
-재측정(같은 컨테이너, 제어권 정책 `71faa4f` + 시험 수정 뒤): **1445 passed, 22 skipped**, failed 0. 수정한 시험은 `test_calibration_http.py::test_게이트_없는_POST_경로가_새로_생기지_않았다`
-하나 — 움직이는 POST 가지의 문이 `LOCAL_CONTROL_IPS` 이름에서 `_deny_if_cannot_move` / `CONTROL_POLICY` 로 바뀐 것을 시험이 몰라 7 경로를 "새 무게이트" 로 잡았다
-(원 저장소 main `1eed3f8` 에서도 같은 실패). 시험이 두 문을 알아보게 했고, 정지 계열이 같은 가지에서 문 뒤에 있지 않은 것은 예전과 같다(R-4 기록 그대로).
+기대(ROS 2 Jazzy 컨테이너, 2026-09-29 개편 2단계 뒤): **986 passed, 6 skipped**, failed 0 — skip 은 통과가 아니다.
+6 = 환경 4(`tailscale0` 1 · socat 1 · 격리 네트워크 `unshare -rn` 2) + 이 레포에 대사 대상이 없어 사유를 적어 둔 2
+(`test_relay_fleet.py::test_R_A13_*` · `test_control_topic_naming.py::test_로봇_온보드는_*`). 환경을 갖추면 4 는 돌아야 하고,
+failed 가 1 이라도 있으면 보고한다.
+
+수치가 줄어든 이유(1445 → 986): 개편 2단계에서 중계 화면(V2 · 옛 `index.html`) · 태블릿 비전 월드 · 캘리브레이션 · 단일 로봇
+목표/미션 API 를 지웠고, 그것들을 대사하던 시험(Chrome 16 포함)을 같이 지웠다. 새로 잠근 것: 남은 HTTP 경로 목록
+(`test_relay_surface.py`) · 중계 상태(`test_relay_health.py`) · live 웹 계약(`test_live_web_contract.py`).
 
 ## map4 ↔ map5
 

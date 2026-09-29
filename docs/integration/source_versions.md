@@ -20,3 +20,4 @@ PR 제출 전 upstream 최신 변경을 다시 확인해야 합니다.
 - 2026-09-28 저녁 추가: 원 저장소 main `1eed3f8`(제어권 정책 — `relay_station/gateway_web/control_policy.py` · `configs/control_allow.json` · V2 화면 · 시험 20) 을 같은 규칙으로 옮김 (`docs/integration/control_policy.md`)
 - 가져온 원본: mini_project_2_aerial_view `21ebc31` 의 `PoseFix.msg` · `pose_fuser.py` · `pose_fuser_node.py` · `test_pose_fuser.py`(바이트 동일)
 - 팀11 코드·설정 변경은 `pinky_lane_msgs/CMakeLists.txt` · `pinky_fleet_agent/setup.py` · `pinky_fleet_agent/package.xml` 세 개(각 한두 줄); 문서는 이 파일과 `status.md` 에 절을 덧붙였다
+- 2026-09-29 중계 브리지 개편: 1단계 `be5256a`(live 웹 계약) · 2단계 `47ee78b`(중계 화면·비전 월드·캘리브레이션 삭제, 중계 콘솔) — 원 저장소 main 은 아직 옛 화면을 싣는다(다시 옮길 때 제외 목록)

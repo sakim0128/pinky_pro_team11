@@ -258,3 +258,10 @@ RESUME 뒤 `ros2 topic echo /pinky1/lane_status` 의 `state_reason` 이 `해제 
 처음 **1 failed**(`test_calibration_http.py::test_게이트_없는_POST_경로가_새로_생기지_않았다` — 시험이 새 문 `_deny_if_cannot_move`/`CONTROL_POLICY` 를 몰라
 `/api/fleet/*` 5 + `/api/control/*` 2 를 무게이트로 잡음, 원 저장소 main 에서도 같다) → 시험만 고쳐 **1445 passed, 22 skipped**. 에이전트·station 시험은 이 커밋이
 건드리지 않는다(319 · 188/24 그대로).
+
+## 9. 중계 브리지 개편과 로봇 쪽 (2026-09-29)
+
+주 대시보드가 팀11 live 웹이 되면서 로봇 쪽에서 바뀐 것은 하나다: `hybrid_robot.launch.xml` 이 팀11 `camera_node` 를 띄운다
+(`use_camera` 기본 True · `camera_orient` rot180 · `camera_fps` 10 — `lane_agent.launch.xml` 과 같은 값, `test_hybrid_launch.py` 가 대조).
+`/pinkyN/amcl_pose` 는 원래 `hybrid_agent_node` 가 다시 내고 있었고, 중계 브리지가 이제 그것과 카메라를 관제 도메인에 올린다.
+게이트·에이전트 코드는 그대로다(에이전트 시험 320 passed · 런치 수락 동일). 중계 쪽 기록은 `docs/integration/relay_station.md`.
