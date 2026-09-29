@@ -218,3 +218,15 @@ python3 tools/bag_to_video.py <robot_bag> --station <station_bag> --out clip.mp4
 용량: 카메라 10 fps JPEG ≈ 1.4 GB/h, 나머지 < 100 MB/h. 5 분 단위로 파일이 나뉘어 크래시가 나도 마지막 5 분만 잃는다.
 두 기기 시계가 달라도 관제 bag 의 `LanePath.source_stamp` 가 로봇 이미지 stamp 그대로라 두 bag 을 이어 맞출 수 있다
 (`bag_to_video.py --station` 이 이 방법을 쓴다).
+
+## 9. 화면 보기 (rqt 없이)
+
+`rqt_image_view` 는 명령줄에 `/…/compressed` 토픽을 주면 raw(`sensor_msgs/Image`)로 구독해 아무것도 안 나오고, 새로고침에서 멈추기도 한다.
+그럴 때는 이 뷰어를 쓴다 (관제 PC 든 같은 네트워크의 노트북이든, 도메인만 맞추면 된다).
+
+```bash
+export ROS_DOMAIN_ID=8
+python3 tools/view_image.py /pinky1/lane_debug/compressed /pinky2/lane_debug/compressed   # 추론 오버레이 두 대
+python3 tools/view_image.py /pinky1/camera/image/compressed --scale 0.5                    # 원본 카메라
+```
+q 로 끝낸다. 창 제목에 수신 fps, 3 s 끊기면 `NO FRAME`.
