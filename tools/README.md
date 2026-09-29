@@ -193,7 +193,7 @@ ros2 run pinky_lane_station record_graph --ros-args -p robot:=pinky1 -p out:=$HO
 ```bash
 # 기록 — launch 에 record:=True 만 붙인다 (로봇·관제 모두). ~/pinky_logs/<날짜>/<시각>_<호스트>_<robot|station>_<이름>/
 ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True record:=True
-ros2 launch pinky_lane_station lane_station.launch.xml use_coordinator:=False record:=True
+ros2 launch pinky_lane_station lane_station.launch.xml record:=True
 # 수동 기록
 bash $(ros2 pkg prefix pinky_fleet_agent)/share/pinky_fleet_agent/scripts/record_bag.sh robot pinky1
 ros2 bag info ~/pinky_logs/2026-09-21/143000_pinky_robot_pinky1

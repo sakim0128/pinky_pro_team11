@@ -146,7 +146,7 @@ Overhead 카드와 P′ 위치를 연결한다.
 - 로봇 온보드: `pinky_fleet_agent` 에 `hybrid_agent_node`(Nav2 + 레인 관제 수신) · `drive_command_gate`(`/cmd_vel` 단일 발행자) ·
   `pose_fuser_node`(aerial_view 원본) · `route_chain` 을 **추가**했다. 기존 `agent_node`·`lane_agent_node`·launch 는 바이트 그대로.
   새 최상위 launch `hybrid_robot.launch.xml`. `pinky_lane_msgs` 에 `PoseFix.msg`(aerial_view 와 바이트 동일)를 더했다.
-  기록: [`docs/hybrid_nav2_gate.md`](../hybrid_nav2_gate.md) (§6 "main 동기" — 원 저장소 에이전트 커밋을 따라온 표).
+  기록: `docs/hybrid_nav2_gate.md`(2026-09-29 삭제) (§6 "main 동기" — 원 저장소 에이전트 커밋을 따라온 표).
 - 중계 관제국 `relay_station/`(웹 관제 `:8889` · 플릿 코디네이터 · 도메인 브리지 · 영상 공유). `COLCON_IGNORE` — 빌드 대상 아님.
   이 저장소 관제(`pinky_lane_station`)와 같은 메시지 계약을 쓰는 다른 구현이라 **같은 로봇에 둘을 동시에 붙이지 않는다**.
   안내: [`relay_station.md`](relay_station.md).
@@ -165,34 +165,32 @@ Overhead 카드와 P′ 위치를 연결한다.
 검증(ROS 2 Jazzy 컨테이너, `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤):
 수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7(병합 전) · §8(`094e5d7` 병합 뒤: 에이전트 319 · 중계 1425/22 · station·lane 188/24). station·lane 시험은 그대로 초록.
 
-## 2026-09-29 — 웹 배정 · 정지선 교차로 정지 · 선착순 통과 (브랜치 `claude/adoring-wright-wey55e`, 팀 동의 전)
+## 2026-09-29 — 웹 배정 · 정지선 교차로 · 선착순 · 중복 정리 (브랜치 `claude/adoring-wright-wey55e`, 팀 동의 전)
 
-`mini_project_integration` 에서 갈라 만든 브랜치다. 팀 합의가 되면 `mini_project_integration` 에 얹고, 아니면 브랜치만 지운다.
+`mini_project_integration`(e3ca6ed) 에서 갈라 만든 브랜치다. 팀 합의가 되면 `mini_project_integration` 에 얹고, 아니면 브랜치만 지운다.
+결정(사용자, 2026-09-29): 코디네이터는 relay 하나 · 로봇은 `lane_agent_node` 하나 · 이름은 `pinkyN` · 지도는 map5 · 항공뷰는 relay 와 같은 도메인 8.
 
 완료한 변경:
 
-- `mini_project_2_lane_rules` 병합 (D14: 차선 ≥3 바깥 쌍 · LANE_SEARCH · BARRICADE_WAIT · JUNCTION_STOP/PASS · 항공뷰 pose_fuser).
-  충돌: `pose_fuser_node.py` 는 lane_rules 판(`/<robot>/overhead_pose` + 마커 오프셋) 채택, 이 브랜치의 PoseFix 판은
-  `pose_fix_fuser_node.py` 로 이름을 바꿔 보존(hybrid launch·테스트 참조 갱신). `lane_robot.launch.xml` 기본 위치추정 = 항공뷰(`use_overhead:=True`).
-- **웹 배정**: relay V2 설정 탭 "미션 배정" — 로봇별 시작/목적지 드롭다운(도로망 endpoint 노드, `/api/fleet/profiles.graph`) → `/api/fleet/assign`.
-  화면에 노드 이름을 박지 않는다(맵이 바뀌면 `road_graph.yaml` 만 고친다).
-- **정지선**: `LanePath.stop_line_detected/_bottom_y`, `SceneState.stop_line_*`, `lane_target` 디바운스(하단 ≥0.80·H, 2 확정/5 해제),
-  오버레이 색. 모델 클래스 id 는 미정 — `detector_yolo.yaml` 에 주석으로 자리만.
-- **교차로 규칙**(로봇 `lane_driver`/`drive_fsm`): 트리거 = 정지선(경로상 다음 분기 ≤ `stop_line_zone` 0.6 m) 또는 분기 반경. `JUNCTION_STOP` 은
-  1 s 지나고 **관제 허가(`clear_until` > 분기 idx)** 가 있어야 `JUNCTION_PASS`. 허가 없으면 `교차로 대기 — 통과 허가 없음`. 정지 중엔
-  WAIT_CLEARANCE 로 바뀌지 않는다. lane_only 는 정지선만으로 1 s 정지 뒤 통과.
-- **선착순**(relay `fleet_coordinator`/`reservation`): `DRIVE_JUNCTION_STOP` 보고 → `reservation.request_next_now` (거리 무관 요청) → 기존
-  선착순(요청 틱 → domain_id). 상태 JSON 로봇별 `junction_wait_sec`. V2 문구 drive_state 10~13.
-- relay 브리지(`generate_configs.sh`, `robot{1,2}_control.yaml`)에 `/pinkyN/overhead_pose` (8→10/11) 추가.
+- **lane_rules 병합** (D14: 차선 ≥3 바깥 쌍 · LANE_SEARCH · BARRICADE_WAIT · JUNCTION_STOP/PASS · 항공뷰 pose_fuser). `lane_robot.launch.xml` 기본 위치추정 = 항공뷰.
+- **웹 배정**: relay V2 설정 탭 "미션 배정" — 로봇별 시작/목적지 드롭다운(`/api/fleet/profiles.graph.endpoints`) → `/api/fleet/assign`.
+- **정지선**: `LanePath.stop_line_*`, `SceneState.stop_line_*`, `lane_target` 디바운스, 오버레이. 모델 id 미정(`detector_yolo.yaml` 주석).
+- **교차로 규칙**(로봇): 트리거 = 정지선(다음 분기 ≤ 0.6 m) 또는 분기 반경. `JUNCTION_STOP` 은 1 s + **관제 허가**(`clear_until` > 분기 idx) 뒤에만 `JUNCTION_PASS`.
+- **선착순**(relay): `DRIVE_JUNCTION_STOP` 보고 → `reservation.request_next_now`(거리 무관) → 선착순(요청 틱 → domain_id). 상태 `junction_wait_sec`.
+- **Nav2 하이브리드 스택 삭제**: `hybrid_agent_node` `drive_command_gate` `route_chain` `hybrid_link_watch` `diag` `pose_fix_fuser_node`, hybrid/nav2_gated launch, 관련 시험, `docs/hybrid_nav2_gate.md`(아래 옛 절의 링크는 죽었다). `agent_node`(mini_project_1)는 그대로.
+- **항공뷰 웹캠**: `pinky_fleet_station/overhead_camera_node`(cv2 → CompressedImage, RELIABLE depth 1) + `overhead_tracker.launch.xml` 인수. 도메인 8 에서 relay 와 같이 띄운다 → 브리지 `/pinkyN/overhead_pose`(8→10/11).
+- **코디네이터 단일화**: `pinky_lane_station` 의 `lane_coordinator_node`·`reservation.py` 삭제, `lane_station.launch.xml` = 브리지 + 인식. 도로망 구현은 `pinky_lane_station.road_graph` 하나(relay 포크 삭제, `summary()` 이식).
+- **pinkyN 통일**: relay 의 `/robotN/*` · `robotN` id · `/api/robotN/*` → `pinkyN`. Nav2 직접 경로(goal_pose·mission_cmd·nav_status·teleop cmd_vel, Tk GUI, `/api/robotN/goal|mission`) 삭제. 브리지 설정 `pinkyN_control.yaml` 재생성(+ `camera/image/compressed` 업 · `lane_path` 다운).
+- **map5**: 프로파일 `team11_map5` 하나(정본 파일을 상대경로로 참조, 복사 없음). `road_graph.yaml` 임시 4노드(BL·BR·TR·J), 미션 pinky1 BL→TR · pinky2 BR→BL. relay `assign_conflict` 는 도착해 선 로봇의 노드만 막는다(출발·분기의 일시 점유는 통과).
+- live 웹: relay 의 `mission_state` 를 받는다, launch 가 `enable_control` 을 넘긴다.
 
-검증(ROS 없는 컨테이너): `pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test` 415 passed / 152 skipped ·
-relay 순수 시험 `test_assign_ui.py` 5 · `test_junction_first_come.py` 4 · `test_team11_export.py` 등 통과. rclpy 가 필요한 relay 시험은 재측정 전.
+검증(ROS 없는 컨테이너): 3개 패키지 pytest 348 passed / 24 skipped · relay 순수 시험(`test_assign_ui` `test_assign_map5` `test_junction_first_come` `test_bridge_*` `test_wiring` 등) 통과.
+rclpy/ROS msgs 가 필요한 relay 시험은 이름 변경 뒤 컴파일만 했다 — 중계 PC 재측정 필요.
 
 확인할 사항:
 
-- `overhead_tracker_node` 는 관제 도메인 0 에서 돈다 — relay(8) 로 가려면 0→8 미러가 있어야 한다(`team_mirror.yaml` 에 항목 추가 필요, 미완).
-- 정지선 모델 id · 새 맵의 `road_graph.yaml`(endpoint 3개: 왼쪽 위·오른쪽 위·오른쪽 아래) 은 팀 결정 뒤.
-- 중복 정리(relay 의 road_graph/reservation 포크, 코디네이터·웹 통합)는 이번 범위 밖 — `docs/integration` 의 인벤토리 참고, 다음 작업.
+- 정지선 모델 id · 새 맵 `road_graph.yaml` 좌표 · 항공뷰 호모그래피(map5) · DDS Cyclone 통일(핑키 rmw 확인) — README "미결".
+- `docs/integration/live_web.md`·`pr_live_web.md` 는 첫 PR 시점 문서라 relay 없는 도메인 0 배치를 말한다(이력).
 
 ## 2026-09-28 저녁 — 제어권 정책: 팀원 노트북도 중계를 거쳐 움직이는 명령을 낸다 (rkd1rjs2 팀원)
 
