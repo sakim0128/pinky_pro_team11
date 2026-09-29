@@ -6,6 +6,8 @@
     ros2 launch pinky_lane_station lane_station.launch.xml \
         mission:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_lane_station/config/lane_mission.yaml \
         detector_config:=$HOME/fleet_ws/src/pinky_pro_team11/pinky_lane_station/config/detector_lane.yaml
+    로봇 도메인이 10/11 이 아니면:  ros2 launch pinky_lane_station lane_station.launch.xml pinky1_domain:=45 pinky2_domain:=46
+    (관제 도메인은 지금 셸의 ROS_DOMAIN_ID, 또는 station_domain:=0)
 
   브릿지 2개 + lane_pipeline(인식) 뿐이다. **코디네이터(경로 배정·구간 예약·LaneCommand)는 중계 관제국의
   relay_station/fleet/fleet_coordinator.py 하나다** — 도메인 8 에서 따로 띄운다(docs/integration/relay_station.md).
@@ -22,17 +24,17 @@
     <arg name="record" default="False" description="True: ros2 bag 블랙박스 기록 (pinky_fleet_agent/scripts/record_bag.sh station)"/>
     <arg name="log_root" default="$(env HOME)/pinky_logs"/>
     <arg name="use_bridge" default="True" description="가짜 로봇으로 검증할 때는 False"/>
-    <arg name="fleet_bridge_config" default="$(find-pkg-share pinky_fleet_station)/config/bridge_fleet.yaml"
-         description="state/command 브리지 yaml — 로봇 도메인이 10/11 이 아니면 복사본을 준다"/>
-    <arg name="lane_bridge_config" default="$(find-pkg-share pinky_lane_station)/config/bridge_lane.yaml"
-         description="영상·차선·route·overhead_pose 브리지 yaml"/>
+    <arg name="station_domain" default="$(env ROS_DOMAIN_ID 0)" description="관제 PC 도메인 (기본: 지금 셸의 ROS_DOMAIN_ID)"/>
+    <arg name="pinky1_domain" default="10" description="pinky1 의 ROS 도메인 — 브리지가 여기서 끌어온다"/>
+    <arg name="pinky2_domain" default="11"/>
     <arg name="publish_debug_image" default="True"
          description="/&lt;robot&gt;/lane_debug/compressed 에 검출 결과를 그려 발행 (rqt_image_view)"/>
 
     <include file="$(find-pkg-share pinky_lane_station)/launch/lane_bridge.launch.xml"
              if="$(var use_bridge)">
-        <arg name="fleet_bridge_config" value="$(var fleet_bridge_config)"/>
-        <arg name="lane_bridge_config" value="$(var lane_bridge_config)"/>
+        <arg name="station_domain" value="$(var station_domain)"/>
+        <arg name="pinky1_domain" value="$(var pinky1_domain)"/>
+        <arg name="pinky2_domain" value="$(var pinky2_domain)"/>
     </include>
 
     <node pkg="pinky_lane_station" exec="lane_pipeline_node" name="lane_pipeline" output="screen">
