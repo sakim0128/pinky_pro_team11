@@ -154,3 +154,22 @@ def test_diag_lifecycle_nodes_match_what_is_launched():
     assert nav == NAV2_NODES
     assert lets['amcl'] == ['map_server', 'amcl'] + nav
     assert lets['fuser'] == ['map_server'] + nav == list(diag.DEFAULT_NAV2_NODES)
+
+
+def test_hybrid_robot_camera_matches_team11_lane_launch():
+    """개편 1단계: 주 대시보드(live 웹)의 전방 카메라 = 팀11 camera_node 가 내는 /<robot>/camera/image/compressed.
+
+    lane_agent.launch.xml 과 같은 노드 · 같은 파라미터 이름 · 같은 기본값으로 띄워야 중계 브리지와 live 웹이
+    이름 하나로 맞는다. use_camera 로 끌 수 있어야 한다(picamera2 없는 기계 · 컨테이너 시험).
+    """
+    root = ET.parse(HYBRID_ROBOT).getroot()
+    cams = [n for n in root.iter('node') if n.get('exec') == 'camera_node']
+    assert len(cams) == 1, '카메라 노드는 하나'
+    cam = cams[0]
+    assert cam.get('if') == '$(var use_camera)'
+    params = {p.get('name'): p.get('value') for p in cam.iter('param')}
+    assert params == {'robot_name': '$(var robot_name)', 'orient': '$(var camera_orient)', 'fps': '$(var camera_fps)'}
+    args = {a.get('name'): a.get('default') for a in root.iter('arg')}
+    lane = {a.get('name'): a.get('default') for a in ET.parse(os.path.join(LAUNCH, 'lane_agent.launch.xml')).getroot().iter('arg')}
+    assert args['camera_orient'] == lane['camera_orient'] and args['camera_fps'] == lane['camera_fps']
+    assert args['use_camera'] == 'True'

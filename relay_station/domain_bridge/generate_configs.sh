@@ -234,6 +234,20 @@ EOF
   /pinky${n}/diag:
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
+
+  # 8) live 웹 대시보드용 (업링크: 로봇 도메인 -> 관제 도메인 8) [2026-09-29 개편 1단계]
+  #    주 대시보드는 팀11 pinky_fleet_station/live_web_node 이고, 중계 PC 도메인 8 에서 뜬다.
+  #    그 노드가 구독하는 이름 그대로 올린다 — 이름을 바꾸면 live 웹이 조용히 "미수신" 이 된다.
+  #    amcl_pose : 에이전트(hybrid_agent_node)가 /amcl_pose 를 이 이름으로 다시 낸다. 지도 위 P · 공분산 타원.
+  #    camera    : 로봇 camera_node(hybrid_robot.launch.xml use_camera)가 낸다. BEST_EFFORT depth 1 로 발행되므로
+  #                여기도 best_effort — reliable 로 적으면 짝이 안 맞아 빈 토픽이 된다(위 QoS 주의).
+  /pinky${n}/amcl_pose:
+    type: geometry_msgs/msg/PoseWithCovarianceStamped
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 1}
+
+  /pinky${n}/camera/image/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
 EOF
     fi
 

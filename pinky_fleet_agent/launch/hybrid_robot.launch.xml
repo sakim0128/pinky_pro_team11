@@ -18,6 +18,11 @@
     수동 조종         > /cmd_vel_teleop
     /cmd_vel_mission · /cmd_vel_teleop · /estop > drive_command_gate > /cmd_vel
   hybrid_agent_node 는 ESTOP · 링크 유실에서 /estop true 를 낸다 → 게이트가 0 으로 묶는다.
+
+  전방 카메라: use_camera:=True(기본)면 팀11 camera_node 가 /<robot_name>/camera/image/compressed 를 낸다
+  (lane_robot.launch.xml 과 같은 노드 · 같은 기본값). 중계 브리지가 이 이름 그대로 관제 도메인에 올리고,
+  주 대시보드(pinky_fleet_station live 웹)의 전방 카메라 타일이 이것을 본다. picamera2 가 없는 기계에서는
+  use_camera:=False.
 -->
 <launch>
     <arg name="robot_name" default="pinky1"/>
@@ -41,6 +46,11 @@
          description="연결 복구 직후 이만큼(s) 이동 명령을 무시한다 (재전송 방어)."/>
     <arg name="launch_bringup" default="True"
          description="시뮬레이션에서 돌릴 때는 False 로 두고 pinky_gz_sim 을 따로 띄운다."/>
+    <arg name="use_camera" default="True"
+         description="True: 팀11 camera_node 로 /&lt;robot_name&gt;/camera/image/compressed 발행 (live 웹 전방 카메라)."/>
+    <arg name="camera_orient" default="rot180"
+         description="camera_node orient (none | rot180 | rot180_mirror | vflip | hflip). 핑키 카메라는 거꾸로 달려 있다."/>
+    <arg name="camera_fps" default="10.0"/>
     <arg name="use_pose_fuser" default="False"
          description="True: AMCL 대신 pose_fuser_node 가 외부 비전 PoseFix + odom 으로 map->odom 을 낸다."/>
 
@@ -65,6 +75,13 @@
 
     <node pkg="pinky_fleet_agent" exec="drive_command_gate" name="drive_command_gate" output="screen">
         <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="pinky_fleet_agent" exec="camera_node" name="pinky_camera" output="screen"
+          if="$(var use_camera)">
+        <param name="robot_name" value="$(var robot_name)"/>
+        <param name="orient" value="$(var camera_orient)"/>
+        <param name="fps" value="$(var camera_fps)"/>
     </node>
 
     <node pkg="pinky_fleet_agent" exec="pose_fuser_node" name="pose_fuser" output="screen"

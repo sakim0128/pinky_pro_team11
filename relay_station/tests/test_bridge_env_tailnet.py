@@ -182,11 +182,12 @@ def _run_launcher_block(tmp_path, present, with_xml, xml_nic=FIELD, **env_over):
     ip.write_text('#!/bin/sh\ncase ":$PRESENT_NICS:" in *":$3:"*) exit 0;; esac\nexit 1\n', encoding="utf-8")
     ip.chmod(ip.stat().st_mode | stat.S_IEXEC)
     root = tmp_path / "repo"
-    (root / "configs").mkdir(parents=True, exist_ok=True)
+    cfg = root / "relay_station" / "configs"      # 이 레포 배치 — 런처·bridge_env.sh 가 같은 곳을 본다(2026-09-29)
+    cfg.mkdir(parents=True, exist_ok=True)
     if with_xml:
         for n in ("cyclonedds-offsite.xml", "cyclonedds-tailnet.xml"):
-            (root / "configs" / n).write_text("<CycloneDDS/>", encoding="utf-8")
-        (root / "configs" / "cyclonedds.xml").write_text(
+            (cfg / n).write_text("<CycloneDDS/>", encoding="utf-8")
+        (cfg / "cyclonedds.xml").write_text(
             '<CycloneDDS><NetworkInterface name="%s" /></CycloneDDS>' % xml_nic, encoding="utf-8")
     env = {k: v for k, v in os.environ.items()
            if k not in ("RELAY_DDS_PROFILE", "FARM_HOST_TAILNET_IP", "CYCLONEDDS_URI", "FIELD_NIC")}

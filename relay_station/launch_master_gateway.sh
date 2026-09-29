@@ -45,7 +45,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 # ROS 노드가 하나도 안 만들어져 게이트웨이가 통째로 죽는다 (2026-09-09 집에서 실측).
 # bridge_env.sh 와 같은 규칙 — 환경변수로 바꿀 수 있다(관제 검수 P3: 예전엔 여기만 박혀 있어 둘이 갈렸다)
 FIELD_NIC="${FIELD_NIC:-enx001122334455}"
-_DDS_CFG_DIR="${REPO_ROOT:-$HOME/pinky_pro/src/pinky_pro_team11}/configs"
+_DDS_CFG_DIR="${REPO_ROOT:-$HOME/pinky_pro/src/pinky_pro_team11}/relay_station/configs"   # 이 레포에서 DDS 프로파일은 relay_station/configs 에 있다(bridge_env.sh 와 같은 곳)
 # R-2 (2026-09-24): RELAY_DDS_PROFILE 로 명시할 수 있다 — 규칙은 domain_bridge/bridge_env.sh 와 같다
 # (둘이 다르면 같은 기계의 두 서비스가 다른 DDS 에 선다 · 시험이 대사한다). tailnet 은 명시할 때만.
 _dds_die() { echo "[launcher] 🔴 DDS 설정 오류: $* (exit 78 — 재시작해도 같다)" >&2; exit 78; }

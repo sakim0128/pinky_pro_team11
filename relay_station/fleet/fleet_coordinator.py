@@ -1660,6 +1660,9 @@ class RelayFleetCoordinator(Node):
 
         return {
             "mission_state": self.mission_state,
+            # 팀11 live 웹(pinky_fleet_station/live_web_node)은 /fleet/lane/status 의 "mission"(문자열)을 읽고,
+            # 문자열이 아니면 표본을 버린다 — 팀11 lane_coordinator_node 와 같은 이름으로 한 번 더 싣는다 (개편 1단계).
+            "mission": str(self.mission_state),
             "estop_latched": bool(self.estop_latched),
             "control_note": self.control_notes(),
             "profile": {k: v for k, v in self.profile_status().items() if k != 'available'},
