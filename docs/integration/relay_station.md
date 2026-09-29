@@ -12,7 +12,7 @@
 | 무엇 | 레인 코디네이터 · GUI · live 웹(`:8080`, 조회 전용) · 상부 추적기 | 웹 관제(`:8889`) · 플릿 코디네이터 · 도메인 브리지 · 영상 공유 |
 | 메시지 | `FleetCommand` `RobotState` `LaneCommand` `LaneStatus` `Route` | **같다** (바이트 동일한 `.msg`) |
 | 도메인 | 관제 PC 도메인 0, 로봇 10·11 을 `bridges.launch.xml` 로 | 관제 8, 로봇 10·11 을 `relay_station/domain_bridge/` 로 |
-| 로봇 쪽 짝 | `lane_robot.launch.xml`(레인) · `robot.launch.xml`(Nav2) | `hybrid_robot.launch.xml`(Nav2 + `/cmd_vel` 게이트 + 레인 관제 수신, [`docs/hybrid_nav2_gate.md`](../hybrid_nav2_gate.md)) — 레인 로봇도 같은 `LaneCommand` 로 중재된다 |
+| 로봇 쪽 짝 | `lane_robot.launch.xml`(레인 · 항공뷰 `pose_fuser_node`) | **같다** — `lane_robot.launch.xml`. 레인 로봇은 같은 `LaneCommand` 로 중재된다 (2026-09-29: Nav2 하이브리드 스택 `hybrid_robot.launch.xml` 은 삭제) |
 | 지도 | live 웹·상부 추적기는 **map5** | 좌표 프로파일은 **map4** (아래) |
 
 **같은 로봇에 두 코디네이터를 동시에 붙이지 않는다.** 둘 다 `/pinkyN/lane_command` · `/pinkyN/route` 를 낸다.
@@ -35,7 +35,7 @@ relay_station/launch_master_gateway.sh          # DDS 프로파일 선택 → �
 #    또는 따로: relay_station/domain_bridge/install_bridge.sh · python3 relay_station/gateway_web/gateway_web_server.py --port 8889
 
 # 3) 로봇 (도메인 10 · 11)
-ros2 launch pinky_fleet_agent hybrid_robot.launch.xml robot_name:=pinky1 domain_id:=10 map_name:=map4
+ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 map:=$HOME/map/map5.yaml
 ```
 
 브라우저: `http://<중계 PC>:8889/fleet_control_v2.html` — 설정 탭에서 **① 중계 좌표 전환(map4) → ② 로봇 지도 전환 → ③ 초기 위치**

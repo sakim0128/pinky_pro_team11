@@ -12,7 +12,9 @@
 별도 worktree에서 개발했습니다. push/PR 생성/merge는 수행하지 않았습니다.
 PR 제출 전 upstream 최신 변경을 다시 확인해야 합니다.
 
-# 작업 기준 — relay_station · hybrid 로봇 스택 (rkd1rjs2 팀원)
+# 작업 기준 — relay_station · 로봇 스택 (rkd1rjs2 팀원)
+
+> 2026-09-29: 로봇 쪽 짝은 `lane_robot.launch.xml`(lane_agent_node + 항공뷰 pose_fuser_node). 아래에 언급된 hybrid(Nav2) 로봇 스택(`hybrid_agent_node` · `drive_command_gate` · `route_chain` · `pose_fix_fuser_node` · `hybrid_robot.launch.xml`)은 삭제됐다.
 
 - 최종 저장소(upstream): sakim0128/pinky_pro_team11 · PR 대상: `mini_project_integration`(09-28 저녁 upstream 이 만든 브랜치, = `main` `094e5d7`; 처음 계획은 mini_project_2)
 - 시작 커밋: 1f505cb88719c44391cc2781dcc3c5f09c9b7795 → 2026-09-28 upstream `5faddf1`(PR #3) 병합 → 같은 날 저녁 `main` `094e5d7`(PR #2 · #4, mini_project_1: `pinky_fleet_sim` · nav2 튠 · 파라미터 감사) 병합 `f2d4e5b`, 충돌 0

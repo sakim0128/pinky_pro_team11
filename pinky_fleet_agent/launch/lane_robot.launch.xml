@@ -4,7 +4,7 @@
 
     export ROS_DOMAIN_ID=10
     ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 \
-        map:=$HOME/map/map4.yaml camera_orient:=rot180
+        map:=$HOME/map/map5.yaml camera_orient:=rot180
 
   bringup(모터/라이다/TF) + 위치추정 + 초음파 노드 + 카메라 + lane_agent. /cmd_vel 발행자는 lane_agent 하나뿐이다.
   robot.launch.xml(Nav2 전체) 과 동시에 띄우지 말 것.
@@ -16,7 +16,7 @@
 <launch>
     <arg name="robot_name" default="pinky1"/>
     <arg name="domain_id" default="10"/>
-    <arg name="map" default="/home/pinky/map/map4.yaml"/>
+    <arg name="map" default="/home/pinky/map/map5.yaml"/>
     <arg name="use_sim_time" default="False"/>
     <arg name="launch_bringup" default="True"/>
     <arg name="use_overhead" default="True" description="항공뷰 pose_fuser_node 로 map→odom TF"/>
