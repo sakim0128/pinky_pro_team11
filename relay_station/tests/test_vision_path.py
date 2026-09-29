@@ -6,7 +6,7 @@
    도메인 8 의 구독자이고, 로봇이 있는 도메인 10 은 **여기서 볼 수 없다.**
 
    2026-09-19 실측:
-       D8  /pinky1/vision_pose   Pub 1 (게이트웨이) · Sub 1 (pinky_bridge_robot1_8)
+       D8  /pinky1/vision_pose   Pub 1 (게이트웨이) · Sub 1 (pinky_bridge_pinky1_8)
        D10 /vision_pose          Pub 1 (브리지)     · Sub 0        ← 여기서 끊긴다
 
    연산 노드 세션이 그 값을 종단 근거로 쓸 뻔했고, 관제 세션과 함께
@@ -39,7 +39,7 @@ _GATEWAY = os.path.join(_REPO, "relay_station", "gateway_web", "gateway_web_serv
 
 def test_브리지만_있으면_consumer_가_0_이다():
     """🔴 이게 이 파일의 핵심이다. 수만 세면 1 이고, 그 1 을 '로봇이 받는다' 로 읽는다."""
-    r = vp.classify_receivers(["/pinky_bridge_robot1_8"], topic="/pinky1/vision_pose")
+    r = vp.classify_receivers(["/pinky_bridge_pinky1_8"], topic="/pinky1/vision_pose")
     assert r["total"] == 1
     assert r["bridge"] == 1
     assert r["consumer"] == 0, "브리지를 소비자로 세면 종단 판정이 거짓이 된다"
@@ -47,7 +47,7 @@ def test_브리지만_있으면_consumer_가_0_이다():
 
 
 def test_브리지가_아닌_구독자가_생기면_consumer_가_오른다():
-    r = vp.classify_receivers(["/pinky_bridge_robot1_8", "/pinky1_vision_consumer"])
+    r = vp.classify_receivers(["/pinky_bridge_pinky1_8", "/pinky1_vision_consumer"])
     assert (r["total"], r["bridge"], r["consumer"]) == (2, 1, 1)
 
 
@@ -66,13 +66,13 @@ def test_못_쟀으면_0_이_아니라_None_이다():
 
 
 def test_네임스페이스가_붙어도_브리지로_센다():
-    r = vp.classify_receivers(["/ns/pinky_bridge_robot1_8"])
+    r = vp.classify_receivers(["/ns/pinky_bridge_pinky1_8"])
     assert r["bridge"] == 1
 
 
 def test_이름이_비슷하기만_한_것은_브리지가_아니다():
     """접두어 판정이 느슨해지면 빨개진다 — 소비자를 브리지로 세면 종단이 영영 0 이 된다."""
-    r = vp.classify_receivers(["/my_pinky_bridge_fake", "/bridge_pinky_robot1"])
+    r = vp.classify_receivers(["/my_pinky_bridge_fake", "/bridge_pinky_pinky1"])
     assert r["bridge"] == 0 and r["consumer"] == 2
 
 

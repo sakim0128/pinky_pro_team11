@@ -85,6 +85,11 @@ try:
     _RELAY_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     if _RELAY_ROOT not in sys.path:
         sys.path.insert(0, _RELAY_ROOT)
+    # 도로망(road_graph)은 pinky_lane_station 패키지 하나다(2026-09-29) — fleet/ 가 그것을 import 한다. 실물은
+    # install/setup.bash 가 주지만, 소스 체크아웃만 있는 곳(시험·도커)에서도 뜨게 레포의 형제 폴더를 **뒤에** 붙인다(있을 때만).
+    _LANE_SRC = os.path.join(os.path.dirname(_RELAY_ROOT), 'pinky_lane_station')
+    if os.path.isdir(os.path.join(_LANE_SRC, 'pinky_lane_station')) and _LANE_SRC not in sys.path:
+        sys.path.append(_LANE_SRC)
     from fleet.fleet_coordinator import RelayFleetCoordinator
     from fleet.fleet_coordinator import HELD_ESTOP_RESTORED, HELD_LINK_LOST
 except Exception as _fleet_exc:                               # noqa: BLE001 — 없어도 게이트웨이는 뜬다. 이유는 남긴다
@@ -2443,12 +2448,17 @@ class RobotDataSubscriberNode(Node):
             RosImage, '/pinky1/camera/image_raw', self._cb_r1_cam, 5)
         self.sub_r1_comp = self.create_subscription(
             CompressedImage, '/pinky1/camera/image_raw/compressed', self._cb_r1_comp, qos_profile_sensor_data)
+        # 레인 로봇의 camera_node 는 /pinkyN/camera/image/compressed 로 낸다(2026-09-29, 브리지 pinkyN_control.yaml 8 번) — 같은 화면에 싣는다
+        self.sub_r1_lane_cam = self.create_subscription(
+            CompressedImage, '/pinky1/camera/image/compressed', self._cb_r1_comp, qos_profile_sensor_data)
 
         # 로봇 2 온보드 카메라 구독 (raw & compressed)
         self.sub_r2_cam = self.create_subscription(
             RosImage, '/pinky2/camera/image_raw', self._cb_r2_cam, 5)
         self.sub_r2_comp = self.create_subscription(
             CompressedImage, '/pinky2/camera/image_raw/compressed', self._cb_r2_comp, qos_profile_sensor_data)
+        self.sub_r2_lane_cam = self.create_subscription(
+            CompressedImage, '/pinky2/camera/image/compressed', self._cb_r2_comp, qos_profile_sensor_data)
 
         # Gazebo 3D 실시간 탑뷰 카메라 구독 (/camera 토픽)
         self.sub_gz_cam = self.create_subscription(
@@ -2540,8 +2550,10 @@ class RobotDataSubscriberNode(Node):
         구독자만 있어도 목록에는 나오므로, 판정은 count_publishers 로 한다.
         """
         probes = {
-            'pinky1': ('/pinky1/odom', '/pinky1/pose', '/pinky1/camera/image_raw', '/pinky1/camera/image_raw/compressed', '/pinky1/scan'),
-            'pinky2': ('/pinky2/odom', '/pinky2/pose', '/pinky2/camera/image_raw', '/pinky2/camera/image_raw/compressed', '/pinky2/scan'),
+            'pinky1': ('/pinky1/odom', '/pinky1/pose', '/pinky1/camera/image_raw', '/pinky1/camera/image_raw/compressed',
+                       '/pinky1/camera/image/compressed', '/pinky1/scan'),
+            'pinky2': ('/pinky2/odom', '/pinky2/pose', '/pinky2/camera/image_raw', '/pinky2/camera/image_raw/compressed',
+                       '/pinky2/camera/image/compressed', '/pinky2/scan'),
         }
         out = {}
         for name, topics in probes.items():

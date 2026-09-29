@@ -207,6 +207,19 @@ EOF
   /pinky${n}/diag:
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
+
+  # 8) 차선 인식 (2026-09-29): 관제 PC 의 lane_pipeline_node(pinky_lane_station)가 **도메인 8** 에서 돈다.
+  #    로봇 camera_node 의 압축 영상(업링크, 이름·QoS 는 pinky_lane_station/config/bridge_lane.yaml 과 같다)과
+  #    파이프라인이 내는 LanePath(다운링크). 이 둘이 없으면 레인 로봇은 차선을 못 본다.
+  /pinky${n}/camera/image/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  /pinky${n}/lane_path:
+    type: pinky_lane_msgs/msg/LanePath
+    from_domain: ${RELAY_DOMAIN}
+    to_domain: ${d}
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
 EOF
     fi
 

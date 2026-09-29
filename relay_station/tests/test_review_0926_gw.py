@@ -288,7 +288,7 @@ def test_G14_상태·전환_카드는_읽는_내내_잠금을_쥔다():
     c.reservation.edge_holder, c.reservation.node_holder = {}, {}
     c.reservation.status.side_effect = lambda n: (seen.append(("status", c._coord_lock._is_owned())), res.status(n))[1]
     c.get_fleet_status_dict()
-    c.profiles, c.active_profile = _OwnedProbe(c._coord_lock, seen), "legacy"
+    c.profiles, c.active_profile = _OwnedProbe(c._coord_lock, seen), "team11_map5"
     c.profile_status()
     assert {what for what, _ in seen} == {"status", "profiles"} and all(owned for _, owned in seen), seen
 
@@ -420,9 +420,9 @@ def test_G4_DONE_도_재시작을_넘고__전환하면_지운다(tmp_path):
     c2 = _restart(tmp_path)
     assert c2.mission_state == "DONE" and c2.profile_switch_blocker() is None   # DONE 에서는 전환된다
     c2.profiles_default, c2.profiles = P.load_profiles()
-    c2.active_profile, c2.route_pubs = "legacy", {}
+    c2.active_profile, c2.route_pubs = None, {}
     c2.reservation = Reservation(c2.graph)
-    assert c2.switch_profile("map4")
+    assert c2.switch_profile("team11_map5")
     assert _file(tmp_path)["mission_state"] is None
     assert _restart(tmp_path).mission_state == "ASSIGNED"
 
@@ -713,7 +713,7 @@ def test_실제_생성자는_UTF_8_이_아닌_상태_파일에도_죽지_않고_
     assert json.loads((sd / FC.CONTROL_STATE_FILE).read_text(encoding="utf-8"))["estop_latched"] is True
 
 
-# ==== 중계 항목 · 목표 구역 별칭은 legacy 좌표에서만 =======================================================================
+# ==== 중계 항목 · 목표 구역 별칭은 프로파일이 없을 때만 =====================================================================
 
 def _zone(c, zone_id, t):
     c._t = t
@@ -724,32 +724,23 @@ def _zone(c, zone_id, t):
 def _profiled(name):
     c = _coord(state="ASSIGNED")
     c.profiles_default, c.profiles = P.load_profiles()
-    c.active_profile, c.route_pubs = "legacy", {}
+    c.active_profile, c.route_pubs = None, {}
     c.reservation = Reservation(c.graph)
     for ctx in c.robots.values():
         ctx.route = None
     c.goal_event_timeout = 3.0
-    if name != "legacy":
-        assert c.switch_profile(name)
+    assert c.switch_profile(name)
     c.robots["pinky1"].arrived = True
     return c
 
 
-def test_map4_에서는_GOAL_C_구역_이벤트가_TC_도착을_확정하지_않고_TC_이벤트가_확정한다():
-    c = _profiled("map4")
-    assert c.robots["pinky1"].goal_node == "TC"
+def test_map5_에서는_옛_별칭_구역_이벤트가_TR_도착을_확정하지_않고_TR_이벤트가_확정한다():
+    c = _profiled("team11_map5")
+    assert c.robots["pinky1"].goal_node == "TR"
     for alias in ("GOAL_C", "goal", "goal_zone"):
         _zone(c, alias, 100.0)
         assert c.robots["pinky1"].arrival_confirmed is False, alias
-    _zone(c, "TC", 100.5)
-    assert c.robots["pinky1"].arrival_confirmed is True
-
-
-@pytest.mark.parametrize("zone", ["GOAL_C", "goal", "goal_zone"])
-def test_legacy_좌표에서는_예전_별칭이_그대로_도착을_확정한다(zone):
-    c = _profiled("legacy")
-    assert c.robots["pinky1"].goal_node == "GOAL_C"
-    _zone(c, zone, 100.0)
+    _zone(c, "TR", 100.5)
     assert c.robots["pinky1"].arrival_confirmed is True
 
 

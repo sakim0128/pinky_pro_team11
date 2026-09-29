@@ -181,7 +181,11 @@ def undefined_names(gateway_dir, require=False):
     return rep.hits, True
 
 
-FLEET_IMPORT_CODE = ("import sys; sys.path.insert(0, sys.argv[1]); "
+# 게이트웨이와 같은 규칙: relay 루트를 앞에, 형제 pinky_lane_station 소스(도로망 정본 구현)를 **뒤에** 붙인다(있을 때만 —
+# 실물은 install/setup.bash 가 준다).
+FLEET_IMPORT_CODE = ("import os, sys; sys.path.insert(0, sys.argv[1]); "
+                     "_l = os.path.join(os.path.dirname(sys.argv[1]), 'pinky_lane_station'); "
+                     "os.path.isdir(os.path.join(_l, 'pinky_lane_station')) and sys.path.append(_l); "
                      "from fleet.fleet_coordinator import RelayFleetCoordinator")
 
 

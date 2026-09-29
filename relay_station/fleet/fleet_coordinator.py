@@ -497,11 +497,11 @@ class RelayFleetCoordinator(Node):
             return False
         zid = str(ctx.last_zone_event.get('zone_id', '')).lower()
         goal = ctx.goal_node.lower() if ctx.goal_node else 'goal'
-        # 중계 항목(09-26): 'goal'·'goal_c'·'goal_zone' 별칭은 옛 5노드 경기장(legacy, 목표가 GOAL_C 하나)의 태블릿 구역
-        #     이름이다. map4 처럼 목표가 로봇마다 다른 좌표에서는 'GOAL_C' 이벤트가 TC 도착을 확정하면 안 된다 — 그 좌표에선
-        #     구역 이름이 로봇의 목표 노드와 같아야 한다. 프로파일이 없으면(예전 방식) 예전처럼 별칭을 받는다.
+        # 중계 항목(09-26): 'goal'·'goal_c'·'goal_zone' 별칭은 옛 5노드 경기장(목표가 GOAL_C 하나)의 태블릿 구역 이름이다.
+        #     목표가 로봇마다 다른 좌표(map5: TR·BL)에서는 그 별칭이 도착을 확정하면 안 된다 — 구역 이름이 로봇의 목표 노드와
+        #     같아야 한다. 프로파일이 없을 때(예전 방식)만 별칭을 받는다. (legacy 프로파일은 2026-09-29 에 지웠다.)
         prof = self.profiles.get(self.active_profile) if self.active_profile else None
-        aliases = ('goal', 'goal_c', 'goal_zone') if (prof is None or prof.frame == 'legacy_bottom_left') else ()
+        aliases = ('goal', 'goal_c', 'goal_zone') if prof is None else ()
         if zid == goal or zid in aliases:
             evt = ctx.last_zone_event.get('event_type') or ctx.last_zone_event.get('event', '')
             return evt in ('ENTER', 'PRESENT')
