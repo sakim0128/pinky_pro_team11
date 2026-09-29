@@ -215,7 +215,7 @@ cd relay_station && python3 -m pytest tests -q          # rclpy 가 있어야 �
 ```
 
 인식 모델: `~/models/lane_26n.pt` (git 밖), 클래스 0 왼쪽 라인 · 1 횡단보도 · 2 오른쪽 라인 · 3 라바콘 · 4 신호등 · 5 바리게이트 (정지선은 미정).
-학습 때 상위 30 % 를 마스킹했으므로 추론도 같다(`pipeline.mask_top_frac: 0.30`). 벤치: `python3 -m pinky_lane_station.bench_detector --config pinky_lane_station/config/detector_yolo.yaml --synthetic`.
+추론 입력은 상위 50 % 를 마스킹한다(`pipeline.mask_top_frac: 0.50`, 2026-09-30 — 모델 학습은 30 % 마스킹). 벤치: `python3 -m pinky_lane_station.bench_detector --config pinky_lane_station/config/detector_yolo.yaml --synthetic`.
 
 ---
 

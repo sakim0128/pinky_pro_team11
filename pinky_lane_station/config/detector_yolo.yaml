@@ -2,7 +2,7 @@
 # 교차로 진입 빨간 테이프는 모델 클래스 **이름 `red_line`** 으로 받는다 (2026-09-30, 재학습 모델). class_map 은 이름으로도 맞춘다 —
 #   모델에 red_line 이 없으면 매칭이 안 될 뿐 죽지 않는다(교차로 정지 트리거가 안 나간다). id 로 고정하려면 red_line: [<id>].
 # 목적지 흰 정지선은 모델이 아니라 영상 처리(stop_line: 절, pinky_lane_station/stop_line_detector.py)로 찾는다.
-# 학습 때 이미지 상위 30 % 를 검정으로 채웠다 → pipeline.mask_top_frac 로 추론 입력도 똑같이 마스킹한다.
+# 추론 입력의 상위 mask_top_frac 를 검정으로 채운다 (모델은 상위 30 % 마스킹으로 학습. 2026-09-30 부터 운용값 50 % — 먼 곳을 더 가린다).
 # 가중치는 git 에 넣지 않는다. 관제 PC 에 ~/models/lane_26n.pt 로 둔다.
 # yolo26 은 ultralytics 8.4 이상:  pip install -U ultralytics
 # 로드·속도 확인:  ros2 run pinky_lane_station bench_detector -- --config <이 파일> --synthetic
@@ -54,6 +54,6 @@ pipeline:
   stale_period: 0.3
   stale_max_seconds: 2.0
   warmup: true
-  mask_top_frac: 0.30           # 추론 전 상위 30 % 행을 mask_fill 로 채움 (학습 조건과 동일). 0 이면 끔
+  mask_top_frac: 0.50           # 추론 전 상위 50 % 행을 mask_fill 로 채움 (학습은 30 % — 2026-09-30 운용 결정). 0 이면 끔
   mask_fill: 0
   debug_polygons: false         # true 면 오버레이에 세그 폴리곤도 반투명으로 채움
