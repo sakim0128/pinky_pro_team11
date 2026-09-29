@@ -142,15 +142,20 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 
 | | 체크아웃 | 워크스페이스 | 도메인 | 빌드 |
 |---|---|---|---|---|
-| 중계 PC | `$HOME/pinky_pro/src/pinky_pro_team11` | `~/pinky_pro` | 8 | `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent pinky_lane_station pinky_fleet_station` |
+| 관제(중계) PC | `~/fleet_ws/src/pinky_pro_team11` | `~/fleet_ws` | 8 | `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent pinky_lane_station pinky_fleet_station` |
 | 핑키 (`pinky@192.168.4.1`) | `/home/pinky/pinky_pro/src/pinky_pro_team11` | `~/pinky_pro` | 10 (pinky2 는 11) | `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` |
 
 ```bash
 # 공통
 cd <워크스페이스> && colcon build --packages-select <빌드 패키지> && source install/setup.bash
 
-# 중계 PC (도메인 8) — 순서대로. 주소·NIC 는 relay_station/README.md "실행 전에 바꿔야 하는 것"
-relay_station/launch_master_gateway.sh                     # DDS 프로파일 → domain_bridge(8↔10·11) → 웹 :8889 (코디네이터 포함)
+# 관제 PC (도메인 8, ~/fleet_ws) — 순서대로. relay 스크립트는 체크아웃을 ~/pinky_pro/src/pinky_pro_team11 로 가정하므로
+# 다른 경로면 REPO_ROOT=~/fleet_ws/src/pinky_pro_team11 를 주거나 아래처럼 직접 띄운다
+export ROS_DOMAIN_ID=8
+ros2 run domain_bridge domain_bridge relay_station/domain_bridge/configs/pinky1_control.yaml &   # 브리지 8↔10
+ros2 run domain_bridge domain_bridge relay_station/domain_bridge/configs/pinky2_control.yaml &   # 브리지 8↔11
+python3 relay_station/gateway_web/gateway_web_server.py --port 8889 --map-yaml pinky_fleet_station/config/map5.yaml --no-camera   # 웹 :8889 (코디네이터 포함)
+#   (relay_station/launch_master_gateway.sh 는 위 셋을 CycloneDDS 로 한 번에 띄운다 — 핑키도 Cyclone 일 때만)
 ROS_DOMAIN_ID=8 ros2 launch pinky_lane_station lane_station.launch.xml use_bridge:=False    # 차선 인식 (브리지는 위가 나른다)
 ROS_DOMAIN_ID=8 ros2 launch pinky_fleet_station overhead_tracker.launch.xml camera_device:=0 # 천장 웹캠 + ArUco → overhead_pose
 ROS_DOMAIN_ID=8 ros2 launch pinky_fleet_station live_web.launch.xml                          # (선택) 조회 웹 :8080
