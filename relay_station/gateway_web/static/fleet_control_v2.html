@@ -244,6 +244,16 @@
           </div>
           <p class="muted" id="profile-msg">④ 태블릿 좌표계(마커 기준 좌표)는 태블릿 쪽에서 맞춥니다(T-11) — 아래 "중계 좌표 frame" 과 같은지 확인하세요.</p>
         </article>
+        <article class="card profile-card" id="assign-card">
+          <div class="card-head">
+            <div><h3>미션 배정 (시작 → 목적지)</h3>
+              <p>도로망의 출발·도착 노드(endpoint) 중에서 로봇마다 고릅니다. 배정하면 경로가 새로 계산되고 출발은 하지 않습니다.
+                 순서: 배정 → ③ 초기 위치 보내기 → 주행 시작.</p></div>
+            <span class="status-pill neutral" id="assign-pill">—</span>
+          </div>
+          <div id="assign-body"></div>
+          <p class="muted" id="assign-msg">같은 목적지·다른 로봇의 경로 위 목적지는 서버가 거절합니다(ASSIGN_CONFLICT).</p>
+        </article>
         <div class="config-grid" id="config-cards"></div>
       </section>
     </main>

@@ -10,7 +10,8 @@
   // U-3: 첫 화면(대시보드)은 우리말 — 원문 상수는 title 툴팁·진단 탭에 남긴다. 표에 없는 값은 원문 그대로, 없는 값은 "미수신".
   const PHRASES = {
     // LaneStatus.drive_state — 3~6 은 팀11 레인 로봇만 낸다(Nav2 에이전트는 0·1·2·7·8·9)
-    drive: {0:"대기", 1:"주행 중", 2:"통행 대기", 3:"횡단보도 정지", 4:"횡단보도 통과", 5:"장애물 대기", 6:"차선 놓침", 7:"도착", 8:"비상정지", 9:"연결 끊김 — 재개 필요"},
+    drive: {0:"대기", 1:"주행 중", 2:"통행 대기", 3:"횡단보도 정지", 4:"횡단보도 통과", 5:"장애물 대기", 6:"차선 놓침", 7:"도착", 8:"비상정지", 9:"연결 끊김 — 재개 필요",
+            10:"바리게이트 대기", 11:"차선 탐색 회전", 12:"교차로 정지", 13:"교차로 통과"},
     nav: {ACTIVE:"이동 중", NAVIGATING:"이동 중", HOLD:"멈춤", WAITING:"대기", IDLE:"대기", SUCCEEDED:"도착", ABORTED:"실패", CANCELED:"취소됨"},
     arrival: {NOT_ARRIVED:"아직", ARRIVAL_PENDING:"도착 확인 중", ARRIVAL_CONFIRMED:"도착 확정"},
     // 검토(P3): PoseFuser 는 외부 fix 를 받은 적 없어도 이 이름으로 보고된다 — "외부 비전" 이라 단정하지 않는다
@@ -876,6 +877,7 @@
     renderEvents();
     renderConfig();
     renderProfile();
+    renderAssign();
     renderControlExtras();
     drawMaps();
   }
@@ -923,6 +925,72 @@
       (Object.keys(p.held||{}).length ? `<div class="config-row"><span>로봇별 정지</span><strong>${Object.entries(p.held).map(([n,why])=>`<span class="status-pill warn">${esc(n)}</span> <span class="muted">${esc(why)}</span>`).join(" ")}</strong></div>` : "") +
       ((cur.warnings||[]).length ? `<div class="config-row"><span>미션 경고</span><strong class="muted">${esc(cur.warnings.join("; "))}</strong></div>` : "") + rows;
     ["profile-switch","profile-robot-maps","profile-initial-poses"].forEach(id=>{ if($(id)) $(id).disabled = !!blocker; });
+  }
+
+  // 웹 배정(2026-09-29): 시작·목적지를 관제 PC yaml 이 아니라 여기서 고른다. 드롭다운은 /api/fleet/profiles.graph.endpoints
+  //   (지금 도로망의 endpoint 노드) 로 채운다 — 맵이 바뀌면 road_graph.yaml 만 고친다. 배정은 기존 /api/fleet/assign.
+  function renderAssign() {
+    const pill = $("assign-pill"), body = $("assign-body");
+    if (!pill || !body) return;
+    const p = state.profiles;
+    const g = p?.graph;
+    if (DEMO || !g || !Array.isArray(g.endpoints)) {
+      setPill(pill, DEMO ? "DEMO" : "미수신", DEMO ? "pending" : "neutral");
+      if (!body.querySelector("[data-assign-row]")) body.innerHTML = `<p class="muted">${DEMO ? "DEMO 에서는 배정하지 않습니다." : "/api/fleet/profiles 미수신 — 도로망 노드를 모른다"}</p>`;
+      return;
+    }
+    setPill(pill, `${g.endpoints.length} 지점`, g.endpoints.length >= 2 ? "ok" : "warn");
+    const nodeLabel = id => { const n = (g.nodes||[]).find(x=>x.id===id); return n && n.label ? `${id} — ${n.label}` : id; };
+    const keyNow = g.endpoints.join(",");
+    if (!body.querySelector("[data-assign-row]")) {
+      // 버튼·select 는 한 번만 만든다(OPS-4) — 갱신은 옵션·현재값 칸만 바꾼다
+      body.innerHTML = [1,2].map(i => `
+        <div class="config-row" data-assign-row="${i}">
+          <span>${robotKey(i)} <em class="muted" data-assign-now="${i}">—</em></span>
+          <strong>
+            <select data-assign-start="${i}" aria-label="${robotKey(i)} 시작" data-moving="1"></select> →
+            <select data-assign-goal="${i}" aria-label="${robotKey(i)} 목적지" data-moving="1"></select>
+            <button class="btn" data-assign-btn="${i}" data-moving="1">배정</button>
+          </strong>
+        </div>`).join("");
+      body.querySelectorAll("[data-assign-btn]").forEach(b => b.addEventListener("click", () => assignAction(Number(b.dataset.assignBtn))));
+      applyViewOnly();
+    }
+    [1,2].forEach(i => {
+      const f = fleetRobot(i) || {};
+      const now = body.querySelector(`[data-assign-now="${i}"]`);
+      if (now) now.textContent = (f.start_node && f.goal_node) ? `현재 ${f.start_node}→${f.goal_node}` : "현재 경로 없음";
+      [["start", f.start_node], ["goal", f.goal_node]].forEach(([kind, cur]) => {
+        const sel = body.querySelector(`[data-assign-${kind}="${i}"]`);
+        if (!sel) return;
+        if (sel.dataset.key !== keyNow) {
+          const keep = sel.value;
+          sel.innerHTML = g.endpoints.map(id => `<option value="${esc(id)}">${esc(nodeLabel(id))}</option>`).join("");
+          sel.value = keep && g.endpoints.includes(keep) ? keep : (cur && g.endpoints.includes(cur) ? cur : (g.endpoints[0] || ""));
+          sel.dataset.key = keyNow;
+        }
+      });
+    });
+    const blocker = p.switch_blocker;
+    body.querySelectorAll("[data-assign-btn]").forEach(b => { b.disabled = !!blocker; b.title = blocker || ""; });
+  }
+
+  async function assignAction(i) {
+    if (DEMO) return;
+    const body = $("assign-body"), msg = $("assign-msg");
+    const start = body.querySelector(`[data-assign-start="${i}"]`)?.value || "";
+    const goal = body.querySelector(`[data-assign-goal="${i}"]`)?.value || "";
+    const robot = robotKey(i);
+    if (!start || !goal) { msg.textContent = "⛔ 시작·목적지를 고른다"; return; }
+    if (start === goal) { msg.textContent = "⛔ 시작과 목적지가 같다"; return; }
+    if (!window.confirm(`${robot}: ${start} → ${goal} 로 배정합니다.\n경로가 새로 계산되고 출발은 하지 않습니다. 계속할까요?`)) return;
+    try {
+      const r = await postJson("/api/fleet/assign", {robot, start, goal});
+      msg.textContent = (r.success ? "✅ " : "⚠️ ") + `${robot} ${start}→${goal} ` + (r.message || "") + (r.applied === null ? " (적용 여부 모름)" : "");
+    } catch (e) {
+      msg.textContent = "⛔ " + e.message;
+    }
+    refresh();
   }
 
   async function profileAction(url, payload, confirmText) {

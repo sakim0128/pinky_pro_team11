@@ -214,6 +214,19 @@ class RoadGraph:
             out['registration'] = self.registration
         return out
 
+    def summary(self):
+        """웹 배정 화면용 요약 — 출발·목적지로 고를 수 있는 endpoint 노드와 전체 노드 목록.
+
+        시작·목적지는 여기 `endpoints` 에서만 고른다(coordinator assign). 맵이 바뀌어 road_graph.yaml 을 고치면
+        목록이 따라간다 — 화면 코드에 노드 이름을 박지 않는다.
+        """
+        return {
+            'frame': self.frame,
+            'endpoints': [n.id for n in self.nodes.values() if n.type == 'endpoint'],
+            'junctions': [n.id for n in self.nodes.values() if n.type == 'junction'],
+            'nodes': [n.to_dict() for n in self.nodes.values()],
+        }
+
     def save(self, path):
         path = os.path.expandvars(os.path.expanduser(str(path)))
         with open(path, 'w', encoding='utf-8') as handle:

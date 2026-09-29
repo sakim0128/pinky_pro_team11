@@ -1445,6 +1445,8 @@ class RelayFleetCoordinator(Node):
             'unassigned': sorted(n for n, c in self.robots.items()
                                  if c.start_node and c.goal_node and c.route is None),
             'available': [p.to_dict() for p in self.profiles.values()],
+            # 웹 배정(2026-09-29): 시작·목적지 드롭다운은 지금 도로망의 endpoint 노드로 채운다 — /api/fleet/profiles 가 싣는다
+            'graph': self.graph.summary(),
         }
 
     @_locked
@@ -1662,7 +1664,7 @@ class RelayFleetCoordinator(Node):
             "mission_state": self.mission_state,
             "estop_latched": bool(self.estop_latched),
             "control_note": self.control_notes(),
-            "profile": {k: v for k, v in self.profile_status().items() if k != 'available'},
+            "profile": {k: v for k, v in self.profile_status().items() if k not in ('available', 'graph')},
             "warning": self.last_warning,
             "edge_holders": dict(self.reservation.edge_holder),
             "node_holders": dict(self.reservation.node_holder),
