@@ -1,0 +1,19 @@
+# 좌표 프로파일 (R-7 웹 전환, 2026-09-26 → map5 통일 2026-09-29). 경로는 이 파일 기준 상대경로.
+#
+# 무엇: 도로망·미션·화면 지도·로봇 지도 이름을 한 묶음으로 고른다. 지금은 **team11_map5 하나**다 — 팀 결정(2026-09-29):
+#       운영 지도는 map5, 도로망 파일은 pinky_lane_station/config/road_graph.yaml 하나, 코디네이터는 이 중계 하나.
+#       map4 프로파일과 옛 5노드 가상 경기장(legacy)은 지웠다.
+# 규칙: 한 프로파일의 모든 좌표(도로망 노드·엣지 점, 미션 출발·도착)는 그 지도 안이어야 한다 — 시험이 잰다.
+#       로봇 이름은 프로파일끼리 같아야 한다(코디네이터의 토픽은 기동 때 한 번 만든다).
+# 파일은 **복사하지 않는다** — 도로망·지도 모두 이 레포의 정본을 상대경로로 가리킨다(profiles.py 는 프로파일 폴더 밖 경로도
+# 받는다). 실물 중계 PC 에도 레포 전체가 체크아웃돼 있다(systemd 유닛의 %h/pinky_pro/src/pinky_pro_team11).
+
+default: team11_map5
+
+profiles:
+  team11_map5:
+    label: "팀11 map5 — 임시 도로망 4노드(BL·BR·TR·J), 좌하단 원점 2.36 × 1.28 · pinky1 BL→TR, pinky2 BR→BL"
+    frame: team11_map5
+    mission: team11_map5/lane_mission.yaml
+    map: ../../../../pinky_fleet_station/config/map5.yaml      # 정본 — pinky_fleet_station/config/maps/map5.pgm
+    robot_map_name: map5

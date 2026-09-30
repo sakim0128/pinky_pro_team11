@@ -28,8 +28,9 @@ from std_msgs.msg import Float32
 from tf2_ros import Buffer, TransformListener
 
 from pinky_fleet_msgs.msg import FleetCommand, RobotState
-from pinky_lane_msgs.msg import LaneCommand, LanePath, LaneStatus, Route
+from pinky_lane_msgs.msg import JunctionPlan, LaneCommand, LanePath, LaneStatus, Route
 
+from .maneuver import parse_steps
 from .lane_driver import (CMD_CLEARANCE, CMD_ESTOP, CMD_HEARTBEAT, CMD_RESUME, CMD_SET_SPEED,
                           CMD_START, CMD_STOP, DriverParams, LaneDriver)
 
@@ -67,7 +68,7 @@ def stamp_seconds(stamp):
 def declare_driver_params(node):
     """DriverParams 의 숫자 필드를 ROS 파라미터로 노출하고 채워서 돌려준다."""
     p = DriverParams()
-    groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard, '': p}
+    groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard, 'maneuver': p.maneuver, '': p}
     for prefix, obj in groups.items():
         for key, value in vars(obj).items():
             if not isinstance(value, (int, float, bool)):
@@ -123,6 +124,8 @@ class LaneAgent(Node):
         self.create_subscription(LaneCommand, f'/{n}/lane_command', self._on_lane_command, RELIABLE_10)
         self.create_subscription(LanePath, f'/{n}/lane_path', self._on_lane_path, BEST_EFFORT_1)
         self.create_subscription(FleetCommand, f'/{n}/command', self._on_fleet_command, RELIABLE_10)
+        # 비전 미션 (lane_only): 관제가 교차로 고정 동작·도착 정지선 수를 준다 (늦게 떠도 받게 TRANSIENT_LOCAL)
+        self.create_subscription(JunctionPlan, f'/{n}/junction_plan', self._on_junction_plan, ROUTE_QOS)
         self.create_subscription(LaserScan, self.get_parameter('scan_topic').value,
                                  self._on_scan, qos_profile_sensor_data)
         if self.get_parameter('use_ultrasonic').value:
@@ -160,6 +163,11 @@ class LaneAgent(Node):
     def _on_route(self, msg: Route):
         if msg.robot_name and msg.robot_name != self._name:
             return
+        if self._lane_only:
+            # 차선만 모드는 경로를 쓰지 않는다 — 받으면 경로 추종(위치추정 필요) 으로 바뀌어 버린다
+            self.get_logger().warn(f'lane_only: Route seq={msg.route_seq} 무시 (비전 미션은 JunctionPlan)',
+                                   throttle_duration_sec=10.0)
+            return
         if len(msg.waypoints) < 2:
             self.get_logger().warn('waypoint 가 2개 미만인 Route 무시')
             return
@@ -187,7 +195,11 @@ class LaneAgent(Node):
 
     def _on_lane_path(self, msg: LanePath):
         self.driver.set_lane_path(self._now(), stamp_seconds(msg.source_stamp), int(msg.quality),
-                                  float(msg.error_x_norm), bool(msg.crosswalk_detected))
+                                  float(msg.error_x_norm), bool(msg.crosswalk_detected),
+                                  barricade=bool(getattr(msg, 'barricade_detected', False)),
+                                  red_line=bool(getattr(msg, 'red_line_detected', False)),
+                                  stop_line=bool(getattr(msg, 'stop_line_detected', False)),
+                                  left_seen=bool(msg.left_seen), right_seen=bool(msg.right_seen))
 
     def _on_fleet_command(self, msg: FleetCommand):
         now = self._now()
@@ -217,6 +229,28 @@ class LaneAgent(Node):
     def _on_odom(self, msg: Odometry):
         self._lin = msg.twist.twist.linear.x
         self._ang = msg.twist.twist.angular.z
+        pose = msg.pose.pose
+        self.driver.update_odom(self._now(), pose.position.x, pose.position.y,
+                                yaw_from_quaternion(pose.orientation))
+
+    def _on_junction_plan(self, msg: JunctionPlan):
+        if msg.robot_name and msg.robot_name != self._name:
+            return
+        if not self._lane_only:
+            self.get_logger().warn('JunctionPlan 은 lane_only(비전 미션) 에서만 쓴다 — 무시', throttle_duration_sec=10.0)
+            return
+        try:
+            steps = parse_steps(list(msg.step_kind), list(msg.step_value))
+        except ValueError as exc:
+            self.get_logger().error(f'JunctionPlan seq={msg.seq} 거부: {exc}')
+            return
+        new = self.driver._plan is None or self.driver._plan['seq'] != int(msg.seq)
+        self.driver.set_plan(int(msg.seq), steps, int(msg.stop_line_count),
+                             float(msg.linear_speed), float(msg.angular_speed))
+        if new:
+            desc = ' → '.join(f'{k} {v:+g}' for k, v in steps) or '(동작 없음)'
+            self.get_logger().info(f'JunctionPlan seq={msg.seq} {msg.scenario}/{msg.maneuver}: {desc}, '
+                                   f'정지선 {msg.stop_line_count}번째')
 
     def _on_battery(self, msg: Float32):
         self._battery = float(msg.data)

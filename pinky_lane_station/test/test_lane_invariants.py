@@ -85,12 +85,14 @@ def test_detector_yolo_class_map_matches_model_labels():
     det = cfg['detector']
     assert det['kind'] == 'ultralytics' and det['device'] == 'cpu'
     cm = det['class_map']
-    assert sorted(cm['lane']) == [0, 2] and cm['crosswalk'] == [1]
+    assert cm['left_lane'] == [0] and cm['right_lane'] == [2] and cm['crosswalk'] == [1]
     assert cm['cone'] == [3] and cm['traffic_light'] == [4] and cm['barricade'] == [5]
-    ids = sorted(i for v in cm.values() for i in v)
+    assert 'lane' not in cm                                     # 좌/우 라벨을 합치지 않는다 (작업 1)
+    ids = sorted(i for v in cm.values() for i in v if isinstance(i, int))
     assert ids == [0, 1, 2, 3, 4, 5], ids                     # 모든 모델 클래스가 정확히 한 번
+    assert cm['red_line'] == ['red_line']                     # 교차로 빨간 테이프 — 재학습 모델의 클래스 이름으로 매칭
     pipe = cfg['pipeline']
-    assert abs(pipe['mask_top_frac'] - 0.30) < 1e-9 and pipe['mask_fill'] == 0   # 학습 조건과 동일
+    assert abs(pipe['mask_top_frac'] - 0.50) < 1e-9 and pipe['mask_fill'] == 0   # 2026-09-30 운용값 50 % (학습은 30 %)
     allowed = {'max_rate', 'stale_period', 'stale_max_seconds', 'warmup',
                'mask_top_frac', 'mask_fill', 'debug_polygons'}
     assert set(pipe) <= allowed, set(pipe) - allowed
@@ -98,7 +100,11 @@ def test_detector_yolo_class_map_matches_model_labels():
     for key in cfg['target']:
         assert key in TargetParams.__dataclass_fields__, key
     launch = read(os.path.join(STATION, 'launch', 'lane_station.launch.xml'))
-    assert 'detector_yolo.yaml' in launch and 'use_coordinator' in launch
+    assert 'detector_yolo.yaml' in launch
+    # 코디네이터는 중계(relay_station/fleet/fleet_coordinator.py) 하나다 — 관제 PC launch 는 브릿지 + 인식뿐
+    for launch_name in ('lane_station.launch.xml', 'fake_lane.launch.xml'):
+        text = read(os.path.join(STATION, 'launch', launch_name))
+        assert 'lane_coordinator' not in text and 'use_coordinator' not in text, launch_name
 
 
 def test_lane_only_launch_overrides_only_allowed_params(agent_params):
@@ -146,6 +152,13 @@ def lane_mission():
     return yaml.safe_load(read(os.path.join(STATION, 'config', 'lane_mission.yaml')))
 
 
+@pytest.fixture(scope='module')
+def relay_mission():
+    """코디네이터(예약·CLEARANCE 틱)는 중계 하나 — 그 미션 파일이 tick_rate·reservation 의 정본이다."""
+    return yaml.safe_load(read(os.path.join(REPO, 'relay_station', 'fleet', 'config', 'profiles',
+                                            'team11_map5', 'lane_mission.yaml')))
+
+
 def test_agent_yaml_keys_exist_in_driver_params(agent_params):
     from pinky_fleet_agent.lane_driver import DriverParams
     p = DriverParams()
@@ -162,6 +175,7 @@ def test_agent_yaml_keys_exist_in_driver_params(agent_params):
 
 def test_crosswalk_relatch_exceeds_zone(agent_params):
     assert agent_params['fsm']['crosswalk_relatch_distance'] > agent_params['crosswalk_zone']
+    assert agent_params['fsm']['junction_relatch_distance'] > 2 * agent_params['junction_zone']
 
 
 def test_path_timeout_covers_three_stale_periods(agent_params, detector_cfg):
@@ -170,13 +184,13 @@ def test_path_timeout_covers_three_stale_periods(agent_params, detector_cfg):
     assert detector_cfg['pipeline']['stale_max_seconds'] > agent_params['path_timeout']
 
 
-def test_link_timeout_covers_clearance_ticks(agent_params, lane_mission):
-    tick = 1.0 / lane_mission['coordinator']['tick_rate']
+def test_link_timeout_covers_clearance_ticks(agent_params, relay_mission):
+    tick = 1.0 / relay_mission['coordinator']['tick_rate']
     assert agent_params['link_timeout'] >= 3 * tick
 
 
-def test_reservation_margins(lane_mission):
-    r = lane_mission['reservation']
+def test_reservation_margins(relay_mission):
+    r = relay_mission['reservation']
     assert r['reserve_ahead'] > r['node_stop_margin'] > 0
     assert r['release_behind'] > 0
 
@@ -198,48 +212,71 @@ def test_launch_defaults_match_agent_yaml(agent_params):
 
 # --- 브릿지 --------------------------------------------------------------
 
-def test_bridge_lane_topics_match_nodes_and_mission(lane_mission):
-    bridge = yaml.safe_load(read(os.path.join(STATION, 'config', 'bridge_lane.yaml')))['topics']
-    fleet = yaml.safe_load(read(os.path.join(REPO, 'pinky_fleet_station', 'config',
-                                             'bridge_fleet.yaml')))['topics']
-    assert not set(bridge) & set(fleet), '두 브릿지가 같은 토픽을 두 번 브릿지하면 안 된다'
-    expect_qos = {
-        'camera/image/compressed': ('best_effort', 'volatile', 1, 'up'),
-        'lane_path': ('best_effort', 'volatile', 1, 'down'),
-        'route': ('reliable', 'transient_local', 1, 'down'),
-        'lane_command': ('reliable', 'volatile', 10, 'down'),
-        'lane_status': ('reliable', 'volatile', 10, 'up'),
+def _bridge(name):
+    return yaml.safe_load(read(os.path.join(STATION, 'config', name)))['topics']
+
+
+def test_bridge_templates_carry_no_domain_and_match_nodes(lane_mission):
+    """브리지 yaml 은 로봇별 up/down 템플릿이고 도메인 번호가 없다 — 도메인은 lane_bridge.launch.xml 인수(-from/-to)."""
+    expect = {
+        'up': {'state': ('pinky_fleet_msgs/msg/RobotState', 'reliable', 'volatile', 10),
+               'lane_status': ('pinky_lane_msgs/msg/LaneStatus', 'reliable', 'volatile', 10),
+               'camera/image/compressed': ('sensor_msgs/msg/CompressedImage', 'best_effort', 'volatile', 1)},
+        'down': {'command': ('pinky_fleet_msgs/msg/FleetCommand', 'reliable', 'volatile', 10),
+                 'lane_command': ('pinky_lane_msgs/msg/LaneCommand', 'reliable', 'volatile', 10),
+                 'route': ('pinky_lane_msgs/msg/Route', 'reliable', 'transient_local', 1),
+                 'lane_path': ('pinky_lane_msgs/msg/LanePath', 'best_effort', 'volatile', 1),
+                 'overhead_pose': ('geometry_msgs/msg/PoseStamped', 'reliable', 'volatile', 10),
+                 'junction_plan': ('pinky_lane_msgs/msg/JunctionPlan', 'reliable', 'transient_local', 1)},
     }
     for robot in lane_mission['robots']:
-        name, dom = robot['name'], int(robot['domain_id'])
-        for suffix, (rel, dur, depth, direction) in expect_qos.items():
-            key = f'/{name}/{suffix}'
-            assert key in bridge, key
-            t = bridge[key]
-            assert t['qos']['reliability'] == rel and t['qos']['durability'] == dur \
-                and t['qos']['depth'] == depth, key
-            if direction == 'up':
-                assert (t['from_domain'], t['to_domain']) == (dom, 0), key
-            else:
-                assert (t['from_domain'], t['to_domain']) == (0, dom), key
-    # 노드 소스가 쓰는 토픽 접미사가 전부 브릿지에 있다
+        name = robot['name']
+        for direction, topics in expect.items():
+            bridge = _bridge(f'bridge_{name}_{direction}.yaml')
+            assert set(bridge) == {f'/{name}/{suffix}' for suffix in topics}, (name, direction)
+            for suffix, (typ, rel, dur, depth) in topics.items():
+                t = bridge[f'/{name}/{suffix}']
+                assert t['type'] == typ and t['qos']['reliability'] == rel \
+                    and t['qos']['durability'] == dur and t['qos']['depth'] == depth, (name, suffix)
+                assert 'from_domain' not in t and 'to_domain' not in t, (name, suffix)
+    # 노드 소스가 쓰는 토픽 접미사가 전부 브리지에 있다
     agent = read(os.path.join(AGENT, 'pinky_fleet_agent', 'lane_agent_node.py'))
+    both = set(expect['up']) | set(expect['down'])
     for suffix in re.findall(r"f'/\{n\}/([a-z_/]+)'", agent):
-        if suffix in ('state', 'command', 'amcl_pose'):
-            assert f'/pinky1/{suffix}' in fleet, suffix      # bridge_fleet.yaml 담당
-            continue
-        assert f'/pinky1/{suffix}' in bridge, suffix
+        if suffix == 'amcl_pose':
+            continue                                              # AMCL 은 항공뷰로 대체 (브리지 안 함)
+        assert suffix in both, suffix
+    # 항공뷰: 관제 overhead_tracker_node → 로봇 pose_fuser_node (D14)
+    tracker = read(os.path.join(REPO, 'pinky_fleet_station', 'pinky_fleet_station', 'overhead_tracker_node.py'))
+    assert "f'/{name}/overhead_pose'" in tracker
+    fuser = read(os.path.join(AGENT, 'pinky_fleet_agent', 'pose_fuser_node.py'))
+    assert "f'/{name}/overhead_pose'" in fuser and 'PoseStamped' in fuser
+    setup = read(os.path.join(AGENT, 'setup.py'))
+    assert 'pose_fuser_node = pinky_fleet_agent.pose_fuser_node:main' in setup
+    launch = read(os.path.join(AGENT, 'launch', 'lane_robot.launch.xml'))
+    assert 'exec="pose_fuser_node"' in launch and 'use_overhead' in launch and '$(eval' not in launch
+
+
+def test_bridge_launch_passes_domains_as_arguments():
+    launch = read(os.path.join(STATION, 'launch', 'lane_bridge.launch.xml'))
+    for arg in ('station_domain', 'pinky1_domain', 'pinky2_domain'):
+        assert f'<arg name="{arg}"' in launch, arg
+    assert launch.count('exec="domain_bridge"') == 4
+    assert '--from $(var pinky1_domain) --to $(var station_domain) $(var config_dir)/bridge_pinky1_up.yaml' in launch
+    assert '--from $(var station_domain) --to $(var pinky2_domain) $(var config_dir)/bridge_pinky2_down.yaml' in launch
+    station = read(os.path.join(STATION, 'launch', 'lane_station.launch.xml'))
+    for arg in ('station_domain', 'pinky1_domain', 'pinky2_domain'):
+        assert f'<arg name="{arg}" value="$(var {arg})"/>' in station, arg
+    assert 'bridge_lane.yaml' not in station and 'lane_bridge_config' not in station
+
+
+def test_bridge_message_types_exist():
     for name in ('pinky1', 'pinky2'):
-        t = fleet[f'/{name}/amcl_pose']
-        assert t['type'] == 'geometry_msgs/msg/PoseWithCovarianceStamped' and t['to_domain'] == 0
-
-
-def test_bridge_lane_message_types_exist():
-    bridge = yaml.safe_load(read(os.path.join(STATION, 'config', 'bridge_lane.yaml')))['topics']
-    for key, t in bridge.items():
-        pkg, _, msg = t['type'].split('/')
-        if pkg == 'pinky_lane_msgs':
-            assert os.path.isfile(os.path.join(MSG_DIR, msg + '.msg')), key
+        for direction in ('up', 'down'):
+            for key, t in _bridge(f'bridge_{name}_{direction}.yaml').items():
+                pkg, _, msg = t['type'].split('/')
+                if pkg == 'pinky_lane_msgs':
+                    assert os.path.isfile(os.path.join(MSG_DIR, msg + '.msg')), key
 
 
 # --- 미션 ------------------------------------------------------------------
@@ -251,6 +288,19 @@ def test_lane_mission_loads_and_routes_exist():
     g = RoadGraph.load(m.graph_path)
     assert m.validate_against_graph(g) == []
     assert [r['name'] for r in m.by_priority()] == ['pinky1', 'pinky2']
+    assert 'reservation' not in m.to_dict() and 'coordinator' not in m.to_dict()     # 코디네이터 몫은 relay 에
+
+
+def test_lane_mission_matches_relay_profile_mission():
+    """로봇 목록(이름·도메인)과 기본 시작·목적지는 관제 PC 파일과 중계 프로파일이 같아야 한다 — 두 곳이 어긋나면
+    파이프라인·가짜 로봇은 한 이름을, 코디네이터는 다른 이름을 본다."""
+    lane = yaml.safe_load(read(os.path.join(STATION, 'config', 'lane_mission.yaml')))
+    relay = yaml.safe_load(read(os.path.join(REPO, 'relay_station', 'fleet', 'config', 'profiles',
+                                             'team11_map5', 'lane_mission.yaml')))
+    key = lambda r: (r['name'], int(r['domain_id']), r['start'], r['goal'])       # noqa: E731
+    assert [key(r) for r in lane['robots']] == [key(r) for r in relay['robots']]
+    assert all(r.get('drive_mode', 'lane') == 'lane' for r in relay['robots'])
+    assert lane['map']['yaml_path'].endswith('pinky_fleet_station/config/map5.yaml')
 
 
 def test_lane_mission_rejects_duplicates(tmp_path):
@@ -266,12 +316,15 @@ def test_lane_mission_rejects_duplicates(tmp_path):
 def test_setup_installs_lane_configs_and_launch():
     setup = read(os.path.join(STATION, 'setup.py'))
     assert "glob('config/*.yaml')" in setup and "glob('launch/*.launch.xml')" in setup
-    for f in ('road_graph.yaml', 'lane_mission.yaml', 'detector_lane.yaml', 'bridge_lane.yaml'):
+    for f in ('road_graph.yaml', 'lane_mission.yaml', 'detector_lane.yaml', 'bridge_pinky1_up.yaml', 'bridge_pinky2_down.yaml'):
         assert os.path.isfile(os.path.join(STATION, 'config', f)), f
     for f in ('lane_station.launch.xml', 'lane_bridge.launch.xml', 'fake_lane.launch.xml'):
         assert os.path.isfile(os.path.join(STATION, 'launch', f)), f
-    for entry in ('lane_coordinator_node', 'lane_pipeline_node', 'fake_lane_robot', 'bench_detector'):
+    for entry in ('lane_pipeline_node', 'fake_lane_robot', 'bench_detector'):
         assert f"'{entry} = pinky_lane_station.{entry}:main'" in setup, entry
+    assert 'lane_coordinator_node' not in setup                     # 코디네이터는 중계(relay_station/fleet) 하나
+    assert not os.path.exists(os.path.join(STATION, 'pinky_lane_station', 'lane_coordinator_node.py'))
+    assert not os.path.exists(os.path.join(STATION, 'pinky_lane_station', 'reservation.py'))
     agent_setup = read(os.path.join(AGENT, 'setup.py'))
     for entry in ('lane_agent_node', 'camera_node'):
         assert f"'{entry} = pinky_fleet_agent.{entry}:main'" in agent_setup, entry

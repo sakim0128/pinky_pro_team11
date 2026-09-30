@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pinky Fleet Control V2</title>
+  <link rel="stylesheet" href="/fleet_control_v2.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <!-- U-6: 부제 = 좌표 프로파일 label (JS 가 채운다) -->
+        <div class="eyebrow" id="subtitle">좌표 프로파일 미수신 · MINI PROJECT 2</div>
+        <h1>Pinky Fleet Control</h1>
+      </div>
+      <div class="top-status">
+        <!-- U-1: 원격 보기 경로(:18081 · ?view=1)에서는 움직이는 조작이 숨는다 — 서버(OPS-1)도 거절한다 -->
+        <span class="status-pill neutral" id="view-only-pill" hidden>보기 전용 — 제어는 현장 노트북 :8889</span>
+        <!-- 관제 2026-09-28 제어권: 허용된 노트북은 한 번에 한 사람만 움직이는 명령을 낸다. 남이 쥐면 버튼이 잠긴다(숨지 않는다). -->
+        <span class="status-pill neutral" id="control-pill" hidden>제어권 —</span>
+        <button class="btn small" id="control-acquire" data-moving="1" hidden>제어권 잡기</button>
+        <button class="btn small" id="control-release" data-moving="1" hidden>놓기</button>
+        <span class="status-pill neutral" id="backend-status">BACKEND 확인 중</span>
+        <span class="status-pill neutral" id="mission-status">미션 —</span>
+        <span class="clock" id="mission-elapsed" title="화면이 RUNNING 을 처음 본 뒤 지난 시간 — 코디네이터의 시작 시각이 아니다">경과 —</span>
+        <span class="clock" id="fleet-age" title="마지막으로 /api/fleet/status 를 받은 뒤 지난 시간">갱신 —</span>
+        <span class="clock" id="clock">--:--:--</span>
+      </div>
+    </header>
+    <!-- 통합 검토 OPS-2·OPS-7: 게이트웨이 끊김·코디네이터 없음·제어 상태 알림(control_note)을 모든 탭 위에 보인다 -->
+    <div class="alert-banner" id="alert-banner" role="alert" hidden></div>
+
+    <nav class="primary-nav" aria-label="Pinky Fleet Control sections">
+      <button class="nav-item active" data-tab="dashboard">대시보드</button>
+      <button class="nav-item" data-tab="mission">미션 / 시나리오</button>
+      <button class="nav-item" data-tab="navigation">맵 / 내비게이션</button>
+      <button class="nav-item" data-tab="vision">비전 / 마커</button>
+      <button class="nav-item" data-tab="communications">통신</button>
+      <button class="nav-item" data-tab="diagnostics">로봇 진단</button>
+      <button class="nav-item" data-tab="events">이벤트 기록</button>
+      <button class="nav-item" data-tab="configuration">설정</button>
+    </nav>
+
+    <main>
+      <section class="tab-page active" id="tab-dashboard">
+        <!-- U-2: 경영진용 한 문장 + 신호등 셋. 전부 /api/fleet/status 로 만든다. 값이 없으면 "미수신"(초록 금지). -->
+        <section class="card summary-band" id="summary-band">
+          <p class="summary-sentence" id="summary-sentence" aria-live="polite">플릿 상태 미수신</p>
+          <div class="summary-lights">
+            <span class="light neutral" id="light-safety"><b>안전</b><em>미수신</em></span>
+            <span class="light neutral" id="light-progress"><b>진행</b><em>미수신</em></span>
+            <span class="light neutral" id="light-data"><b>데이터</b><em>미수신</em></span>
+          </div>
+        </section>
+        <div class="mission-toolbar card">
+          <div class="button-row">
+            <!-- U-1: data-moving = 로봇을 움직일 수 있는 조작 — 보기 전용에서 숨는다. 멈추는 조작(일시정지·비상정지)은 남는다. -->
+            <button class="btn primary" data-command="start" data-moving="1">주행 시작</button>
+            <button class="btn" data-command="stop">일시정지</button>
+            <button class="btn" data-command="resume" data-moving="1">재시작</button>
+            <button class="btn danger" data-command="estop">비상정지</button>
+          </div>
+          <!-- 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼 · 교차로 통행권. 비전 모드가 아니면 숨는다 -->
+          <div class="vision-panel" id="vision-panel" hidden>
+            <div class="button-row" id="vision-scenarios"></div>
+            <p class="muted" id="vision-status">—</p>
+            <div id="vision-robots"></div>
+          </div>
+          <div class="toolbar-summary">
+            <div><span>운영 방식</span><strong id="summary-mode">Nav2 이동 + 도로망 예약</strong></div>
+            <div><span>외부 위치</span><strong id="summary-vision">—</strong></div>
+            <div><span>플릿 상태</span><strong id="summary-fleet">—</strong></div>
+            <div><span>좌표</span><strong id="summary-profile">—</strong></div>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="card map-card">
+            <div class="card-head">
+              <div>
+                <h2>Fleet Map</h2>
+                <p>운영 위치, Nav2 경로, 시나리오 구간, 통행 허가를 한 화면에서 표시</p>
+              </div>
+              <div class="legend compact">
+                <span><i class="dot r1"></i>Pinky 1</span>
+                <span><i class="dot r2"></i>Pinky 2</span>
+                <span><i class="line route"></i>Nav2 / Route</span>
+                <span><i class="dot goal"></i>Goal</span>
+              </div>
+            </div>
+            <div class="fleet-map-wrap">
+              <canvas id="fleet-map" width="980" height="520"></canvas>
+              <div class="map-empty" id="map-empty">경로 좌표는 백엔드 연동 후 표시됩니다.</div>
+            </div>
+          </article>
+
+          <article class="card camera-summary">
+            <div class="card-head">
+              <div>
+                <h2>Camera Monitoring</h2>
+                <p>운영 화면에서는 상태를 우선, 원본 영상은 진단 목적으로 사용</p>
+              </div>
+              <span class="status-pill neutral" id="camera-overall">확인 중</span>
+            </div>
+            <!-- U-5: 스트림이 없으면 JS(initMedia)가 img 요소를 "영상 없음" 문구로 바꾼다 — 검은 상자를 남기지 않는다 -->
+            <!-- relay-cam 은 중계 노트북의 USB 웹캠(중앙 탑뷰)이지 태블릿 항공뷰가 아니다(검토 P2) — 없을 때의 이유도 소스별로 -->
+            <div class="camera-main">
+              <img src="/video_feed?src=relay-cam" alt="Relay top-view camera" data-media="중계 탑뷰(USB 웹캠)" data-missing-why="중계 웹캠 신호 없음(--no-camera 또는 미연결)">
+              <span class="media-label">Relay top-view (USB webcam)</span>
+            </div>
+            <div class="camera-mini-grid">
+              <div class="camera-mini">
+                <img src="/robot_camera_feed?id=pinky1" alt="Pinky 1 camera" data-media="Pinky 1 카메라" data-missing-why="로봇 카메라 미발행">
+                <span>Pinky 1 Camera</span>
+              </div>
+              <div class="camera-mini">
+                <img src="/robot_camera_feed?id=pinky2" alt="Pinky 2 camera" data-media="Pinky 2 카메라" data-missing-why="로봇 카메라 미발행">
+                <span>Pinky 2 Camera</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="robot-grid" id="dashboard-robots"></div>
+      </section>
+
+      <section class="tab-page" id="tab-mission">
+        <div class="page-heading">
+          <div>
+            <h2>미션 / 시나리오</h2>
+            <p>Nav2 기본 이동과 Marker/Fleet 기반 시나리오 중재가 어느 단계에 있는지 확인합니다.</p>
+          </div>
+          <span class="status-pill neutral" id="scenario-contract">BACKEND PENDING</span>
+        </div>
+        <div class="two-col" id="scenario-robots"></div>
+        <article class="card">
+          <div class="card-head">
+            <div><h3>하이브리드 주행 원칙</h3><p>Nav2는 이동·도착지 접근·장애물 회피를 담당하고, Marker/Fleet는 시나리오 조건과 순서를 중재합니다.</p></div>
+          </div>
+          <div class="hybrid-flow">
+            <span>START Marker</span><b>→</b><span>Nav2 이동</span><b>→</b><span>Scenario Marker</span><b>→</b><span>Fleet HOLD / RELEASE</span><b>→</b><span>Nav2 Final Approach</span><b>→</b><span>GOAL 확인</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="tab-page" id="tab-navigation">
+        <div class="page-heading">
+          <div><h2>맵 / 내비게이션</h2><p>Nav2 상태와 외부 위치 측정을 같은 화면에서 비교하되 서로 다른 역할로 표시합니다.</p></div>
+          <span class="status-pill neutral" id="nav-contract">부분 연동</span>
+        </div>
+        <div class="robot-grid" id="navigation-robots"></div>
+        <article class="card">
+          <div class="card-head">
+            <div><h3>Navigation Map Layers</h3><p>Global Path / Goal / RobotState / External Vision / Scenario Zone</p></div>
+            <div class="layer-toggles">
+              <label><input type="checkbox" checked data-layer="route"> 경로</label>
+              <label><input type="checkbox" checked data-layer="robot"> 운영 위치</label>
+              <label><input type="checkbox" checked data-layer="vision"> 외부 측정</label>
+              <label><input type="checkbox" checked data-layer="zones"> 시나리오 구간</label>
+            </div>
+          </div>
+          <div class="fleet-map-wrap large"><canvas id="nav-map" width="1180" height="600"></canvas></div>
+        </article>
+      </section>
+
+      <section class="tab-page" id="tab-vision">
+        <div class="page-heading">
+          <div><h2>비전 / 마커</h2><p>외부 위치 측정과 START / GOAL 시나리오 이벤트를 진단합니다.</p></div>
+          <span class="status-pill neutral">TABLET CONTRACT</span>
+        </div>
+        <div class="metric-grid" id="vision-metrics"></div>
+        <div class="camera-diagnostic-grid">
+          <article class="card">
+            <div class="card-head"><div><h3>Overhead / External</h3><p>ArUco · Homography · PoseFix</p></div></div>
+            <div class="diagnostic-feed"><img src="/video_feed?src=relay-cam" alt="Relay top-view camera" data-media="중계 탑뷰(USB 웹캠)" data-missing-why="중계 웹캠 신호 없음 · 태블릿 항공뷰는 T-10 전"></div>
+          </article>
+          <article class="card">
+            <div class="card-head"><div><h3>Scenario Cameras</h3><p>구역 = 미션 노드(출발·도착) · 프로파일별 구역은 태블릿 T-11 뒤</p></div><span class="status-pill pending">RUNTIME PENDING</span></div>
+            <div class="placeholder-block">카메라별 독립 스트림은 백엔드/Tablet Runtime 연결 후 표시</div>
+          </article>
+        </div>
+        <article class="card table-card">
+          <div class="card-head"><div><h3>최근 Marker / Zone Event</h3><p>ENTER / EXIT 이벤트와 source timestamp를 확인</p></div></div>
+          <div class="table-scroll"><table><thead><tr><th>시각</th><th>로봇</th><th>카메라</th><th>Zone</th><th>Event</th><th>Confidence</th><th>Seq</th></tr></thead><tbody id="vision-event-body"></tbody></table></div>
+        </article>
+      </section>
+
+      <section class="tab-page" id="tab-communications">
+        <div class="page-heading">
+          <div><h2>통신</h2><p>Tablet → Relay → Domain Bridge → Robot 처리 경로와 메시지 상태를 확인합니다.</p></div>
+          <span class="status-pill pending" id="comms-contract">BACKEND PENDING</span>
+        </div>
+        <div class="comm-path card">
+          <div class="path-node"><strong>Y700 Tablet</strong><span>PoseFix / ZoneEvent</span></div><b>→</b>
+          <div class="path-node"><strong>Relay HTTP</strong><span>Ingress / Validation</span></div><b>→</b>
+          <div class="path-node"><strong>ROS Domain 8</strong><span>Routing / Fleet</span></div><b>→</b>
+          <div class="path-node"><strong>Domain Bridge</strong><span>D10 / D11</span></div><b>→</b>
+          <div class="path-node"><strong>Robot</strong><span>PoseFuser / Agent</span></div>
+        </div>
+        <div class="metric-grid" id="communication-summary"></div>
+        <article class="card table-card">
+          <div class="card-head"><div><h3>Topic / Link Health</h3><p>빈 값은 0이 아니라 “아직 측정되지 않음”으로 표시합니다.</p></div></div>
+          <div class="table-scroll"><table><thead><tr><th>구간</th><th>메시지</th><th>Rate</th><th>마지막 수신</th><th>지연</th><th>상태</th></tr></thead><tbody id="link-health-body"></tbody></table></div>
+        </article>
+        <article class="card table-card">
+          <div class="card-head"><div><h3>Message Trace</h3><p>하나의 메시지가 어느 단계까지 처리됐는지 correlation ID로 추적</p></div></div>
+          <div class="table-scroll"><table><thead><tr><th>시각</th><th>Correlation</th><th>Source</th><th>Stage</th><th>Result</th><th>Detail</th></tr></thead><tbody id="trace-body"></tbody></table></div>
+        </article>
+      </section>
+
+      <section class="tab-page" id="tab-diagnostics">
+        <div class="page-heading">
+          <div><h2>로봇 진단</h2><p>Nav2, 위치보정, 주행 안전 계층, 센서 상태를 로봇별로 확인합니다.</p></div>
+        </div>
+        <div class="two-col" id="diagnostic-robots"></div>
+      </section>
+
+      <section class="tab-page" id="tab-events">
+        <div class="page-heading">
+          <div><h2>이벤트 기록</h2><p>미션, Marker, Nav2, 통신, 장애물, 안전 이벤트를 시간순으로 확인합니다.</p></div>
+          <div class="filter-row">
+            <select id="event-filter"><option value="ALL">전체</option><option>MISSION</option><option>NAV2</option><option>VISION</option><option>COMM</option><option>SAFETY</option></select>
+            <button class="btn" id="refresh-events">새로고침</button>
+          </div>
+        </div>
+        <article class="card table-card">
+          <div class="table-scroll"><table><thead><tr><th>시각</th><th>유형</th><th>로봇</th><th>이벤트</th><th>내용</th></tr></thead><tbody id="events-body"></tbody></table></div>
+        </article>
+      </section>
+
+      <section class="tab-page" id="tab-configuration">
+        <div class="page-heading">
+          <div><h2>설정</h2><p>현장 값과 코드 기본값을 섞지 않고, 적용 상태와 출처를 함께 표시합니다.</p></div>
+          <span class="status-pill neutral">READ MOSTLY</span>
+        </div>
+        <article class="card profile-card" id="profile-card">
+          <div class="card-head">
+            <div><h3>좌표 프로파일 (R-7 전환)</h3>
+              <p>도로망·미션·화면 지도·로봇 지도를 한 묶음으로 바꿉니다. 움직이는 로봇이 없을 때, 이 노트북(로컬)에서만 됩니다.</p></div>
+            <span class="status-pill neutral" id="profile-pill">—</span>
+          </div>
+          <div id="profile-body"></div>
+          <div class="button-row profile-actions">
+            <!-- U-1: 좌표·지도·초기 위치 전환은 움직이는 조작으로 친다 — 보기 전용에서 숨는다 -->
+            <select id="profile-select" aria-label="좌표 프로파일" data-moving="1"></select>
+            <button class="btn" id="profile-switch" data-moving="1">① 중계 좌표 전환</button>
+            <button class="btn" id="profile-robot-maps" data-moving="1">② 로봇 지도 전환</button>
+            <button class="btn" id="profile-initial-poses" data-moving="1">③ 초기 위치 보내기 (출발 노드)</button>
+          </div>
+          <p class="muted" id="profile-msg">④ 태블릿 좌표계(마커 기준 좌표)는 태블릿 쪽에서 맞춥니다(T-11) — 아래 "중계 좌표 frame" 과 같은지 확인하세요.</p>
+        </article>
+        <article class="card profile-card" id="assign-card">
+          <div class="card-head">
+            <div><h3>미션 배정 (시작 → 목적지)</h3>
+              <p>도로망의 출발·도착 노드(endpoint) 중에서 로봇마다 고릅니다. 배정하면 경로가 새로 계산되고 출발은 하지 않습니다.
+                 순서: 배정 → ③ 초기 위치 보내기 → 주행 시작.</p></div>
+            <span class="status-pill neutral" id="assign-pill">—</span>
+          </div>
+          <div id="assign-body"></div>
+          <p class="muted" id="assign-msg">같은 목적지·다른 로봇의 경로 위 목적지는 서버가 거절합니다(ASSIGN_CONFLICT).</p>
+        </article>
+        <div class="config-grid" id="config-cards"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/fleet_control_v2.js"></script>
+</body>
+</html>

@@ -33,27 +33,63 @@ class ControlParams:
     cam_sign: float = 1.0           # 실차에서 확정. -1 이면 부호 반전
     v_min_moving: float = 0.04      # 정지 지점 접근 중 최저 속도 (정지 직전까지 굼뜨지 않게)
     stale_max_age: float = 0.9      # 이 이상 오래된 error_x 는 쓰지 않는다
+    single_weight: float = 0.5      # 차선이 하나(SINGLE)일 때 카메라 보정 가중치 (BOTH = 1.0)
+    error_alpha: float = 1.0        # 새 측정마다 e_f = α·e + (1−α)·e_f (1.0 = 필터 없음). 목표점 점프·검출 잡음 완화
 
 
 class LaneController:
     def __init__(self, params=None):
         self.p = params or ControlParams()
-        self._prev_error = None
-        self._v_cmd = 0.0
+        self.reset()
 
     def reset(self):
         self._prev_error = None
         self._v_cmd = 0.0
+        self._meas_stamp = None     # 마지막으로 반영한 측정(LanePath) 의 stamp
+        self._meas_e = None         # 필터된 error
+        self._meas_de = 0.0         # 측정 간 기울기 (다음 측정까지 유지)
+
+    def _measured(self, error_x, error_stamp, active):
+        """측정 단위 PD 입력 (e, de). 새 LanePath(stamp 변경) 에서만 필터·기울기를 갱신한다.
+
+        제어는 20 Hz, 측정은 ≤ 10 Hz 라 틱마다 de 를 구하면 새 프레임이 올 때마다 de 가 튀고(Δe/0.05 s) 다음 틱엔 0 이 돼
+        D 항이 프레임마다 조향을 툭툭 친다. 측정 간격으로 나눈 기울기를 다음 측정까지 유지한다.
+        """
+        p = self.p
+        if not active:
+            self._meas_stamp, self._meas_e, self._meas_de = None, None, 0.0
+            return float(error_x or 0.0), 0.0
+        e_raw = float(error_x)
+        if error_stamp != self._meas_stamp:
+            a = min(1.0, max(0.0, float(p.error_alpha)))
+            e_new = e_raw if self._meas_e is None else a * e_raw + (1.0 - a) * self._meas_e
+            if self._meas_e is not None and self._meas_stamp is not None and error_stamp > self._meas_stamp:
+                self._meas_de = (e_new - self._meas_e) / (error_stamp - self._meas_stamp)
+            else:
+                self._meas_de = 0.0
+            self._meas_e, self._meas_stamp = e_new, error_stamp
+        return self._meas_e, self._meas_de
 
     def command(self, omega_route, error_x, quality, dt, dist_to_stop, speed_factor=1.0,
-                turn_in_place=False):
-        """(v, ω). dist_to_stop 은 정지 지점까지 남은 호길이 (None 이면 제한 없음)."""
+                turn_in_place=False, error_stamp=None):
+        """(v, ω). dist_to_stop 은 정지 지점까지 남은 호길이 (None 이면 제한 없음).
+
+        error_stamp: error_x 를 만든 측정의 시각(LanePath.source_stamp). 주면 D 항·필터를 측정 단위로 계산한다.
+        """
         p = self.p
         dt = max(1e-3, float(dt))
-        w_cam = CAM_WEIGHT.get(int(quality), 0.0) if error_x is not None else 0.0
-        e = float(error_x or 0.0)
-        de = 0.0 if self._prev_error is None else (e - self._prev_error) / dt
-        self._prev_error = e if w_cam > 0 else None
+        if error_x is None:
+            w_cam = 0.0
+        elif int(quality) == QUALITY_SINGLE:
+            w_cam = float(p.single_weight)
+        else:
+            w_cam = CAM_WEIGHT.get(int(quality), 0.0)
+        if error_stamp is not None and error_x is not None:
+            e, de = self._measured(error_x, float(error_stamp), w_cam > 0)
+        else:
+            e = float(error_x or 0.0)
+            de = 0.0 if self._prev_error is None else (e - self._prev_error) / dt
+            self._prev_error = e if w_cam > 0 else None
         omega_cam = -(p.kp * e + p.kd * de) * p.cam_sign
         if turn_in_place:
             w_cam = 0.0          # 제자리 회전 중엔 기하가 무너져 카메라 항이 뜻이 없다
