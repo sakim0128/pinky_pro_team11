@@ -29,6 +29,8 @@ target:                           # lane_target.TargetParams
   crosswalk_confirm: 3
   crosswalk_release: 5
   outer_pair_min_lanes: 3         # 차선 ≥ 3 → 클래스 기준 가장 바깥 쌍
+  single_offset_ratio: 0.8        # 차선 하나: 보이는 선에서 반폭 × 0.8 안쪽 (도로 15 cm → 반폭 7.5 cm → 6 cm)
+  single_use_class: true          # 차선 하나: 왼쪽/오른쪽은 모델 클래스로 (화면 위치는 클래스가 없을 때만)
   barricade_stop_row_frac: 0.80   # 바리게이트 하단이 이 행 아래로 오면 정지
   barricade_confirm: 3
   barricade_release: 10           # ≈ 1 s 안 보이면 재출발
