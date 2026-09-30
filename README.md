@@ -66,7 +66,11 @@ P   = Route lookahead(0.25 m) 점 → 로봇 좌표
 v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until 앞에서 감속·정지
 ```
 
-- **차선 쌍**: ≤ 2개면 화면 중앙에 가장 가까운 좌/우, ≥ 3개면 모델 클래스 기준 가장 바깥 쌍. 쌍이 0.5 s 안 보이면 `LANE_SEARCH`(제자리 회전 0.4 rad/s, 8 s 넘기면 정지).
+- **차선 쌍**: ≤ 2개면 화면 중앙에 가장 가까운 좌/우, ≥ 3개면 모델 클래스 기준 가장 바깥 쌍.
+- **차선 하나**: 회전하지 않고 보이는 선에서 안쪽으로 반폭 × 0.8(도로 15 cm → 6 cm) 떨어진 점을 따라간다. 좌/우는 모델 클래스
+  (`left_lane`/`right_lane`)로 정하고 클래스가 없을 때만 화면 위치. 카메라 보정 가중치 0.8 (`control.single_weight`).
+  설정: `detector_yolo.yaml` `target.single_offset_ratio`·`single_use_class`, `lane_agent.yaml` `fsm.search_on_single: false`.
+- **차선 없음**: 0.5 s 안 보이면 `LANE_SEARCH`(제자리 회전 0.4 rad/s, 8 s 넘기면 정지).
 - **횡단보도**: 3 s 정지 → 통과, 재래치는 주행거리 0.6 m. 그래프 crosswalk 노드 반경 밖 트리거는 무시.
 - **장애물**: 라이다(±35°, 0.18 m) 또는 초음파 ≤ 0.20 m, 2 연속 → 정지, 1 s 비면 자동 복귀. **바리게이트**: 카메라 확정 → 정지, 1 s 안 보이면 재출발.
 - **교차로 (정지선 · 선착순)**:

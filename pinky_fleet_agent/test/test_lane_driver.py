@@ -779,3 +779,43 @@ def test_lane_only_red_line_stops_once_then_continues_without_station():
     assert out.v > 0.0
     runs = sum(1 for i in range(1, len(s.log)) if s.log[i][1].state == JUNCTION_STOP != s.log[i - 1][1].state)
     assert runs == 1
+
+
+# ------------------------------------------------------------ 차선 하나: 회전하지 않고 따라간다 (search_on_single false)
+
+def test_lane_only_single_lane_keeps_driving_without_rotation():
+    s = LaneOnlySim(y0=0.0)
+    s.d.p.fsm.search_on_single = False
+    s.d.p.control.single_weight = 0.8
+    s.run(2.0)
+    s.quality = QUALITY_SINGLE
+    s.seen = (True, False)
+    x0 = s.x
+    s.run(3.0)
+    states = {o.state for _, o in s.log[-60:]}
+    assert LANE_SEARCH not in states and states == {CRUISE}
+    assert s.x > x0 + 0.2                              # 계속 전진
+    assert all(o.v > 0.0 for _, o in s.log[-40:])
+    s.quality = QUALITY_LOST                           # 아예 안 보이면 그때만 탐색
+    s.seen = (False, False)
+    assert s.run(1.5).state == LANE_SEARCH
+
+
+def test_single_weight_scales_camera_correction():
+    from pinky_fleet_agent.lane_control import ControlParams, LaneController
+    lo = LaneController(ControlParams(single_weight=0.5))
+    hi = LaneController(ControlParams(single_weight=0.8))
+    _, w_lo = lo.command(0.0, 0.3, QUALITY_SINGLE, 0.05, None)
+    _, w_hi = hi.command(0.0, 0.3, QUALITY_SINGLE, 0.05, None)
+    assert w_lo < 0.0 and w_hi < w_lo                  # 같은 오차에 더 세게 (우회전)
+    _, w_both = hi.command(0.0, 0.3, QUALITY_BOTH, 0.05, None)
+    assert abs(w_both) > abs(w_hi)
+
+
+def test_agent_yaml_single_lane_rule():
+    import yaml
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, 'params', 'lane_agent.yaml'), encoding='utf-8') as fh:
+        prm = yaml.safe_load(fh)['pinky_lane_agent']['ros__parameters']
+    assert prm['fsm']['search_on_single'] is False and prm['fsm']['lane_search'] is True
+    assert prm['control']['single_weight'] == 0.8
