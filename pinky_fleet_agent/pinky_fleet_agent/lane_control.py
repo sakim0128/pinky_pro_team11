@@ -33,6 +33,7 @@ class ControlParams:
     cam_sign: float = 1.0           # 실차에서 확정. -1 이면 부호 반전
     v_min_moving: float = 0.04      # 정지 지점 접근 중 최저 속도 (정지 직전까지 굼뜨지 않게)
     stale_max_age: float = 0.9      # 이 이상 오래된 error_x 는 쓰지 않는다
+    single_weight: float = 0.5      # 차선이 하나(SINGLE)일 때 카메라 보정 가중치 (BOTH = 1.0)
 
 
 class LaneController:
@@ -50,7 +51,12 @@ class LaneController:
         """(v, ω). dist_to_stop 은 정지 지점까지 남은 호길이 (None 이면 제한 없음)."""
         p = self.p
         dt = max(1e-3, float(dt))
-        w_cam = CAM_WEIGHT.get(int(quality), 0.0) if error_x is not None else 0.0
+        if error_x is None:
+            w_cam = 0.0
+        elif int(quality) == QUALITY_SINGLE:
+            w_cam = float(p.single_weight)
+        else:
+            w_cam = CAM_WEIGHT.get(int(quality), 0.0)
         e = float(error_x or 0.0)
         de = 0.0 if self._prev_error is None else (e - self._prev_error) / dt
         self._prev_error = e if w_cam > 0 else None

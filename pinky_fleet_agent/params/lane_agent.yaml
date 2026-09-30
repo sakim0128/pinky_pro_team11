@@ -37,13 +37,14 @@ pinky_lane_agent:
       cam_sign: 1.0              # 실차에서 확정: 로봇을 차선 왼쪽에 두면 우회전(ω<0) 이어야 한다. 아니면 -1.0
       v_min_moving: 0.04
       stale_max_age: 0.9
+      single_weight: 0.8           # 차선 하나일 때 카메라 보정 가중치 (BOTH 1.0). 경로 없이 카메라로만 달릴 때 조향이 약하지 않게
     fsm:
       crosswalk_stop_seconds: 3.0
       crosswalk_relatch_distance: 0.60   # > crosswalk_zone
       lane_lost_speed_factor: 0.5
       blind_warn_distance: 0.60
       lane_search: true                  # 차선 쌍이 안 보이면 제자리 회전 탐색 (D14 작업 2)
-      search_on_single: true             # 한쪽만 보여도 탐색. false 면 아예 안 보일 때만
+      search_on_single: false            # 한쪽만 보이면 회전하지 않고 보이는 선에서 6 cm 안쪽을 따라간다 (아예 안 보일 때만 탐색)
       search_after: 0.5                  # 쌍이 이만큼(s) 안 보여야 탐색 시작
       search_confirm_seconds: 0.3        # 탐색 중 쌍이 이만큼 이어지면 주행 복귀
       search_max_seconds: 8.0            # 초과하면 실패 → 정지 (사람이 개입)

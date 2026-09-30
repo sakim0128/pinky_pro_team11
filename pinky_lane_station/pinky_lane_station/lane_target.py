@@ -85,6 +85,8 @@ class TargetParams:
     crosswalk_confirm: int = 3
     crosswalk_release: int = 5
     outer_pair_min_lanes: int = 3         # 차선이 이 수 이상이면 클래스 기준 가장 바깥 쌍
+    single_offset_ratio: float = 1.0      # SINGLE: 보이는 선에서 반폭 × 이 비율만큼 안쪽을 목표로 (15 cm 도로, 6 cm → 0.8)
+    single_use_class: bool = True         # SINGLE: 선이 하나면 좌/우를 모델 클래스(left_lane/right_lane)로 정한다
     barricade_stop_row_frac: float = 0.80 # 바리게이트 최하단 y ≥ 이 행이면 정지 트리거
     barricade_min_conf: float = 0.30
     barricade_min_width_frac: float = 0.15
@@ -233,6 +235,12 @@ class LaneTargetEstimator:
         r.pair_rule = 'outer'
         return left, right
 
+    def _single_side_is_left(self, cand, by_position_left):
+        """선이 하나일 때 그 선이 왼쪽 선인가. 클래스 라벨이 있으면 클래스, 없으면 화면 위치."""
+        if self.p.single_use_class and len(cand) > 3 and cand[3] in ('L', 'R'):
+            return cand[3] == 'L'
+        return by_position_left
+
     # ------------------------------------------------ 메인
 
     def update(self, instances, width, height):
@@ -281,12 +289,14 @@ class LaneTargetEstimator:
         elif left or right:
             c = left or right
             r.quality = QUALITY_SINGLE
-            if left:
+            is_left = self._single_side_is_left(c, bool(left))
+            offset = p.single_offset_ratio * half           # 보이는 선에서 안쪽으로 (반폭 = 도로 폭/2 에 해당하는 px)
+            if is_left:
                 r.left_seen, r.left_x = True, int(round(c[0]))
-                tx = c[0] + half
+                tx = c[0] + offset
             else:
                 r.right_seen, r.right_x = True, int(round(c[0]))
-                tx = c[0] - half
+                tx = c[0] - offset
             r.target_x = int(round(tx))
             r.target_y = int(round(c[1]))
             r.confidence = c[2] * 0.8
