@@ -77,3 +77,17 @@ pinky_lane_agent:
       dist_tolerance: 0.005
       yaw_tolerance_deg: 1.5
       heading_kp: 1.5
+      # ('seek', 좌/우/직진) — 각도·거리 대신 새 빨간 선을 찾아 그 앞까지 (관제 vision_mission.yaml directions)
+      seek_forward: 0.20         # 좌·우: 회전 전 전진 (m)
+      seek_omega: 0.3            # 찾으며 제자리 회전 (rad/s)
+      seek_min_turn_deg: 30.0    # 이만큼 돈 뒤부터 빨간 선을 본다
+      seek_max_turn_deg: 150.0   # 넘도록 못 찾으면 정지 ("새 빨간 선 못 찾음")
+      seek_ignore_distance: 0.10 # 직진: 입구 선을 새 선으로 잡지 않게 이만큼은 안 본다 (m)
+      seek_max_distance: 0.80    # 직진: 이만큼 가도 못 찾으면 정지 (m)
+      seek_center_frac: 0.25     # 선 중심이 화면 중앙 ± 0.25·W 안
+      seek_min_width_frac: 0.10  # 선 폭 ≥ 0.10·W
+      seek_confirm: 2            # 가운데 선 연속 프레임
+      seek_speed: 0.05           # 직진 탐색·접근 속도 (m/s)
+      seek_kp: 0.8               # 접근 조향 ω = −kp·x_norm
+      seek_arrive_row_frac: 0.80 # 선 하단 ≥ 0.80·H 면 새 선 앞 도착
+      seek_lost_distance: 0.10   # 접근 중 선이 안 보인 채 이만큼 가면 지나친 것으로 보고 끝 (m)

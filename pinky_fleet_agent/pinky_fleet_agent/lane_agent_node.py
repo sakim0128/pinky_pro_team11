@@ -65,6 +65,16 @@ def stamp_seconds(stamp):
     return stamp.sec + stamp.nanosec * 1e-9
 
 
+def red_observation(msg):
+    """LanePath → 교차로 seek 동작용 빨간 덩어리 [(x_norm, width_frac, bottom_frac), ...] (옛 msg 는 빈 목록)."""
+    w, h = int(msg.image_width), int(msg.image_height)
+    if w <= 0 or h <= 0:
+        return []
+    return [((int(x) - w / 2.0) / (w / 2.0), float(wd), int(y) / float(h))
+            for x, y, wd in zip(getattr(msg, 'red_line_xs', []), getattr(msg, 'red_line_ys', []),
+                                getattr(msg, 'red_line_widths', []))]
+
+
 def declare_driver_params(node):
     """DriverParams 의 숫자 필드를 ROS 파라미터로 노출하고 채워서 돌려준다."""
     p = DriverParams()
@@ -201,7 +211,8 @@ class LaneAgent(Node):
                                   stop_line=bool(getattr(msg, 'stop_line_detected', False)),
                                   left_seen=bool(msg.left_seen), right_seen=bool(msg.right_seen),
                                   markers=dict(zip((int(i) for i in getattr(msg, 'marker_ids', [])),
-                                                   (float(d) for d in getattr(msg, 'marker_distances', [])))))
+                                                   (float(d) for d in getattr(msg, 'marker_distances', [])))),
+                                  red_obs=red_observation(msg))
 
     def _on_fleet_command(self, msg: FleetCommand):
         now = self._now()

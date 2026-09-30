@@ -177,6 +177,9 @@ class LanePipeline(Node):
         lp.barricade_bottom_y = int(r.barricade_bottom_y)
         lp.red_line_detected = bool(r.red_line_detected)
         lp.red_line_bottom_y = int(r.red_line_bottom_y)
+        lp.red_line_xs = [int(b[0]) for b in r.red_line_blobs]
+        lp.red_line_ys = [int(b[1]) for b in r.red_line_blobs]
+        lp.red_line_widths = [float(b[2]) for b in r.red_line_blobs]
         lp.stop_line_detected = bool(sl.detected)
         lp.stop_line_bottom_y = int(sl.bottom_y)
         lp.marker_ids = [int(i) for i in mk.markers]
@@ -256,6 +259,7 @@ class LanePipeline(Node):
             lp.image_width, lp.image_height = rl.last_msg.image_width, rl.last_msg.image_height
             lp.half_lane_px = rl.last_msg.half_lane_px
             lp.crosswalk_detected = False
+            # red_line_xs 는 비워 둔다 — 새 프레임이 없으니 seek 동작은 '안 보임' 으로 다룬다
             self._path_pubs[name].publish(lp)
 
 

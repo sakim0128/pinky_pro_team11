@@ -97,6 +97,7 @@ class TargetParams:
     red_line_min_width_frac: float = 0.25 # 차로 폭을 가로지르는 선 — 좁은 조각은 무시
     red_line_confirm: int = 2
     red_line_release: int = 5
+    red_line_seek_min_width_frac: float = 0.10  # 로봇 '새 빨간 선 찾기' 후보 (red_line_blobs) — 비스듬히 보이는 선도 잡게 느슨하게
 
 
 @dataclass
@@ -127,6 +128,7 @@ class TargetResult:
     red_line_detected: bool = False
     red_line_bottom_y: int = 0
     red_line_confidence: float = 0.0
+    red_line_blobs: list = field(default_factory=list)  # [(중심 x, 하단 y, 폭/W), ...] 폭 ≥ seek 하한 — 로봇 seek 동작용
     image_width: int = 0
     image_height: int = 0
     candidates: list = field(default_factory=list)   # [(x, conf, side), ...] 진단용
@@ -339,4 +341,8 @@ class LaneTargetEstimator:
             r.red_line_confidence = float(best.conf)
             r.red_line_raw = best.bottom_y >= p.red_line_stop_row_frac * H
         r.red_line_detected = self._red_line.update(r.red_line_raw)
+        r.red_line_blobs = [(int(round((i.bbox[0] + i.bbox[2]) / 2.0)), int(round(i.bottom_y)),
+                             float(i.width / W) if W > 0 else 0.0)
+                            for i in instances if i.cls == CLS_RED_LINE and i.conf >= p.red_line_min_conf
+                            and i.width >= p.red_line_seek_min_width_frac * W]
         return r

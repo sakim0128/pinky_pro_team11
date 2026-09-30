@@ -10,7 +10,8 @@ relay_station/fleet/vision_coordinator.py(ROS 노드) 가 이것을 감싼다.
     run.clearance('pinky1')                                          # LaneCommand CLEARANCE 값 (0 대기 · 1 통과)
 
 코스 (2026-09-30): T자 교차로 하나, 지점 1(오른쪽 위)·2(왼쪽 아래)·3(아래 가운데). 출발·목적 지점으로 교차로 방향이
-정해진다(routes). 방향마다 기본 고정 동작(directions), 경로마다 따로 잰 동작(maneuvers)을 쓸 수 있다.
+정해진다(routes). 방향마다 기본 동작(directions), 경로마다 따로 잰 동작(maneuvers)을 쓸 수 있다.
+동작 단계: {straight: m} · {turn: deg} (odom 고정 동작) · {seek: left|right|straight} (새 빨간 선을 찾아 그 앞까지, 2026-09-30 기본).
 
 통행권 규칙 (사용자 결정 2026-09-30)
     * 교차로는 하나, 통행권도 하나. 빨간 테이프 앞 정지(JUNCTION_STOP)를 **먼저 보고한** 로봇이 먼저 받는다.
@@ -38,6 +39,7 @@ DRIVE_OBSTACLE_WAIT = 5
 DRIVE_JUNCTION_STOP, DRIVE_JUNCTION_PASS = 12, 13
 STAGE_AFTER = 'vision:after_junction'
 DIRECTIONS = ('straight', 'left', 'right')
+SEEK_VALUES = {'left': 1.0, 'right': -1.0, 'straight': 0.0}
 DIRECTION_LABELS = {'straight': '직진', 'left': '좌회전', 'right': '우회전'}
 ARRIVAL_MODES = ('marker', 'stop_line')
 SCENARIO_NAME_RE = re.compile(r'^[0-9A-Za-z가-힣_\-]{1,40}$')
@@ -102,11 +104,19 @@ def _steps(name, raw):
     out = []
     for i, st in enumerate(raw):
         if not isinstance(st, dict) or len(st) != 1:
-            raise VisionConfigError(f'maneuver {name}[{i}]: {{straight: m}} 또는 {{turn: deg}} 하나여야 한다 — {st!r}')
+            raise VisionConfigError(f'maneuver {name}[{i}]: {{straight: m}}·{{turn: deg}}·{{seek: left|right|straight}} '
+                                    f'하나여야 한다 — {st!r}')
         (kind, value), = st.items()
         kind = str(kind).strip().lower()
-        if kind not in ('straight', 'turn'):
+        if kind not in ('straight', 'turn', 'seek'):
             raise VisionConfigError(f'maneuver {name}[{i}]: 알 수 없는 동작 {kind!r}')
+        if kind == 'seek':
+            # 새 빨간 선 찾기 (로봇 maneuver.RedLineSeeker) — JunctionPlan 값 +1 좌 / −1 우 / 0 직진
+            v = str(value).strip().lower()
+            if v not in SEEK_VALUES:
+                raise VisionConfigError(f'maneuver {name}[{i}]: seek 은 {"/".join(SEEK_VALUES)} — {value!r}')
+            out.append((kind, SEEK_VALUES[v]))
+            continue
         value = float(value)
         if not math.isfinite(value) or (kind == 'straight' and not 0 < abs(value) <= 2.0) \
                 or (kind == 'turn' and not 0 < abs(value) <= 360.0):

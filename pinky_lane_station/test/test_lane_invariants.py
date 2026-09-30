@@ -348,3 +348,15 @@ def test_bridge_runner_fills_domains_for_apt_domain_bridge(tmp_path):
         assert set(data['topics']) == set(yaml.safe_load(open(src, encoding='utf-8'))['topics'])
     setup = read(os.path.join(STATION, 'setup.py'))
     assert "'bridge_runner = pinky_lane_station.bridge_runner:main'" in setup
+
+
+def test_lane_path_carries_red_line_blobs_for_robot_seek():
+    """관제 파이프라인 → LanePath.red_line_xs/ys/widths → 로봇 red_observation → 드라이버 red_obs (교차로 seek 동작)."""
+    msg = open(os.path.join(MSG_DIR, 'LanePath.msg'), encoding='utf-8').read()
+    for f in ('int32[]   red_line_xs', 'int32[]   red_line_ys', 'float32[] red_line_widths'):
+        assert f in msg
+    node = open(os.path.join(STATION, 'pinky_lane_station', 'lane_pipeline_node.py'), encoding='utf-8').read()
+    assert 'lp.red_line_xs = ' in node and 'lp.red_line_ys = ' in node and 'lp.red_line_widths = ' in node
+    agent = open(os.path.join(AGENT, 'pinky_fleet_agent', 'lane_agent_node.py'),
+                 encoding='utf-8').read()
+    assert "'red_line_xs'" in agent and 'red_obs=red_observation(msg)' in agent

@@ -227,7 +227,7 @@ def test_scenario2_depart_delay_and_explicit_stop_lines():
     assert run.due('pinky1', 100.0) and not run.due('pinky2', 109.9) and run.due('pinky2', 110.0)
     assert run.plan_fields('pinky1')['stop_line_count'] == 1 and run.plan_fields('pinky2')['stop_line_count'] == 1
     f = run.plan_fields('pinky2')
-    assert f['step_kind'] == ['straight', 'turn', 'straight'] and f['step_value'] == [0.18, 90.0, 0.10]
+    assert f['step_kind'] == ['seek'] and f['step_value'] == [1.0]                   # 1→3 좌회전 = 새 빨간 선 찾기
     assert f['linear_speed'] == 0.08 and f['maneuver'] == 'left_1_to_3'
     run.on_status('pinky1', DRIVE_ARRIVED, run.seq['pinky1'], 'vision:arrived', 130.0)
     assert not run.done
@@ -243,7 +243,8 @@ def test_unknown_scenario():
 # ------------------------------------------------------------ 폐루프: 관제 코어 + 로봇 드라이버 두 대
 
 class Bot:
-    """lane_only 드라이버 + 1차원 차선. red_x 에서 빨간 선이 보이고, 교차로 통과 뒤 lines 거리(m)에 흰 정지선,
+    """lane_only 드라이버 + 차선. red_x 에서 입구 빨간 선이 정지 행에 오고(교차로 나가는 선은 sim_red_lines 모형),
+    교차로 통과 뒤 lines 거리(m)에 흰 정지선,
     wall 거리(m)에 벽(목적지 ArUco 마커). blocker() 가 참이면 초음파 8 cm (앞 로봇) 이고 마커도 가린다."""
 
     def __init__(self, red_x, lines=(0.30, 0.70), wall=0.85):
@@ -273,9 +274,10 @@ class Bot:
                 markers = {d._plan['goal_marker_id']: self.wall - after}
         d.update_us(0.08 if blocked else 1.0)
         if tick_no % 3 == 0:
-            d.set_lane_path(t, t, QUALITY_BOTH, 0.0, False,
-                            red_line=self.x >= self.red_x and not d._junction_passed, stop_line=stop,
-                            markers=markers)
+            from pinky_fleet_agent.sim_red_lines import junction_red_lines, red_blobs, red_line_detected
+            blobs = red_blobs((self.x, self.y, self.yaw), junction_red_lines(self.red_x))
+            d.set_lane_path(t, t, QUALITY_BOTH, 0.0, False, red_line=red_line_detected(blobs), stop_line=stop,
+                            markers=markers, red_obs=blobs)
         d.update_odom(t, self.x, self.y, self.yaw)
         self.out = d.tick(t, 0.0, 0.0, 0.0)
         self.x += self.out.v * math.cos(self.yaw) * dt

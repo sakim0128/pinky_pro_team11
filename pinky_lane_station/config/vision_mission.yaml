@@ -1,13 +1,16 @@
-# 비전 미션 (2026-09-30) — 위치추정 없이 카메라 차선 주행 + 교차로 고정 동작. 관제 코디네이터(relay, --vision) 가 읽는다.
+# 비전 미션 (2026-09-30) — 위치추정 없이 카메라 차선 주행 + 교차로 동작(새 빨간 선 찾기). 관제 코디네이터(relay, --vision) 가 읽는다.
 #
 # 코스: T자 교차로 하나. 1번 = 오른쪽 위 끝, 2번 = 왼쪽 아래, 3번 = 아래 가운데(교차로 오른쪽 가지).
 #   경로별 교차로 방향은 routes (로봇 진행 방향 기준).
-# 로봇: 빨간 테이프(YOLO red_line) 앞에서 1 s 정지 → 관제 통행권(시나리오 로봇 2대일 때만. 먼저 선 로봇, 같은 순간이면
-#       domain_id 작은 쪽. 1대면 허가 없이 출발) → 고정 동작(odom) → 차선 주행 복귀(통행권 반납) →
+# 로봇: 빨간 테이프(색 검출 red_line) 앞에서 1 s 정지 → 관제 통행권(시나리오 로봇 2대일 때만. 먼저 선 로봇, 같은 순간이면
+#       domain_id 작은 쪽. 1대면 허가 없이 출발) → 교차로 동작(seek: 새 빨간 선 찾아 그 앞까지) → 빨간 선 1 s 정지 →
+#       차선 주행 복귀(통행권 반납) →
 #       도착 지점 앞 벽 ArUco 마커(1→40, 2→41, 3→42) 15 cm 앞에서 도착. 같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤 장애물 정지가 도착.
 # 장애물: 초음파 10 cm 에서 정지, 치워지면 1 s 뒤 재출발. 횡단보도 3 s 정지.
 #
-# 고정 동작 값은 **임시** — 현장에서 로봇 1대로 경로마다 재서 고친다. straight: m (+ 전진), turn: deg (+ 좌회전)
+# 교차로 동작 단계: seek: left|right|straight — 각도·거리 없이 새 빨간 선을 찾아 그 앞까지 (로봇 lane_agent.yaml maneuver.seek_*)
+#   좌·우 = 20 cm 전진 → 천천히 제자리 회전하며 화면 가운데 새 빨간 선 → 그 선으로 접근. 직진 = 입구 선 10 cm 지난 뒤 앞의 새 빨간 선으로.
+# 고정 동작(odom): straight: m (+ 전진), turn: deg (+ 좌회전) — maneuvers: 에 남겨 둠. 되돌리려면 routes 에 maneuver: 를 다시 넣는다.
 # 값을 바꾸면 관제(게이트웨이)만 다시 띄운다. 웹에서 만든 시나리오 중 저장한 것은 옆 파일 vision_mission_user.yaml.
 
 speeds:
@@ -24,22 +27,22 @@ arrival:
   arrive_distance: 0.15           # 카메라 ~ 벽 마커 거리 (m) 이하면 도착
   markers: {1: 40, 2: 41, 3: 42}  # 지점 → ArUco id (DICT_4X4_50, 한 변 4 cm — 현장 ANCHOR A1·A2·A3 · detector_yolo.yaml aruco:)
 
-directions:                       # 방향별 기본 고정 동작 — routes 에 maneuver 가 없거나 웹에서 방향을 바꾸면 이것
-  straight: [{straight: 0.35}]
-  left:     [{straight: 0.18}, {turn: 90}, {straight: 0.10}]
-  right:    [{straight: 0.18}, {turn: -90}, {straight: 0.10}]
+directions:                       # 방향별 기본 동작 — routes 에 maneuver 가 없거나 웹에서 방향을 바꾸면 이것
+  straight: [{seek: straight}]
+  left:     [{seek: left}]
+  right:    [{seek: right}]
 
-maneuvers:                        # 경로별로 따로 잰 고정 동작 (선택)
+maneuvers:                        # 경로별로 따로 잰 고정 동작 (선택, 지금은 routes 에서 안 씀 — 되돌릴 때 routes 에 maneuver: 로)
   straight_2_to_1: [{straight: 0.35}]
   right_3_to_1:    [{straight: 0.18}, {turn: -90}, {straight: 0.10}]
   straight_1_to_2: [{straight: 0.35}]
   left_1_to_3:     [{straight: 0.18}, {turn: 90}, {straight: 0.10}]
 
 routes:                           # "출발>목적": 교차로 방향 (+ 선택: 경로 전용 maneuver)
-  "2>1": {direction: straight, maneuver: straight_2_to_1}
-  "1>2": {direction: straight, maneuver: straight_1_to_2}
-  "3>1": {direction: right, maneuver: right_3_to_1}
-  "1>3": {direction: left, maneuver: left_1_to_3}
+  "2>1": {direction: straight}    # 고정 동작으로 되돌리려면 {direction: straight, maneuver: straight_2_to_1}
+  "1>2": {direction: straight}    #   maneuver: straight_1_to_2
+  "3>1": {direction: right}       #   maneuver: right_3_to_1
+  "1>3": {direction: left}        #   maneuver: left_1_to_3
   "2>3": {direction: right}       # 2 에서 올라와 교차로 오른쪽 가지로 (맵 그림 기준 추정 — 현장 확인)
   "3>2": {direction: left}        # 3 에서 가지로 들어와 교차로에서 왼쪽(아래)으로
 
