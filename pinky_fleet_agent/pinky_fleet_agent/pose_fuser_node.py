@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""map→odom TF 발행자 — AMCL 자리. 관제 항공뷰(`overhead_tracker_node`) 의 위치와 로봇 odom 을 합친다.
+"""map→odom TF 발행자 — AMCL 자리. 외부 절대 위치와 로봇 odom 을 합친다.
 
     입력  /odom (nav_msgs/Odometry)                      odom→base_footprint. 버퍼에 쌓는다 (10 s)
-          /<name>/overhead_pose (geometry_msgs/PoseStamped, map)   관제가 ArUco 로 본 로봇 위치.
-                                               stamp 는 **관제 시계** 라 쓰지 않고, 수신 시각 − station_latency 의 odom 에 붙인다
+          /<name>/overhead_pose (geometry_msgs/PoseStamped, map)   관제 overhead_tracker_node 가 천장 카메라 ArUco 로
+                                               본 로봇 **마커** 위치. stamp 는 관제 시계라 쓰지 않고 수신 시각 − station_latency 의
+                                               odom 에 붙인다. yaw_offset / offset_x 로 마커 → base 보정 (use_overhead_pose)
+          /<name>/pose_fix (pinky_lane_msgs/PoseFix)     map→base. 중계 비전 API·태블릿 비전·바닥 마커. stamp_is_robot_clock 이면
+                                               그 시각의 odom 에, 아니면 수신 시각 − station_latency 의 odom 에 붙인다.
+                                               reproj_error > max_reproj 면 버린다 (use_pose_fix)
           initialpose (PoseWithCovarianceStamped)      관제 [출발] 이 보내는 초기 위치 — 게이트 없이 채택
     출력  TF map→odom  (20 Hz, fix_timeout 안이면)
           /<name>/fix_status (String)                  "accepted 12 rejected 1 age 0.3s"
@@ -21,10 +25,17 @@ import rclpy
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
 
+from pinky_lane_msgs.msg import PoseFix
+
 from .pose_fuser import PoseFuser, compose, invert
+
+FIX_QOS = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=5,
+                     reliability=QoSReliabilityPolicy.RELIABLE,
+                     durability=QoSDurabilityPolicy.VOLATILE)
 
 
 def yaw_from_quaternion(q):
@@ -59,12 +70,16 @@ class PoseFuserNode(Node):
         self.declare_parameter('yaw_offset', 0.0)                 # 마커 +x 가 로봇 전방과 이루는 각 (rad)
         self.declare_parameter('offset_x', 0.0)                   # 마커 중심의 전방 오프셋 (m)
         self.declare_parameter('blend', 1.0)                      # 1.0 = 매 fix 그대로, 0.5 = 절반씩 (떨림 완화)
+        self.declare_parameter('use_overhead_pose', True)         # /<name>/overhead_pose (PoseStamped) 구독
+        self.declare_parameter('use_pose_fix', True)              # /<name>/pose_fix (PoseFix) 구독
+        self.declare_parameter('max_reproj', 3.0)                 # PoseFix.reproj_error 상한 (px)
 
         name = self.get_parameter('robot_name').value
         self._map = self.get_parameter('global_frame').value
         self._odom = self.get_parameter('odom_frame').value
         self._base = self.get_parameter('base_frame').value
         self._station_latency = float(self.get_parameter('station_latency').value)
+        self._max_reproj = float(self.get_parameter('max_reproj').value)
         self._yaw_offset = float(self.get_parameter('yaw_offset').value)
         self._offset_x = float(self.get_parameter('offset_x').value)
         self.fuser = PoseFuser(gate_dist=float(self.get_parameter('gate_dist').value),
@@ -76,13 +91,19 @@ class PoseFuserNode(Node):
         self._tf = TransformBroadcaster(self)
         self._status_pub = self.create_publisher(String, f'/{name}/fix_status', 10)
         self.create_subscription(Odometry, 'odom', self._on_odom, 50)
-        self.create_subscription(PoseStamped, topic, self._on_pose, 10)
+        sources = []
+        if bool(self.get_parameter('use_overhead_pose').value):
+            self.create_subscription(PoseStamped, topic, self._on_pose, 10)
+            sources.append(topic)
+        if bool(self.get_parameter('use_pose_fix').value):
+            self.create_subscription(PoseFix, f'/{name}/pose_fix', self._on_fix, FIX_QOS)
+            sources.append(f'/{name}/pose_fix')
         self.create_subscription(PoseWithCovarianceStamped, 'initialpose', self._on_initialpose, 10)
         self.create_timer(1.0 / float(self.get_parameter('publish_rate').value), self._publish_tf)
         self.create_timer(1.0, self._publish_status)
         self._was_alive = False
         self.get_logger().info(
-            f'pose_fuser 시작: {name} ← {topic} gate={self.fuser.gate_dist:.2f}m/'
+            f'pose_fuser 시작: {name} ← {sources} gate={self.fuser.gate_dist:.2f}m/'
             f'{math.degrees(self.fuser.gate_yaw):.0f}° fix_timeout={self.fuser.fix_timeout:.1f}s '
             f'latency={self._station_latency:.2f}s')
 
@@ -106,6 +127,16 @@ class PoseFuserNode(Node):
         ok, why = self.fuser.on_fix(now - self._station_latency, x, y, yaw, now)
         if not ok or why != 'ok':
             self.get_logger().info(f'overhead fix ({x:.2f}, {y:.2f}): {why}', throttle_duration_sec=1.0)
+
+    def _on_fix(self, msg: PoseFix):
+        if msg.reproj_error > self._max_reproj:
+            return
+        now = self._now()
+        t_fix = stamp_seconds(msg.header.stamp) if msg.stamp_is_robot_clock else now - self._station_latency
+        ok, why = self.fuser.on_fix(t_fix, msg.x, msg.y, msg.yaw, now)
+        if not ok or why != 'ok':
+            self.get_logger().info(f'pose_fix id={msg.marker_id} ({msg.x:.2f}, {msg.y:.2f}): {why}',
+                                   throttle_duration_sec=1.0)
 
     def _on_initialpose(self, msg: PoseWithCovarianceStamped):
         """관제가 준 초기 위치. 지금 odom 기준으로 map→odom 을 바로 잡는다 (게이트 없음)."""
