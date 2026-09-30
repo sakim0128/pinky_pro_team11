@@ -2403,8 +2403,12 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                                        allow_nan=False).encode('utf-8'))
             return
         elif parsed.path == '/api/fleet/profile_map.png':
-            src = getattr(GLOBAL_CONTROL, 'map_source', None) if GLOBAL_CONTROL else None
-            img = cv2.imread(src, cv2.IMREAD_GRAYSCALE) if src and src != 'synthetic' and os.path.isfile(src) else None
+            annotated_map = os.path.join(STATIC_DIR, "map5_with_lanes_hi.png")
+            if os.path.isfile(annotated_map):
+                img = cv2.imread(annotated_map, cv2.IMREAD_COLOR)
+            else:
+                src = getattr(GLOBAL_CONTROL, 'map_source', None) if GLOBAL_CONTROL else None
+                img = cv2.imread(src, cv2.IMREAD_GRAYSCALE) if src and src != 'synthetic' and os.path.isfile(src) else None
             ok, png = cv2.imencode('.png', img) if img is not None else (False, None)
             if not ok:
                 self.send_response(404)

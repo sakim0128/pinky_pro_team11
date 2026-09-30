@@ -375,7 +375,7 @@
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">
-          <div>범례: <span style="color:#ff9900; font-weight:600;">● P1 Odom</span> · <span style="color:#a371f7; font-weight:600;">● P2 Odom</span> · <span style="color:#eab308; font-weight:600;">⌖ P2 관제Fix</span></div>
+          <div>범례: <span style="color:#ff9900; font-weight:600;">─ ● P1 궤적(BL→TR)</span> · <span style="color:#a371f7; font-weight:600;">─ ● P2 궤적(BR→BL)</span> · <span style="color:#3fb950; font-weight:600;">⌖ 관제Fix</span> · <span style="color:#eab308; font-weight:600;">⚑ 미션노드(BL·BR·TR·J)</span></div>
           <div id="nav-live-hover" style="font-family: monospace; color: #58a6ff;">지도 위 마우스 오버 시 좌표 확인</div>
         </div>
       </div>
@@ -2130,11 +2130,30 @@
     let robot2Trail = [];
     let simTrail = [];
 
-    const WAYPOINTS = [
-      { id: 1, name: '도크/원점 (Dock)', x: -0.04, y: 0.43, color: '#3fb950' },
-      { id: 2, name: '침실 (Bedroom)', x: -0.85, y: -0.10, color: '#f2cc60' },
-      { id: 3, name: '식당 (Dining)', x: 0.35, y: -0.25, color: '#a371f7' },
-      { id: 4, name: '주방 (Kitchen)', x: 1.00, y: -0.25, color: '#58a6ff' }
+    // 팀11 map5 아레나 4개 핵심 노드 (road_graph.yaml)
+    const FLEET_NODES = [
+      { id: 'BL', name: 'BL (왼쪽 하단)', x: 0.20, y: 0.20, color: '#ff9900' },
+      { id: 'BR', name: 'BR (오른쪽 하단)', x: 2.15, y: 0.20, color: '#a371f7' },
+      { id: 'TR', name: 'TR (오른쪽 상단)', x: 2.15, y: 1.08, color: '#2ea043' },
+      { id: 'J',  name: 'J (중앙 교차로)', x: 1.18, y: 0.64, color: '#eab308' }
+    ];
+
+    // 네비게이션 주행 정답 경로 (Ground Truth Waypoint Sequences)
+    const MISSION_REFERENCE_PATHS = [
+      {
+        id: 'p1_path',
+        robot: 'pinky1',
+        label: 'P1: BL → J → TR',
+        color: 'rgba(255, 153, 0, 0.65)',
+        points: [{x: 0.20, y: 0.20}, {x: 1.18, y: 0.64}, {x: 2.15, y: 1.08}]
+      },
+      {
+        id: 'p2_path',
+        robot: 'pinky2',
+        label: 'P2: BR → J → BL',
+        color: 'rgba(163, 113, 247, 0.65)',
+        points: [{x: 2.15, y: 0.20}, {x: 1.18, y: 0.64}, {x: 0.20, y: 0.20}]
+      }
     ];
 
     function worldToCanvas(wx, wy) {
@@ -2223,68 +2242,56 @@
       navCtx.fillStyle = '#0f141c';
       navCtx.fillRect(0, 0, w, h);
 
+      // 1. 단일 정본 트랙 배경 이미지 (벽체 + 차선 + 횡단보도 정합 완료)
       if (mapImg.complete && mapImg.naturalWidth > 0) {
-        navCtx.imageSmoothingEnabled = false;
+        navCtx.imageSmoothingEnabled = true;
         navCtx.drawImage(mapImg, 0, 0, w, h);
       }
 
-      // 1. 그리드 라인 (1m 간격)
-      navCtx.strokeStyle = 'rgba(88, 166, 255, 0.12)';
-      navCtx.lineWidth = 1;
-      for (let mx = -2.0; mx <= 2.0; mx += 1.0) {
-        const p1 = worldToCanvas(mx, -2.0);
-        const p2 = worldToCanvas(mx, 2.0);
+      // 2. 네비게이션 주행 정답 경로 오버레이 (Ground Truth Reference Path)
+      MISSION_REFERENCE_PATHS.forEach(path => {
+        if (path.points.length < 2) return;
+        navCtx.strokeStyle = path.color;
+        navCtx.lineWidth = 2.5;
+        navCtx.setLineDash([6, 5]);
         navCtx.beginPath();
-        navCtx.moveTo(p1.x, 0);
-        navCtx.lineTo(p1.x, h);
+        path.points.forEach((pt, idx) => {
+          const cp = worldToCanvas(pt.x, pt.y);
+          if (idx === 0) navCtx.moveTo(cp.x, cp.y);
+          else navCtx.lineTo(cp.x, cp.y);
+        });
         navCtx.stroke();
-      }
-      for (let my = -2.0; my <= 2.0; my += 1.0) {
-        const p = worldToCanvas(0, my);
-        navCtx.beginPath();
-        navCtx.moveTo(0, p.y);
-        navCtx.lineTo(w, p.y);
-        navCtx.stroke();
-      }
-
-      // 2. 남측 안전 회피 통로 가이드라인 (y = -1.25m)
-      const c1 = worldToCanvas(0.0, -1.25);
-      const c2 = worldToCanvas(-1.3, -1.25);
-      navCtx.strokeStyle = 'rgba(63, 185, 80, 0.45)';
-      navCtx.setLineDash([4, 4]);
-      navCtx.lineWidth = 2;
-      navCtx.beginPath();
-      navCtx.moveTo(c1.x, c1.y);
-      navCtx.lineTo(c2.x, c2.y);
-      navCtx.stroke();
-      navCtx.setLineDash([]);
-
-      // 3. 경유지 핀 (1, 2, 3)
-      WAYPOINTS.forEach(wp => {
-        const pt = worldToCanvas(wp.x, wp.y);
-        navCtx.fillStyle = wp.color;
-        navCtx.beginPath();
-        navCtx.arc(pt.x, pt.y, 8, 0, Math.PI * 2);
-        navCtx.fill();
-        navCtx.strokeStyle = '#ffffff';
-        navCtx.lineWidth = 1.5;
-        navCtx.stroke();
-
-        navCtx.fillStyle = '#000000';
-        navCtx.font = 'bold 10px sans-serif';
-        navCtx.textAlign = 'center';
-        navCtx.textBaseline = 'middle';
-        navCtx.fillText(wp.id, pt.x, pt.y);
-
-        navCtx.fillStyle = '#f0f6fc';
-        navCtx.font = '10px sans-serif';
-        navCtx.fillText(wp.name, pt.x, pt.y - 12);
+        navCtx.setLineDash([]);
       });
 
-      // 4. 로봇 궤적 그리기
-      if (realTrail.length > 1) {
-        navCtx.strokeStyle = 'rgba(255, 153, 0, 0.6)';
+      // 3. 미션 핵심 노드 핀 마커 (BL, BR, TR, J)
+      FLEET_NODES.forEach(node => {
+        const pt = worldToCanvas(node.x, node.y);
+        // 외곽 원형 핀
+        navCtx.fillStyle = node.color;
+        navCtx.beginPath();
+        navCtx.arc(pt.x, pt.y, node.id === 'J' ? 9 : 8, 0, Math.PI * 2);
+        navCtx.fill();
+        navCtx.strokeStyle = '#ffffff';
         navCtx.lineWidth = 2;
+        navCtx.stroke();
+
+        // 텍스트 라벨
+        navCtx.fillStyle = '#000000';
+        navCtx.font = 'bold 9px sans-serif';
+        navCtx.textAlign = 'center';
+        navCtx.textBaseline = 'middle';
+        navCtx.fillText(node.id, pt.x, pt.y);
+
+        navCtx.fillStyle = '#f0f6fc';
+        navCtx.font = 'bold 10px monospace';
+        navCtx.fillText(node.id, pt.x, pt.y - 12);
+      });
+
+      // 4. 로봇 #1 실시간 이동 동선 (Live Trail - 주황색)
+      if (realTrail.length > 1) {
+        navCtx.strokeStyle = 'rgba(255, 153, 0, 0.85)';
+        navCtx.lineWidth = 2.5;
         navCtx.beginPath();
         realTrail.forEach((p, idx) => {
           const cp = worldToCanvas(p.x, p.y);
@@ -2294,69 +2301,20 @@
         navCtx.stroke();
       }
 
-      if (simTrail.length > 1) {
-        navCtx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
-        navCtx.lineWidth = 1.5;
-        navCtx.setLineDash([2, 2]);
+      // 5. 로봇 #2 실시간 이동 동선 (Live Trail - 보라색)
+      if (robot2Trail.length > 1) {
+        navCtx.strokeStyle = 'rgba(163, 113, 247, 0.85)';
+        navCtx.lineWidth = 2.5;
         navCtx.beginPath();
-        simTrail.forEach((p, idx) => {
+        robot2Trail.forEach((p, idx) => {
           const cp = worldToCanvas(p.x, p.y);
           if (idx === 0) navCtx.moveTo(cp.x, cp.y);
           else navCtx.lineTo(cp.x, cp.y);
         });
         navCtx.stroke();
-        navCtx.setLineDash([]);
       }
 
-      // 5. 가제보 시뮬레이션 로봇 마커 (Cyan)
-      if (simRobotPose) {
-        const sp = worldToCanvas(simRobotPose.x, simRobotPose.y);
-        navCtx.fillStyle = '#00ffff';
-        navCtx.beginPath();
-        navCtx.arc(sp.x, sp.y, 7, 0, Math.PI * 2);
-        navCtx.fill();
-        navCtx.strokeStyle = '#ffffff';
-        navCtx.lineWidth = 1;
-        navCtx.stroke();
-
-        const ax = sp.x + 16 * Math.cos(simRobotPose.yaw);
-        const ay = sp.y - 16 * Math.sin(simRobotPose.yaw);
-        navCtx.strokeStyle = '#00ffff';
-        navCtx.lineWidth = 2;
-        navCtx.beginPath();
-        navCtx.moveTo(sp.x, sp.y);
-        navCtx.lineTo(ax, ay);
-        navCtx.stroke();
-      }
-
-      // 6. Robot #2 odom marker (Purple)
-      if (robot2Pose) {
-        const p2 = worldToCanvas(robot2Pose.x, robot2Pose.y);
-        navCtx.fillStyle = '#a371f7';
-        navCtx.beginPath(); navCtx.arc(p2.x, p2.y, 7, 0, Math.PI * 2); navCtx.fill();
-        navCtx.strokeStyle = '#ffffff'; navCtx.lineWidth = 1.5; navCtx.stroke();
-        const ax2 = p2.x + 16 * Math.cos(robot2Pose.yaw);
-        const ay2 = p2.y - 16 * Math.sin(robot2Pose.yaw);
-        navCtx.strokeStyle = '#a371f7'; navCtx.lineWidth = 2;
-        navCtx.beginPath(); navCtx.moveTo(p2.x, p2.y); navCtx.lineTo(ax2, ay2); navCtx.stroke();
-        navCtx.fillStyle = '#a371f7'; navCtx.font = 'bold 10px sans-serif';
-        navCtx.textAlign = 'center'; navCtx.fillText('Pinky #2', p2.x, p2.y + 15);
-      }
-
-      // 7. External vision pose — FRESH일 때만 링으로 표시한다.
-      [['pinky1', '#3fb950'], ['pinky2', '#39d0d8']].forEach(([rid, color]) => {
-        const vp = visionRobotPoses[rid];
-        if (!vp) return;
-        const p = worldToCanvas(vp.x, vp.y);
-        navCtx.strokeStyle = color; navCtx.lineWidth = 2.5; navCtx.setLineDash([4, 3]);
-        navCtx.beginPath(); navCtx.arc(p.x, p.y, 12, 0, Math.PI * 2); navCtx.stroke();
-        navCtx.setLineDash([]);
-        const ax = p.x + 20 * Math.cos(vp.yaw);
-        const ay = p.y - 20 * Math.sin(vp.yaw);
-        navCtx.beginPath(); navCtx.moveTo(p.x, p.y); navCtx.lineTo(ax, ay); navCtx.stroke();
-      });
-
-      // 8. Robot #1 odom marker (Orange)
+      // 6. Robot #1 Odom 현재 위치 & 헤딩 화살표 (Orange)
       if (realRobotPose) {
         const rp = worldToCanvas(realRobotPose.x, realRobotPose.y);
         navCtx.fillStyle = '#ff9900';
@@ -2381,6 +2339,65 @@
         navCtx.textAlign = 'center';
         navCtx.fillText('Pinky #1', rp.x, rp.y + 16);
       }
+
+      // 7. Robot #2 Odom 현재 위치 & 헤딩 화살표 (Purple)
+      if (robot2Pose) {
+        const p2 = worldToCanvas(robot2Pose.x, robot2Pose.y);
+        navCtx.fillStyle = '#a371f7';
+        navCtx.beginPath();
+        navCtx.arc(p2.x, p2.y, 8, 0, Math.PI * 2);
+        navCtx.fill();
+        navCtx.strokeStyle = '#ffffff';
+        navCtx.lineWidth = 2;
+        navCtx.stroke();
+
+        const ax2 = p2.x + 18 * Math.cos(robot2Pose.yaw);
+        const ay2 = p2.y - 18 * Math.sin(robot2Pose.yaw);
+        navCtx.strokeStyle = '#ffffff';
+        navCtx.lineWidth = 2.5;
+        navCtx.beginPath();
+        navCtx.moveTo(p2.x, p2.y);
+        navCtx.lineTo(ax2, ay2);
+        navCtx.stroke();
+
+        navCtx.fillStyle = '#a371f7';
+        navCtx.font = 'bold 11px sans-serif';
+        navCtx.textAlign = 'center';
+        navCtx.fillText('Pinky #2', p2.x, p2.y + 16);
+      }
+
+      // 8. 상부 비전 관제 위치 Fix (Overhead Tracker 마커 및 오차 라인)
+      [['pinky1', '#3fb950', realRobotPose], ['pinky2', '#39d0d8', robot2Pose]].forEach(([rid, color, odomPose]) => {
+        const vp = visionRobotPoses[rid];
+        if (!vp) return;
+        const p = worldToCanvas(vp.x, vp.y);
+
+        // 조준선(Target Reticle) 마커
+        navCtx.strokeStyle = color;
+        navCtx.lineWidth = 2;
+        navCtx.beginPath();
+        navCtx.arc(p.x, p.y, 11, 0, Math.PI * 2);
+        navCtx.stroke();
+
+        // 십자선
+        navCtx.beginPath();
+        navCtx.moveTo(p.x - 15, p.y); navCtx.lineTo(p.x + 15, p.y);
+        navCtx.moveTo(p.x, p.y - 15); navCtx.lineTo(p.x, p.y + 15);
+        navCtx.stroke();
+
+        // 오도메트리 위치와의 실시간 편차 연결선
+        if (odomPose) {
+          const op = worldToCanvas(odomPose.x, odomPose.y);
+          navCtx.strokeStyle = 'rgba(234, 179, 8, 0.6)';
+          navCtx.setLineDash([3, 3]);
+          navCtx.lineWidth = 1.5;
+          navCtx.beginPath();
+          navCtx.moveTo(p.x, p.y);
+          navCtx.lineTo(op.x, op.y);
+          navCtx.stroke();
+          navCtx.setLineDash([]);
+        }
+      });
 
       // 10. 과거 드래그 상태 호환 표시 (현재 입력 이벤트 없음)
       if (isNavDragging && dragStartWorld && dragCurrentCanvas) {
