@@ -262,7 +262,7 @@ def test_bridge_launch_passes_domains_as_arguments():
     launch = read(os.path.join(STATION, 'launch', 'lane_bridge.launch.xml'))
     for arg in ('station_domain', 'pinky1_domain', 'pinky2_domain'):
         assert f'<arg name="{arg}"' in launch, arg
-    assert launch.count('exec="domain_bridge"') == 4
+    assert launch.count('exec="bridge_runner"') == 4          # 도메인을 채운 사본을 domain_bridge 에 넘긴다
     assert '--from $(var pinky1_domain) --to $(var station_domain) $(var config_dir)/bridge_pinky1_up.yaml' in launch
     assert '--from $(var station_domain) --to $(var pinky2_domain) $(var config_dir)/bridge_pinky2_down.yaml' in launch
     station = read(os.path.join(STATION, 'launch', 'lane_station.launch.xml'))
@@ -329,3 +329,19 @@ def test_setup_installs_lane_configs_and_launch():
     agent_setup = read(os.path.join(AGENT, 'setup.py'))
     for entry in ('lane_agent_node', 'camera_node'):
         assert f"'{entry} = pinky_fleet_agent.{entry}:main'" in agent_setup, entry
+
+
+def test_bridge_runner_fills_domains_for_apt_domain_bridge(tmp_path):
+    """apt domain_bridge 는 yaml 에 from_domain 이 없으면 --from 을 주어도 죽는다 — bridge_runner 가 채운 사본을 만든다."""
+    import yaml
+    from pinky_lane_station.bridge_runner import main as _main, render_config, write_rendered  # noqa: F401
+    for name, (frm, to) in (('bridge_pinky1_up', (10, 0)), ('bridge_pinky2_down', (0, 11))):
+        src = os.path.join(STATION, 'config', name + '.yaml')
+        path = write_rendered(src, frm, to, out_dir=str(tmp_path))
+        data = yaml.safe_load(open(path, encoding='utf-8'))
+        assert data['from_domain'] == frm and data['to_domain'] == to
+        assert data['topics'] and all(t['from_domain'] == frm and t['to_domain'] == to and 'type' in t
+                                      for t in data['topics'].values())
+        assert set(data['topics']) == set(yaml.safe_load(open(src, encoding='utf-8'))['topics'])
+    setup = read(os.path.join(STATION, 'setup.py'))
+    assert "'bridge_runner = pinky_lane_station.bridge_runner:main'" in setup
