@@ -42,7 +42,7 @@ def test_local_과_pull_만_실물_시점으로_센다():
         ("relay-cam", LOCAL, TRUSTED, True),
         ("phone", PULL, TRUSTED, True),
         ("gazebo", ROS, TRUSTED, True),
-        ("robot1", ROS, TRUSTED, True),
+        ("pinky1", ROS, TRUSTED, True),
         ("tablet", PUSH, UNTRUSTED, True),
     ])
     assert real_viewpoint_ids(reg) == ["relay-cam", "phone"]
@@ -184,7 +184,7 @@ def test_최소_시점_수는_2다():
 
 # ---- R-1 — 발행자 수가 아니라 **유량**으로 판정한다 (2026-09-12) --------------
 #
-# 🔴 실측: `/robot1/pose` 가 Publisher 1 인데 18초간 메시지 0 인 동안 이 값이 true 였다.
+# 🔴 실측: `/pinky1/pose` 가 Publisher 1 인데 18초간 메시지 0 인 동안 이 값이 true 였다.
 #    AMCL `update_min_d: 0.05` — 정지한 로봇은 pose 를 안 낸다.
 
 def _two_views():
@@ -244,9 +244,9 @@ def test_pose_가용성을_산출물에_싣는다():
 
 # ---- pose 발행자와 로봇 발행자는 **다른 수량이다** (2026-09-14) ------------------
 #
-# 🔴 실측: `/robot1/pose` 발행자 0 인데 `/api/safety` 가 `publishers: 1` 을 냈다.
+# 🔴 실측: `/pinky1/pose` 발행자 0 인데 `/api/safety` 가 `publishers: 1` 을 냈다.
 #    호출자가 로봇당 탐침 5토픽(odom·pose·image_raw·compressed·scan)의 **합계**를
-#    넘겼고, 그때 살아 있던 것은 `/robot1/scan` 하나였다. 그래서
+#    넘겼고, 그때 살아 있던 것은 `/pinky1/scan` 하나였다. 그래서
 #    `POSE_NO_PUBLISHER`(pose 를 내는 곳이 없다) 가 `POSE_NEVER_RECEIVED`
 #    (발행자는 있는데 로봇이 서 있다) 로 **가려졌다.** 이 파일이 위에서 일부러
 #    갈라 놓은 그 두 상태가 상류에서 뭉개져 있었던 것이다.
@@ -288,6 +288,21 @@ def test_pose_발행자를_못_쟀으면_0_으로_적지_않는다():
 # ⚠️ gateway_web_server.py 는 rclpy 를 module-level 로 import 하므로 여기서 import 할 수 없다.
 #    **AST 로 읽는다.** 부분문자열로 보면 주석에 걸린다.
 
+def test_게이트웨이가_pose_발행자를_따로_넘긴다():
+    """🔴 두 자리에 같은 식을 넣으면 빨개진다 — 그게 2026-09-14 의 결함 그대로다."""
+    import ast, io, os
+    gw = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      "gateway_web", "gateway_web_server.py")
+    tree = ast.parse(io.open(gw, encoding="utf-8").read())
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and getattr(n.func, "id", None) == "readiness"]
+    assert len(calls) == 1, "readiness 호출은 한 곳이어야 한다. 실제 %d" % len(calls)
+    kw = {k.arg: k.value for k in calls[0].keywords}
+    assert "robot_publishers" in kw, "로봇 발행자를 안 넘긴다"
+    assert "pose_publishers" in kw, "pose 발행자를 따로 안 넘긴다 — 옛 결함이 되살아났다"
+    assert ast.dump(kw["robot_publishers"]) != ast.dump(kw["pose_publishers"]), \
+        "두 자리에 **같은 식**을 넣었다 — 수량을 다시 뭉갰다"
 
 
 def test_get_link_status_가_못_잰_pose_발행자를_0_으로_안_적는다():

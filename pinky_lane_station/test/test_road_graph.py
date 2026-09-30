@@ -181,6 +181,16 @@ def test_graph_project_returns_nearest_edge():
     assert p.lateral == pytest.approx(-0.05)   # +x 쪽은 AB(+y 진행) 기준 우측
 
 
+def test_summary_lists_endpoints_junctions_and_nodes():
+    """웹 배정 화면(relay /api/fleet/profiles)이 읽는 요약 — endpoint 만 시작·목적지 후보다."""
+    s = RoadGraph.from_dict(diamond()).summary()
+    assert s['frame'] == 'map'
+    assert set(s['endpoints']) == {'A', 'D'} and s['junctions'] == ['B']
+    assert [n['id'] for n in s['nodes']] == ['A', 'B', 'C', 'D']
+    for n in s['nodes']:
+        assert set(n) >= {'id', 'x', 'y', 'type'}
+
+
 def test_isolated_nodes():
     data = diamond()
     data['nodes'].append({'id': 'Z', 'x': 9, 'y': 9})

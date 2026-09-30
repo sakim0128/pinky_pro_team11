@@ -25,6 +25,9 @@ def g(monkeypatch):
     control.map_source = "synthetic"
     control.map_w, control.map_h, control.resolution, control.origin = 0, 0, 0.0, [0.0, 0.0, 0.0]
     control.get_robot_data.return_value = {}
+    vision = MagicMock()
+    vision.report.return_value = {}
+    monkeypatch.setattr(gws, "GLOBAL_VISION", vision)
     monkeypatch.setattr(gws, "GLOBAL_INGEST", ingest)
     monkeypatch.setattr(gws, "GLOBAL_CONTROL", control)
     cpu = MagicMock()
@@ -70,3 +73,7 @@ def test_U1_view_only_판정은_서버가_움직이는_조작을_거절하는_�
     assert "127.0.0.2" not in g.LOCAL_CONTROL_IPS                 # socat 출처는 제어 허용에 없다(OPS-1)
 
 
+def test_U1_화면은_서버_플래그를_응답_최상위에서_읽는다__정적():
+    js = open(os.path.join(REPO, "relay_station", "gateway_web", "static", "fleet_control_v2.js"), encoding="utf-8").read()
+    assert 'key==="gateway") state.gateway=val' in js          # /api/status 응답 전체가 state.gateway
+    assert "state.gateway?.view_only === true" in js            # 그래서 플래그는 최상위여야 한다(하위 gateway.view_only 는 안 읽는다)

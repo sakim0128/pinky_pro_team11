@@ -13,7 +13,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from .road_graph import project_to_polyline
+from pinky_lane_station.road_graph import project_to_polyline
 
 
 @dataclass

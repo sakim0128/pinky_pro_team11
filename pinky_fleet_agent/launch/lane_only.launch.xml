@@ -8,9 +8,13 @@
         camera_orient:=rot180 auto_start:=False        # 먼저 rqt 로 세그·부호 확인
     ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True
 
-  관제:  ros2 launch pinky_lane_station lane_station.launch.xml use_coordinator:=False
+  관제:  ros2 launch pinky_lane_station lane_station.launch.xml
          ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed
   정지:  ros2 topic pub -1 /pinky1/lane_command pinky_lane_msgs/msg/LaneCommand "{command: 2}"   (3: ESTOP, 4: RESUME, 1: START)
+
+  비전 미션 (2026-09-30): 같은 launch 를 auto_start:=False 로 띄우면 관제(게이트웨이 vision 모드)가 JunctionPlan·START 를 준다.
+    빨간 테이프(YOLO red_line) 앞 정지 → 관제 통행권 → 교차로 고정 동작(odom) → 차선 복귀 → 흰 정지선 N 번째 앞 도착.
+    ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 v_max:=0.15
 -->
 <launch>
     <arg name="robot_name" default="pinky1"/>

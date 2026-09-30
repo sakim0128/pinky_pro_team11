@@ -169,9 +169,8 @@ def test_모든_프레임_쓰기가_판정_안에_있다(본체):
             for n in ast.walk(child):
                 if isinstance(n, ast.Call) and _호출이름(n) == "write_mjpeg_frame":
                     판정안.add(id(n))
-    # 개편 2단계(2026-09-29): /control_feed · /gazebo_feed · /robot_camera_feed 를 지웠다 — 그 소스들은 /video_feed?src= 한 루프로 나간다
-    assert 판정수 == 1, "스트림 루프는 /video_feed 하나다. 실제 판정 %d 곳" % 판정수
-    assert len(전체) == 1, "프레임 쓰기는 하나여야 한다. 실제 %d" % len(전체)
+    assert 판정수 == 4, "스트림 루프는 넷이다. 실제 판정 %d 곳" % 판정수
+    assert len(전체) == 4, "프레임 쓰기는 넷이어야 한다. 실제 %d" % len(전체)
     assert 전체 == 판정안, "판정 밖에서 프레임을 쓰는 자리가 있다"
 
 

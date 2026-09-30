@@ -10,14 +10,14 @@
 
 ⭐ 주장이 맞고 **좌표만 틀린** 것이 더 나쁘다. 읽는 사람은 정밀해 보이는 참조를 믿고
    그 자리를 열었다가 엉뚱한 코드를 보고 자기가 잘못 읽었다고 생각한다.
-   `amcl_pose_relay.py` 가 그랬다 — "게이트웨이가 `/robotN/pose` 를 `PoseStamped` 로
+   `amcl_pose_relay.py` 가 그랬다 — "게이트웨이가 `/pinkyN/pose` 를 `PoseStamped` 로
    구독한다(`gateway_web_server.py:1352`)" 는 **주장은 참**인데 `:1352` 는
    `elif mode == 'watermark':` 였다(진짜 자리는 `:1695`).
 
 대신 **찾을 수 있는 것**을 적는다 — 검색어나 식별자. 줄이 밀려도 안 틀린다:
 
     ❌ `gateway_web_server.py:1352`
-    ✅ `gateway_web_server.py` 의 `PoseStamped, '/robot1/pose'` 구독
+    ✅ `gateway_web_server.py` 의 `PoseStamped, '/pinky1/pose'` 구독
 
 ## ⭐⭐ 이 파일의 첫 판도 못 실패하는 검사였다
 
@@ -144,7 +144,7 @@ def test_docstring_본문도_본다():
     아니라 못 봐서 초록이었다. 그 실패 모양을 표본으로 박아 둔다.
     """
     sample = ('"""왜 필요한가' + chr(10)
-              + "    게이트웨이는 `/robotN/pose` 를 구독한다" + chr(10)
+              + "    게이트웨이는 `/pinkyN/pose` 를 구독한다" + chr(10)
               + "    (`gateway_web_server.py:1352`). AMCL 은 다르다." + chr(10)
               + '"""' + chr(10))
     got = refs_in_text(sample, {"gateway_web_server.py": ["x/gateway_web_server.py"]})
@@ -172,7 +172,7 @@ def test_레포에_없으면_안_센다():
 
 def test_검색어_형태는_안_걸린다():
     """대체 형태가 걸리면 사람이 되돌린다."""
-    assert refs_in_text("# `PoseStamped, '/robot1/pose'` 구독", {}) == []
+    assert refs_in_text("# `PoseStamped, '/pinky1/pose'` 구독", {}) == []
 
 
 # ---- 본 검사 -----------------------------------------------------------------

@@ -4,15 +4,16 @@
 H (리그 재검 REVIEW_20260926_RIG_RECHECK §2): 정적 1 Hz fix 와 odom 전파 사이에서 보고 포즈가 BL 주변을 헤매자, 단조 증가
 진행도가 헤맨 최대치를 누적해 물리적으로 BL 에 선 pinky2 가 BL·BL_JS 를 놓고 RM_RE 까지 잡았다(로봇이 아직 있는 엣지를
 내줄 수 있다). → 잡기(lead_s, 가장 앞)와 놓기(progress_s, 확인된 것)를 나눴다. 여기서 재는 것:
-  - 재현: 진짜 코디네이터 틱(map4 프로파일, 시나리오 1)에서 헤매는 pinky2 가 BL·BL_JS 를 놓지 않는다
-    (고치기 전: odom 모형 4.5 s 에 BL·BL_JS 해제, 끝에 진행 1.60 · 잡은 것 [BR_RM, RM_RE] — 리그 H 와 같다)
+  - (2026-09-29) 리그 재현·RES-1 의 "map4 프로파일 전환" 시험은 map4 프로파일과 함께 지웠다. 예약 규칙 자체를 재는
+    아래 시험들은 그 리그 기하(map4 BL→RE, 짧은 엣지 0.39·0.20 m)에 수치가 묶여 있어 **시험 픽스처**
+    tests/fixtures/map4_road_graph.yaml 로 그 도로망을 남겨 둔다 — 운영 프로파일이 아니다.
   - (b) 확인 창보다 짧은 튐은 몇 번 되풀이돼도 놓지 않는다 · 멈춘 로봇은 창 뒤에 제자리까지 확인된다
   - (a) 창보다 오래 간 튐도 max_speed 로만 번진다
   - (c) 연달아 뒤면 잡기 진행도를 되돌린다 — 놓은 엣지는 되찾지 않는다
   - 정상 주행(잡음 ±3 cm · 0.15/0.25 m/s)은 두 시나리오 모두 도착하고, 무엇을 놓을 때 로봇은 늘 그것을 지났다
   - 적대 검토 RES-1: 놓기 진행은 내려가는 것도 따른다 — 창보다 오래 틀린 포즈(전환 뒤 옛 좌표계, 지난 목표)가 바로잡힌
     뒤 START 해도, 출발 노드에 선 로봇의 허가 구간은 늘 제가 쥔 엣지다(진짜 코디네이터 틱)
-지도 칸: 도로망 엣지가 지도의 점유·알 수 없음·지도 밖 칸을 지나면 경고(막지 않는다) — map4 실제 파일 + 합성 작은 지도.
+지도 칸: 도로망 엣지가 지도의 점유·알 수 없음·지도 밖 칸을 지나면 경고(막지 않는다) — 합성 작은 지도로 잰다.
   - 적대 검토 RES-2: 미션 로봇 이름이 글자가 아니어도 목록 읽기가 터지지 않는다
 
 reservation 의 새 이름은 모듈에서 꺼낸다(`R.…`) — 고치기 전 코드로 돌려도 모음이 깨지지 않고 시험마다 판정이 나오게.
@@ -30,31 +31,29 @@ import yaml
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
 
-from pinky_fleet_msgs.msg import RobotState  # noqa: E402
 from relay_station.fleet import profiles as P  # noqa: E402
 from relay_station.fleet import reservation as R  # noqa: E402
 from relay_station.fleet.road_graph import RoadGraph  # noqa: E402
-from test_d6_2_closed_loop import _pos  # noqa: E402
-from test_fleet_profiles import _pcoord, gw  # noqa: E402,F401 — gw 는 게이트웨이 조립 fixture
 
-MAP4_DIR = os.path.join(REPO, "relay_station", "fleet", "config", "profiles", "team11_map4")
-MAP4_GRAPH = os.path.join(MAP4_DIR, "road_graph.yaml")
-LEGACY_GRAPH = os.path.join(REPO, "relay_station", "fleet", "config", "road_graph.yaml")
-NAV2_FLEET = os.path.join(REPO, "pinky_fleet_agent", "params", "nav2_params_fleet.yaml")
+# 리그(REVIEW_20260926) 기하를 그대로 둔 시험 픽스처 — 옛 map4 도로망. 운영 도로망은 pinky_lane_station/config/road_graph.yaml.
+MAP4_GRAPH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "map4_road_graph.yaml")
 STATIC = os.path.join(REPO, "relay_station", "gateway_web", "static")
+
+
+def _pos(route, cum, s):
+    """경로 위 호길이 s 의 (x, y)."""
+    import bisect
+    pts = route.waypoints
+    i = max(0, min(len(pts) - 2, bisect.bisect_right(cum, s) - 1))
+    seg = cum[i + 1] - cum[i]
+    t = 0.0 if seg <= 0 else (s - cum[i]) / seg
+    return (pts[i][0] + t * (pts[i + 1][0] - pts[i][0]), pts[i][1] + t * (pts[i + 1][1] - pts[i][1]))
 BL = (0.95, -0.45)
 
 
 @pytest.fixture(autouse=True)
 def _state_dir(tmp_path, monkeypatch):
     monkeypatch.setenv(P.STATE_ENV, str(tmp_path / "state"))
-
-
-# ---- H 헤매는 포즈 모형 (둘 다 진실은 BL — 로봇은 움직이지 않았다) ---------------------------------
-
-def _odom_wander(route, cum):
-    """리그 그대로: Nav2 가 Gazebo 로봇을 경로를 따라 몬다(odom 0.15 m/s, 1.6 m 까지) · 정적 fix 가 1 Hz 로 BL 로 되당긴다."""
-    return lambda k: BL if k % 10 == 0 else _pos(route, cum, min(0.015 * k, 1.6))
 
 
 def _random_wander(route, cum, seed=926):
@@ -69,36 +68,6 @@ def _random_wander(route, cum, seed=926):
         u = (k % 10) / 9.0
         return BL[0] + (tgt[0][0] - BL[0]) * u, BL[1] + (tgt[0][1] - BL[1]) * u
     return at
-
-
-@pytest.mark.parametrize("model", ["odom", "wander"])
-def test_H_재현__코디네이터_틱에서_BL_에_선_pinky2_가_헤매도_BL·BL_JS_를_놓지_않는다(model):
-    """시나리오 1(둘 다 BL 출발): pinky1 은 허가대로 0.15 m/s 로 가고, pinky2 는 BL 에 선 채 보고 포즈만 헤맨다.
-    고치기 전(단조 증가 하나): pinky1 이 놓은 BL_JS 를 4.4 s 에 받고 0.1 s 뒤 BL·BL_JS 를 놓았다(진행 0.675/0.89).
-    고친 뒤: 6.3 s 에 받고(pinky1 의 놓기가 확인 창만큼 늦다) 끝까지 쥔다 — 진행 0.000."""
-    c = _pcoord()
-    assert c.switch_profile("map4")
-    c.state_timeout_sec, c.global_seq, c.mission_state = 2.0, 0, "RUNNING"
-    r1, r2 = c.robots["pinky1"].route, c.robots["pinky2"].route
-    cum1, cum2 = r1.cumulative(), r2.cumulative()
-    pose2 = (_odom_wander if model == "odom" else _random_wander)(r2, cum2)
-    s1, got = 0.0, None
-    for k in range(400):                                   # 10 Hz × 40 s
-        c._t += 0.1
-        s1 = min(max(s1, cum1[c.robots["pinky1"].clear_until_idx]), s1 + 0.015)
-        c._cb_robot_state("pinky1", RobotState(localized=True, x=_pos(r1, cum1, s1)[0], y=_pos(r1, cum1, s1)[1]))
-        x2, y2 = pose2(k)
-        c._cb_robot_state("pinky2", RobotState(localized=True, x=x2, y=y2))
-        c._loop_tick()
-        res = c.reservation
-        if got is None and res.edge_holder.get("BL_JS") == "pinky2":
-            got = k                                        # pinky1 이 놓은 뒤 pinky2 가 받았다
-        if got is not None:
-            assert res.edge_holder.get("BL_JS") == "pinky2" and res.node_holder.get("BL") == "pinky2", \
-                (model, k * 0.1, res.status("pinky2"), res.robots["pinky2"].progress_s)
-    assert got is not None, "pinky1 이 BL_JS 를 놓은 뒤 pinky2 가 받아야 한다"
-    assert s1 == pytest.approx(cum1[-1])                   # pinky1 은 막힘 없이 TC 까지
-    assert c.reservation.robots["pinky2"].progress_s < c.reservation.release_behind
 
 
 def test_H_결과__헤매는_동안_BL_JS_로_들어오려는_로봇은_기다린다():
@@ -256,9 +225,9 @@ def test_H_c__오래_뒤면_두_진행이_다_내려와도__놓은_엣지는_되
 
 
 def test_H_기본값__실제_주행을_늦추지_않고_1_Hz_fix_두_번을_덮는다():
-    team11 = yaml.safe_load(open(os.path.join(MAP4_DIR, "lane_mission.yaml"), encoding="utf-8"))["defaults"]
-    nav2 = yaml.safe_load(open(NAV2_FLEET, encoding="utf-8"))["velocity_smoother"]["ros__parameters"]
-    assert R.DEFAULT_MAX_SPEED > max(float(team11["max_linear_vel"]), float(nav2["max_velocity"][0]))
+    _, profs = P.load_profiles()
+    for prof in profs.values():                            # 레인 로봇 속도 상한(미션 defaults)보다 위 — 주행을 늦추지 않는다
+        assert R.DEFAULT_MAX_SPEED > float(prof.mission["defaults"]["max_linear_vel"]), prof.name
     assert R.DEFAULT_CONFIRM_UPDATES * R.DEFAULT_UPDATE_PERIOD >= 2.0      # pose_fuser 점프 확인(confirm 2) × 1 Hz
     _, profs = P.load_profiles()                           # 호출 간격 = 코디네이터 틱 — 틱을 바꾸면 이 값도 넘겨야 한다
     for prof in profs.values():
@@ -271,7 +240,7 @@ def test_H_기본값__실제_주행을_늦추지_않고_1_Hz_fix_두_번을_덮�
 
 
 @pytest.mark.parametrize("speed", [0.15, 0.25])
-@pytest.mark.parametrize("pname", ["map4", "map4_s2"])
+@pytest.mark.parametrize("pname", ["team11_map5"])
 def test_H_정상_주행은_두_시나리오_모두_도착하고__놓을_때_로봇은_늘_그것을_지났다(pname, speed):
     """허가 지점까지 speed 로 가는 로봇 둘 + 위치 잡음 ±3 cm. 매 틱: 로봇이 받은 엣지·노드는 그 끝(노드)을
     release_behind(− 잡음 여유)만큼 지나기 전엔 여전히 그 로봇 것이다. 그리고 둘 다 도착한다(놓기가 늦어도 막히지 않는다)."""
@@ -315,114 +284,6 @@ def test_H_정상_주행은_두_시나리오_모두_도착하고__놓을_때_로
     assert all(b["arrived"] for b in bots.values()), {n: (b["s"], r.status(n)) for n, b in bots.items()}
 
 
-# ---- 적대 검토 RES-1: 창보다 오래 틀린 포즈가 바로잡힌 뒤 START ------------------------------------------
-# 예전 놓기 진행은 오를 때만 따라가(단조) 2 s 창보다 오래 간 틀린 포즈가 값을 영구히 부풀렸다 → 바로잡힌 뒤에도 남아,
-# START 로 잡은 엣지를 한 틱 뒤 놓았다. 진짜 코디네이터 틱(switch_profile · start_fleet · _loop_tick)으로 잰다.
-
-LEGACY_POSE = {"pinky1": (0.30, 0.30), "pinky2": (0.30, 0.95)}    # legacy START_A·START_B — ① 뒤 ②③ 전까지 옛 좌표계 보고
-
-
-def _report(c, poses):
-    c._t += 0.1
-    for n, (x, y) in poses.items():
-        c._cb_robot_state(n, RobotState(localized=True, x=x, y=y))
-    c._loop_tick()
-
-
-def _unheld_in_clearance(c, n, s_now):
-    """호길이 s_now 에 선 로봇 n 의 허가 구간(지금 자리 ~ clear_until)에 n 이 쥐지 않은 엣지 — 비어야 한다.
-    허가가 있으면 로봇이 선 노드(s_now 가 그 노드에서 release_behind 안)도 n 의 것이어야 한다."""
-    res, sl = c.reservation, c.reservation.robots[n]
-    clear = c.robots[n].clear_until_idx
-    if clear <= 0:
-        return []
-    end = sl.cum[clear]
-    bad = [eid for k, eid in enumerate(sl.route.edge_ids)
-           if sl.edge_end_s(k) > s_now + 1e-9 and sl.edge_start_s(k) < end - 1e-9 and res.edge_holder.get(eid) != n]
-    bad += [nid for i, nid in enumerate(sl.route.node_ids[:-1])
-            if 0.0 <= s_now - sl.cum[sl.route.node_idx[i]] < res.release_behind and res.node_holder.get(nid) != n]
-    return bad
-
-
-@pytest.mark.parametrize("fix_ticks", [1, 30])
-@pytest.mark.parametrize("wait_s", [1, 5, 30])
-@pytest.mark.parametrize("pname", ["map4", "map4_s2"])
-def test_RES_1__전환_뒤_옛_좌표로_오래_보고했어도__바로잡힌_뒤_START_는_쥐지_않은_엣지로_허가하지_않는다(pname, wait_s, fix_ticks):
-    """월요일 §14-4 순서: legacy 좌표로 보고하던 로봇 → ① map4 전환(경로 배정, 출발 안 함) → ②③ 동안 wait_s 초 옛 좌표
-    → ③ 초기 위치로 출발 노드에 바로잡힘(fix_ticks 틱) → START → 3 s 동안 로봇은 아직 출발 노드.
-    고치기 전(단조): wait 5·30 s 면 놓기 진행 약 0.9 가 남아 — map4 는 pinky1 이 BL_JS·BL 을 pinky2 가 쥔 채로 허가 14
-    (JW_JS 만 쥠), map4_s2 는 pinky1 이 MC_JI·MC 를 아무도 안 쥔 채로 허가 20. 바로잡힌 투영 하나면 내려와야 한다."""
-    c = _pcoord()
-    c.state_timeout_sec, c.global_seq = 2.0, 0
-    for _ in range(10):
-        _report(c, LEGACY_POSE)
-    assert c.switch_profile(pname) and c.mission_state == "ASSIGNED"
-    starts = {n: tuple(c.robots[n].route.waypoints[0]) for n in LEGACY_POSE}
-    for _ in range(int(wait_s * 10)):
-        _report(c, LEGACY_POSE)
-    for _ in range(fix_ticks):
-        _report(c, starts)
-    assert c.start_fleet() and c.mission_state == "RUNNING"
-    cleared = set()
-    for k in range(30):
-        _report(c, starts)
-        for n in starts:
-            bad = _unheld_in_clearance(c, n, 0.0)
-            assert not bad, (pname, wait_s, fix_ticks, k * 0.1, n, c.robots[n].clear_until_idx, bad, c.reservation.status(n))
-            if c.robots[n].clear_until_idx > 0:
-                cleared.add(n)
-    assert cleared                                         # 헛돌지 않는다 — 누군가는 허가를 받았다
-
-
-@pytest.mark.parametrize("wrong_s", [2, 10])
-def test_RES_1__지난_목표를_오래_보고했어도__바로잡힌_뒤_BL_에_선_pinky2_의_허가는_늘_제_엣지다(wrong_s):
-    """map4 시나리오 1 재배정: pinky2 는 실제 BL 인데 보고 포즈가 지난 미션 끝 RE 에 wrong_s 초 남았다 → 3 s 바로잡힘
-    → START. pinky1 은 허가대로 0.15 m/s 로 TC 까지, pinky2 는 BL 에 선 채. 고치기 전(단조): 10 s 면 놓기 진행 2.43 이
-    남아 pinky2 가 [RM_RE] 만 쥔 채 허가 29 — BL·BL_JS 는 주인 없음(pinky1 쪽 로봇이 받을 수 있다)."""
-    c = _pcoord()
-    assert c.switch_profile("map4")
-    c.state_timeout_sec, c.global_seq = 2.0, 0
-    r1 = c.robots["pinky1"].route
-    cum1 = r1.cumulative()
-    re_ = tuple(c.robots["pinky2"].route.waypoints[-1])
-    for _ in range(wrong_s * 10):
-        _report(c, {"pinky1": BL, "pinky2": re_})
-    for _ in range(30):
-        _report(c, {"pinky1": BL, "pinky2": BL})
-    assert c.start_fleet()
-    s1, got2 = 0.0, False
-    for k in range(400):
-        s1 = min(max(s1, cum1[c.robots["pinky1"].clear_until_idx]), s1 + 0.015)
-        _report(c, {"pinky1": _pos(r1, cum1, s1), "pinky2": BL})
-        for n, s_now in (("pinky1", s1), ("pinky2", 0.0)):
-            if n == "pinky1" and c.reservation.robots[n].finished:
-                continue
-            bad = _unheld_in_clearance(c, n, s_now)
-            assert not bad, (wrong_s, k * 0.1, n, s_now, c.robots[n].clear_until_idx, bad, c.reservation.status(n))
-        got2 = got2 or c.robots["pinky2"].clear_until_idx > 0
-    assert s1 == pytest.approx(cum1[-1]) and got2         # pinky1 은 TC 까지, pinky2 는 pinky1 이 떠난 뒤 허가
-
-
-# ---- 관찰: D6-2 뒤 시작 즉시 두 엣지 (REVIEW_20260926_RIG_RECHECK §1) ---------------------------------
-
-def test_관찰__시작_직후_두_엣지는_D6_2_기준점의_결과다__legacy_첫_정지_지점_0_39993():
-    """답신의 수치를 재현한다: START_A_TO_J1 은 0.69813 m → 정지 목표 0.49813 을 waypoint 로 내리면 4 번(0.39993 m).
-    요청 기준점 = 그 정지 지점(D6-2) → 0.39993 − 진행 0 ≤ reserve_ahead 0.40 → 둘째 틱에 J1_TO_MID 요청·획득(허가 4 → 11).
-    예전 기준점(J1 노드 0.69813)이면 진행 0.298 에서야 요청한다. 0.00007 m 차이의 경계 — 막는 쪽(더 잡는다)이라 안전하다."""
-    g = RoadGraph.load(LEGACY_GRAPH)
-    r = R.Reservation(g)
-    rt = g.shortest_route("START_A", "GOAL_C", step=0.10)
-    r.register("pinky1", 10, rt)
-    sl = r.robots["pinky1"]
-    r.step()
-    assert r.status("pinky1")["held_edges"] == ["START_A_TO_J1"] and r.clear_until("pinky1") == 4
-    assert sl.edge_end_s(0) == pytest.approx(0.69813, abs=1e-5)
-    assert sl.cum[4] == pytest.approx(0.39993, abs=1e-5) and sl.cum[4] - sl.progress_s <= r.reserve_ahead
-    assert sl.edge_start_s(1) - sl.progress_s > r.reserve_ahead          # 노드 기준이었다면 아직 요청 없음
-    r.step()
-    assert r.status("pinky1")["held_edges"] == ["START_A_TO_J1", "J1_TO_MID"] and r.clear_until("pinky1") == 11
-
-
 def test_관찰__map4_pinky2_는_노드_규칙만으로도_둘__D6_2_기준점으로_셋():
     """map4 시나리오 1 pinky2 BL→RE: BL_JS 0.39478 m < reserve_ahead 라 첫 틱의 연쇄(노드 기준)가 JS_CW2 까지 잡는다.
     JS_CW2(0.2 m)는 margin 0.20 과 같아 정지 지점이 그 시작 0.39478(4 번) → 둘째 틱 D6-2 기준점이 CW2_BR 을 잡는다."""
@@ -445,22 +306,6 @@ def _occ(warnings):
 
 def _occ_warnings(p):
     return _occ(p.warnings)
-
-
-def test_지도_칸__map4_는_JW_JS·TR_MC·TR_TC_가_점유_칸을_지난다고_알리고_고를_수는_있다():
-    _, profs = P.load_profiles()
-    crossing = P.edge_occupancy(os.path.join(MAP4_DIR, "map4.yaml"), profs["map4"].graph)
-    assert set(crossing) == {"JW_JS", "TR_MC", "TR_TC"} and all(set(v) == {"occupied"} for v in crossing.values())
-    for name, users in (("map4", {"JW_JS": "pinky1 경로"}), ("map4_s2", {"TR_TC": "pinky2 경로"})):
-        p = profs[name]
-        assert p.valid and p.problems == []                # 경고만 — 고를 수 있다
-        occ = _occ_warnings(p)
-        assert sorted(occ) == ["JW_JS", "TR_MC", "TR_TC"]
-        for eid, w in occ.items():
-            assert "점유 칸 위를 지난다" in w and w.endswith(" — " + users.get(eid, "이 미션 경로에는 없다")), w
-    assert "(점유 약 0.10 m)" in _occ_warnings(profs["map4"])["JW_JS"]
-    assert P.OCC_SAMPLE_STEP <= 0.005                      # 칸(map4 0.05 m)의 1/10 이하 — 칸 모서리를 스치는 엣지도 본다
-    assert _occ_warnings(profs["legacy"]) == {} and profs["legacy"].valid    # 지도를 싣지 않는 legacy 는 안 본다
 
 
 # 합성 지도의 화소 — (빈칸, 점유 p>0.65, 점유 문턱 바로 아래, free 문턱 바로 위). p = 1 − 화소/maxval (negate 0).
@@ -556,24 +401,3 @@ def test_지도_칸__RES_2__미션_로봇_이름이_글자가_아니어도_목�
                                      "  - {%sstart: C, goal: D}\n" % name_line, encoding="utf-8")
     p = P.load_profiles(str(tmp_path / "profiles.yaml"))[1]["t"]
     assert p.valid and _occ_warnings(p)["C_D"].endswith(" — %s 경로" % shown)
-
-
-
-
-def test_지도_칸__게이트웨이_api_fleet_profiles_가_카드에_경고를_싣는다(gw):
-    """카드가 실제로 받는 JSON(GET /api/fleet/profiles) 에서 확인 — 소켓 없이 처리기를 바로 부른다."""
-    import io
-    import json
-    g, c, _ = gw
-    assert c.switch_profile("map4")
-    h = g.GatewayRequestHandler.__new__(g.GatewayRequestHandler)
-    h.path, h.headers, h.rfile, h.client_address = "/api/fleet/profiles", {}, io.BytesIO(b""), ("127.0.0.1", 50000)
-    out = {}
-
-    def _send_json(body, code=200):
-        out["code"], out["body"] = code, json.loads(body.decode("utf-8"))
-    h._send_json = _send_json
-    h.do_GET()
-    assert out["code"] == 200 and out["body"]["active"] == "map4"
-    cur = next(a for a in out["body"]["available"] if a["name"] == "map4")
-    assert cur["valid"] and sorted(_occ(cur["warnings"])) == ["JW_JS", "TR_MC", "TR_TC"]

@@ -45,10 +45,10 @@ LED 는 두 번 켜도 그만이지만, 아래 것들은 아니다:
 ## 쓰는 법
 
     # 로봇 위에서 (도메인 10)
-    python3 topic_wrap.py --config wrap_robot1.yaml
+    python3 topic_wrap.py --config wrap_pinky1.yaml
 
     # 설정
-    robot: robot1
+    robot: pinky1
     services:
       led:
         type: pinky_interfaces/srv/SetLed
@@ -59,9 +59,9 @@ LED 는 두 번 켜도 그만이지만, 아래 것들은 아니다:
         action: navigate_to_pose
 
     # 그러면 이런 토픽이 생긴다 (브리지가 이것을 나른다)
-    robot1/svc/led/request   <- 관제/팀원이 보낸다
-    robot1/svc/led/result    -> 로봇이 답한다
-    robot1/act/nav/{goal,cancel,feedback,result}
+    pinky1/svc/led/request   <- 관제/팀원이 보낸다
+    pinky1/svc/led/result    -> 로봇이 답한다
+    pinky1/act/nav/{goal,cancel,feedback,result}
 
 ⚠️ 액션 쪽은 **실기 왕복 검증을 못 했다.** 이 레포의 시험 환경에 액션 타입이 하나도
    설치돼 있지 않다(확인함). 서비스 왕복은 실측했다.

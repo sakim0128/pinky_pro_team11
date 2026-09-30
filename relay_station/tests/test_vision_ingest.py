@@ -17,7 +17,7 @@ import vision_ingest as VI
 
 
 def _payload(**over):
-    base = {"robotId": "robot1", "x": 0.5, "y": -0.25, "yaw": 1.57,
+    base = {"robotId": "pinky1", "x": 0.5, "y": -0.25, "yaw": 1.57,
             "computedAtMs": 1_000_000}
     base.update(over)
     return base
@@ -28,7 +28,7 @@ def _payload(**over):
 def test_정상_payload_는_통과하고_값이_실수로_정규화된다():
     ok, reason, norm = VI.validate(_payload())
     assert ok and reason is None
-    assert norm["robotId"] == "robot1"
+    assert norm["robotId"] == "pinky1"
     assert norm["x"] == 0.5 and norm["y"] == -0.25 and norm["yaw"] == 1.57
     assert isinstance(norm["x"], float)
 
@@ -63,12 +63,12 @@ def test_로봇_id_가_없거나_문자열이_아니면_거절한다(rid):
 
 def test_모르는_로봇_id_는_거절한다():
     ok, reason, _ = VI.validate(_payload(robotId="robot9"),
-                                robot_ids={"robot1", "robot2"})
+                                robot_ids={"pinky1", "pinky2"})
     assert not ok and reason == VI.REJECT_ROBOT_ID
 
 
 def test_payload_가_객체가_아니면_거절한다():
-    for junk in (None, [], "robot1", 3):
+    for junk in (None, [], "pinky1", 3):
         ok, reason, _ = VI.validate(junk)
         assert not ok and reason == VI.REJECT_NOT_OBJECT
 
@@ -84,9 +84,9 @@ def test_선택_필드는_없으면_None_이지_기본값이_아니다():
 
 def test_한_번도_못_받으면_NEVER_이고_좌표가_없다():
     s = VI.VisionPoseStore()
-    assert s.state("robot1", 0) == (VI.NEVER, None)
-    assert s.pose("robot1", 0) is None
-    rep = s.report(["robot1"], 0)["robot1"]
+    assert s.state("pinky1", 0) == (VI.NEVER, None)
+    assert s.pose("pinky1", 0) is None
+    rep = s.report(["pinky1"], 0)["pinky1"]
     assert rep["state"] == VI.NEVER and rep["observed"] is False
     assert "x" not in rep and "y" not in rep
 
@@ -95,9 +95,9 @@ def test_받은_직후에는_FRESH_다():
     s = VI.VisionPoseStore()
     _, _, norm = VI.validate(_payload())
     s.accept(norm, received_at_ms=5_000)
-    st, age = s.state("robot1", 5_000)
+    st, age = s.state("pinky1", 5_000)
     assert st == VI.FRESH and age == 0
-    assert s.pose("robot1", 5_000)["x"] == 0.5
+    assert s.pose("pinky1", 5_000)["x"] == 0.5
 
 
 def test_문턱을_넘기면_STALE_이_된다():
@@ -105,8 +105,8 @@ def test_문턱을_넘기면_STALE_이_된다():
     s = VI.VisionPoseStore(stale_after_ms=500)
     _, _, norm = VI.validate(_payload())
     s.accept(norm, received_at_ms=1_000)
-    assert s.state("robot1", 1_000 + 500)[0] == VI.FRESH     # 경계는 아직 신선
-    assert s.state("robot1", 1_000 + 501)[0] == VI.STALE     # 한 밀리초 넘으면 낡음
+    assert s.state("pinky1", 1_000 + 500)[0] == VI.FRESH     # 경계는 아직 신선
+    assert s.state("pinky1", 1_000 + 501)[0] == VI.STALE     # 한 밀리초 넘으면 낡음
 
 
 def test_낡으면_좌표를_아예_돌려주지_않는다():
@@ -114,8 +114,8 @@ def test_낡으면_좌표를_아예_돌려주지_않는다():
     s = VI.VisionPoseStore(stale_after_ms=500)
     _, _, norm = VI.validate(_payload())
     s.accept(norm, received_at_ms=1_000)
-    assert s.pose("robot1", 1_400) is not None
-    assert s.pose("robot1", 1_600) is None
+    assert s.pose("pinky1", 1_400) is not None
+    assert s.pose("pinky1", 1_600) is None
 
 
 def test_낡으면_보고에도_좌표가_안_실린다():
@@ -123,10 +123,10 @@ def test_낡으면_보고에도_좌표가_안_실린다():
     s = VI.VisionPoseStore(stale_after_ms=500)
     _, _, norm = VI.validate(_payload())
     s.accept(norm, received_at_ms=1_000)
-    fresh = s.report(["robot1"], 1_100)["robot1"]
+    fresh = s.report(["pinky1"], 1_100)["pinky1"]
     assert fresh["observed"] is True and fresh["x"] == 0.5
 
-    stale = s.report(["robot1"], 9_000)["robot1"]
+    stale = s.report(["pinky1"], 9_000)["pinky1"]
     assert stale["state"] == VI.STALE and stale["observed"] is False
     assert "x" not in stale and "y" not in stale and "yaw" not in stale
 
@@ -135,18 +135,18 @@ def test_시계가_뒤로_가도_신선하다고_우기지_않는다():
     s = VI.VisionPoseStore()
     _, _, norm = VI.validate(_payload())
     s.accept(norm, received_at_ms=10_000)
-    st, age = s.state("robot1", 9_000)      # 받은 시각이 미래
+    st, age = s.state("pinky1", 9_000)      # 받은 시각이 미래
     assert st == VI.STALE and age < 0
-    assert s.pose("robot1", 9_000) is None
+    assert s.pose("pinky1", 9_000) is None
 
 
 def test_새로_받으면_다시_신선해진다():
     s = VI.VisionPoseStore(stale_after_ms=500)
     _, _, norm = VI.validate(_payload())
     s.accept(norm, received_at_ms=1_000)
-    assert s.state("robot1", 5_000)[0] == VI.STALE
+    assert s.state("pinky1", 5_000)[0] == VI.STALE
     s.accept(norm, received_at_ms=5_000)
-    assert s.state("robot1", 5_000)[0] == VI.FRESH
+    assert s.state("pinky1", 5_000)[0] == VI.FRESH
 
 
 # ---- 남의 시계는 신선도의 기준이 아니다 ------------------------------------------
@@ -158,7 +158,7 @@ def test_신선도는_받은_시각으로_재지_보낸_시각으로_재지_않�
     # 연산 노드가 '한참 전' 이라고 주장하지만, 방금 도착했다.
     _, _, norm = VI.validate(_payload(computedAtMs=1))
     s.accept(norm, received_at_ms=1_000_000)
-    assert s.state("robot1", 1_000_000)[0] == VI.FRESH
+    assert s.state("pinky1", 1_000_000)[0] == VI.FRESH
 
 
 def test_보낸_시각과의_차이는_버리지_않고_따로_적는다():
@@ -172,7 +172,7 @@ def test_보낸_시각과의_차이는_버리지_않고_따로_적는다():
     rec2 = s.accept(far, received_at_ms=10_000)
     assert rec2["clockOffsetMs"] == 10_000
     assert rec2["clockSuspect"] is True
-    rep = s.report(["robot1"], 10_000)["robot1"]
+    rep = s.report(["pinky1"], 10_000)["pinky1"]
     assert rep["clockSuspect"] is True      # 값은 받되 경고는 낸다
     assert rep["observed"] is True
 
@@ -203,9 +203,9 @@ def test_문턱이_0_이하면_만들_수_없다():
 
 def test_로봇마다_따로_판정한다():
     s = VI.VisionPoseStore(stale_after_ms=500)
-    _, _, r1 = VI.validate(_payload(robotId="robot1"))
+    _, _, r1 = VI.validate(_payload(robotId="pinky1"))
     s.accept(r1, received_at_ms=1_000)
-    rep = s.report(["robot1", "robot2"], 1_100)
-    assert rep["robot1"]["state"] == VI.FRESH
-    assert rep["robot2"]["state"] == VI.NEVER
-    assert "x" not in rep["robot2"]
+    rep = s.report(["pinky1", "pinky2"], 1_100)
+    assert rep["pinky1"]["state"] == VI.FRESH
+    assert rep["pinky2"]["state"] == VI.NEVER
+    assert "x" not in rep["pinky2"]

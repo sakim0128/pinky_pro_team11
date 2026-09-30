@@ -17,7 +17,14 @@ import socket
 import threading
 import concurrent.futures
 import cv2
-cv2.setLogLevel(0)
+# OpenCV 로그 끄기 — Ubuntu 24.04 의 apt python3-opencv(4.6) 에는 cv2.setLogLevel 이 없다(cv2.utils.logging 에만 있다)
+try:
+    cv2.setLogLevel(0)
+except AttributeError:
+    try:
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_SILENT)
+    except Exception:            # noqa: BLE001 — 로그 레벨은 편의일 뿐, 없어도 돈다
+        pass
 import numpy as np
 
 

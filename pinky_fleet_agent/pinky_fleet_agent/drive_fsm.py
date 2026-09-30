@@ -7,9 +7,17 @@ reason) 을 돌려준다. speed_factor 0 이면 정지, 1 이면 정상, 0.5 면
     ESTOP > LINK_LOST > OBSTACLE_WAIT > BARRICADE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP
           > CROSSWALK_CLEAR > JUNCTION_STOP > JUNCTION_PASS > ARRIVED > LANE_SEARCH > LANE_LOST > CRUISE > IDLE
 
-JUNCTION_STOP / JUNCTION_PASS (D14 작업 3): 항공뷰 위치가 그래프 분기 노드 반경(junction_zone) 에 들어오면
-junction_stop_seconds 정지 → 카메라 없이 경로(pure-pursuit) 만으로 junction_speed_factor 로 통과. 반경을 벗어나고
+JUNCTION_STOP / JUNCTION_PASS (D14 작업 3 + 2026-09-29 교차로 규칙): 트리거는 둘 — 항공뷰 위치가 그래프 분기 노드
+반경(junction_zone) 에 들어오거나, 카메라가 **빨간 선**(LanePath.red_line_detected) 을 봤을 때(드라이버가 합친다).
+junction_stop_seconds 정지 → **관제 허가(junction_clear: clear_until 이 분기 노드를 넘음) 가 있어야** 통과.
+허가가 없으면 정지한 채 기다린다 — 두 로봇이 같은 교차로에 오면 관제 예약이 먼저 도착한 쪽(같은 틱이면 domain_id
+작은 쪽) 에만 허가를 준다. 통과는 카메라 없이 경로(pure-pursuit) 만으로 junction_speed_factor. 반경을 벗어나고
 차선 쌍이 junction_exit_confirm 동안 보이면 CRUISE. 재래치는 주행거리(junction_relatch_distance).
+JUNCTION_STOP 에 서 있는 동안은 WAIT_CLEARANCE 가 끼어들지 않는다(허가 대기는 junction_clear 가 이미 표현한다).
+
+비전 미션 모드 (2026-09-30, lane_only + JunctionPlan): JUNCTION_STOP 뒤 허가가 오면 드라이버가 고정 동작(직진·회전)을
+odom 으로 수행한다. 그동안(maneuver_active) 은 JUNCTION_PASS 이고, 장애물·STOP 으로 끊겨도 동작이 남아 있으면 이어서 한다.
+동작이 끝나면(maneuver_finished) 차선 쌍이 보이면 CRUISE, 아니면 LANE_SEARCH 로 간다.
 
 LANE_SEARCH (D14 작업 2): 차선 쌍(BOTH)이 search_after 이상 안 보이면 진입. speed_factor 0 이고
 드라이버가 제자리 회전을 건다 (방향은 드라이버가 정한다). BOTH 가 search_confirm_seconds 이어지면
@@ -66,7 +74,11 @@ class Inputs:
     clearance_reason: str = ''
     crosswalk_trigger: bool = False # 디바운스 통과한 횡단보도 트리거
     barricade: bool = False         # 디바운스 통과한 바리게이트 (관제가 해제할 때까지 True)
-    junction_trigger: bool = False  # 위치가 그래프 분기 노드 반경 안 (경로 모드만)
+    junction_trigger: bool = False  # 분기 노드 반경 안(경로 모드) 또는 빨간 선 검출 — 드라이버가 합친다
+    junction_clear: bool = True     # 관제 허가로 분기 노드를 지나도 됨 (clear_until > 분기 idx). lane_only 는 항상 True
+    maneuver_active: bool = False   # 비전 미션: 드라이버가 교차로 고정 동작을 수행 중 (남은 단계가 있다)
+    maneuver_finished: bool = False # 비전 미션: 이번 틱에 고정 동작이 끝났다 (한 번만 참)
+    maneuver_reason: str = ''
     lane_visible: bool = True       # quality ∈ {BOTH, SINGLE, JUNCTION}
     lane_both: bool = True          # quality ∈ {BOTH, JUNCTION} — 탐색 복귀 조건
     arrived: bool = False
@@ -127,10 +139,10 @@ class DriveFsm:
                 self.reason = f'횡단보도 정지 {self.since_entry(t):.1f}/{p.crosswalk_stop_seconds:.0f}s'
                 return self.state, 0.0, self.reason
             self._enter(CROSSWALK_CLEAR, t, d, '횡단보도 통과')
-        if inp.at_clearance and self.state != CROSSWALK_CLEAR:
+        if inp.at_clearance and self.state not in (CROSSWALK_CLEAR, JUNCTION_STOP):
             self._enter(WAIT_CLEARANCE, t, d, inp.clearance_reason or '예약 대기')
             return self.state, 0.0, self.reason
-        if inp.at_clearance:
+        if inp.at_clearance and self.state != JUNCTION_STOP:
             # 통과 중이라도 예약 경계에 닿으면 선다 (CLEAR 상태는 유지 안 함)
             self._enter(WAIT_CLEARANCE, t, d, inp.clearance_reason or '예약 대기')
             return self.state, 0.0, self.reason
@@ -145,10 +157,33 @@ class DriveFsm:
             self.reason = f'횡단보도 통과 {self.travelled_since_entry(d):.2f}/{p.crosswalk_relatch_distance:.2f} m'
             return self.state, 1.0, self.reason
 
-        # 교차로: 정지 → 경로만으로 통과 → 반경 밖에서 쌍 확인
+        # 비전 미션 교차로 고정 동작 — 허가 뒤 드라이버가 동작을 쥐고 있는 동안은 통과 상태. 끊겨도 여기로 돌아온다
+        if inp.maneuver_active:
+            self._enter(JUNCTION_PASS, t, d, inp.maneuver_reason or '교차로 동작')
+            self.reason = inp.maneuver_reason or '교차로 동작'
+            return self.state, 1.0, self.reason
+        if inp.maneuver_finished:
+            self._junction_stop_travel = d                  # 빨간 선 재래치는 동작이 끝난 곳부터 잰다
+            self._exit_both_since = None
+            if inp.lane_both:
+                self._enter(CRUISE, t, d, '교차로 통과 — 차선 주행')
+                return self.state, 1.0, self.reason
+            if p.lane_search:
+                self.search_failed = False
+                self._both_since = None
+                self._nonboth_since = t - p.search_after
+                self._enter(LANE_SEARCH, t, d, '교차로 통과 — 차선 탐색 회전')
+                return self.state, 0.0, self.reason
+            self._enter(LANE_LOST, t, d, '교차로 통과 — 차선 없음')
+            return self.state, p.lane_lost_speed_factor, self.reason
+
+        # 교차로: 정지 → (관제 허가) → 경로만으로 통과 → 반경 밖에서 쌍 확인
         if self.state == JUNCTION_STOP:
             if self.since_entry(t) < p.junction_stop_seconds:
                 self.reason = f'교차로 정지 {self.since_entry(t):.1f}/{p.junction_stop_seconds:.0f}s'
+                return self.state, 0.0, self.reason
+            if not inp.junction_clear:
+                self.reason = '교차로 대기 — 통과 허가 없음' + (f' ({inp.clearance_reason})' if inp.clearance_reason else '')
                 return self.state, 0.0, self.reason
             self._enter(JUNCTION_PASS, t, d, '교차로 통과 — 경로만')
             self._exit_both_since = None

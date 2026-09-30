@@ -3,12 +3,16 @@
 # 🌉 도메인 브릿지 설정 생성기
 #
 #   생성물 (relay_station/domain_bridge/configs/)
-#     robotN_control.yaml  로봇 도메인(10~13) <-> 관제 도메인(8)  [비대칭]
+#     pinkyN_control.yaml  로봇 도메인(10~13) <-> 관제 도메인(8)  [비대칭]
 #     team_mirror.yaml     관제 도메인(8)      -> 팀원 도메인(9)   [읽기 전용]
+#
+#   로봇 이름은 pinkyN 하나다(2026-09-29): 토픽 접두어·파일 이름·유닛 인스턴스 이름 전부.
+#   로봇은 lane_agent_node 뿐이다 — Nav2 직접 목표(goal_pose·mission_cmd)·관제 teleop(cmd_vel→cmd_vel_teleop 게이트)·
+#   nav_status 는 받는 쪽도 내는 쪽도 없어 지웠다. 움직이는 명령은 Route·LaneCommand·FleetCommand(플릿 코디네이터)뿐.
 #
 #   ⚠️ 비대칭 원칙 — 이 설계의 안전 근간
 #     10~13 -> 8 : 센서/상태 전량 (업링크)
-#     8 -> 10~13 : 제어 화이트리스트만 (goal_pose / mission_cmd / cmd_vel / vision_pose)
+#     8 -> 10~13 : 제어 화이트리스트만 (vision_pose / route / lane_command / pose_fix / overhead_pose / command)
 #     8 -> 9     : 읽기 전용 미러
 #     9 -> 8     : **teleop 이름만** (2026-09-12 사용자 지시로 신설 · 기본 꺼짐)
 #
@@ -47,13 +51,13 @@ DOMAINS=(10 11 12 13)
 # 어긋나고, 증상은 "브리지가 안 나른다" 로 보인다
 # (시험 `test_topic_wrap.py::test_생성기와_어댑터가_같은_이름을_쓴다` 가 고정).
 #
-#   robotN/svc/<이름>/request   8 -> N   부른다
-#   robotN/svc/<이름>/result    N -> 8   답한다
-#   robotN/act/<이름>/goal·cancel   8 -> N
-#   robotN/act/<이름>/feedback·result  N -> 8
+#   pinkyN/svc/<이름>/request   8 -> N   부른다
+#   pinkyN/svc/<이름>/result    N -> 8   답한다
+#   pinkyN/act/<이름>/goal·cancel   8 -> N
+#   pinkyN/act/<이름>/feedback·result  N -> 8
 #
 # ⚠️ 팀원(도메인 9)에게 여는 것은 **기본이 아니다.** 열려면 WRAP_SERVICES_TEAM 에
-#    적고, 그러면 이름이 `robotN/teleop/svc/...` 로 나간다 — 벌 2 는 teleop 접두어만
+#    적고, 그러면 이름이 `pinkyN/teleop/svc/...` 로 나간다 — 벌 2 는 teleop 접두어만
 #    나른다는 규칙을 그대로 둔 채 들어간다.
 WRAP_SERVICES=(led)          # 관제국이 부를 수 있는 것
 WRAP_ACTIONS=()              # 아직 없음 — 액션은 실기 검증 전이다
@@ -63,10 +67,10 @@ WRAP_SERVICES_TEAM=()        # 팀원에게 연 것 (기본: 없음)
 for i in "${!ROBOTS[@]}"; do
     n="${ROBOTS[$i]}"
     d="${DOMAINS[$i]}"
-    cat > "$OUT/robot${n}_control.yaml" <<EOF
+    cat > "$OUT/pinky${n}_control.yaml" <<EOF
 # 자동 생성: generate_configs.sh — 직접 편집하지 말 것
-# 로봇 #${n} <-> 관제 평면 브릿지 (도메인 ${d} <-> ${RELAY_DOMAIN})
-name: pinky_bridge_robot${n}
+# 로봇 pinky${n} <-> 관제 평면 브릿지 (도메인 ${d} <-> ${RELAY_DOMAIN})
+name: pinky_bridge_pinky${n}
 from_domain: ${d}
 to_domain: ${RELAY_DOMAIN}
 
@@ -74,11 +78,11 @@ topics:
 
   # ══ 업링크: 로봇(${d}) → 관제(${RELAY_DOMAIN}) ══════════════════════════════
 
-  robot${n}/odom:
+  pinky${n}/odom:
     type: nav_msgs/msg/Odometry
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot${n}/pose:
+  pinky${n}/pose:
     type: geometry_msgs/msg/PoseStamped
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
@@ -86,24 +90,20 @@ topics:
   # 관제 도메인에 합류할 때만 로봇별 이름으로 분리한다.
   scan:
     type: sensor_msgs/msg/LaserScan
-    remap: robot${n}/scan
+    remap: pinky${n}/scan
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
 
   # 원본(image_raw)은 절대 중계하지 않는다. 2.4GHz 채널 11에서 4대분 원본을
   # 8·9 두 도메인으로 복제하면 AP가 즉시 포화된다. 압축본만 통과시킨다.
-  robot${n}/camera/image_raw/compressed:
+  pinky${n}/camera/image_raw/compressed:
     type: sensor_msgs/msg/CompressedImage
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
 
-  robot${n}/nav_status:
-    type: std_msgs/msg/String
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
-
-  robot${n}/battery_state:
+  pinky${n}/battery_state:
     type: sensor_msgs/msg/BatteryState
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  # frame_prefix 로 robot${n}/ 접두사가 붙어 있어야 4대 병합 시 충돌하지 않는다.
+  # frame_prefix 로 pinky${n}/ 접두사가 붙어 있어야 4대 병합 시 충돌하지 않는다.
   tf:
     type: tf2_msgs/msg/TFMessage
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 100}
@@ -114,47 +114,12 @@ topics:
 
   # ══ 다운링크: 관제(${RELAY_DOMAIN}) → 로봇(${d}) — 화이트리스트 ═══════════════
   # 관제국은 로봇별로 구분된 이름으로 발행하고, 브릿지가 해당 로봇 도메인
-  # 안에서만 표준 이름으로 되돌린다. 이렇게 해야 하나의 목표 지점이 4대
+  # 안에서만 표준 이름으로 되돌린다. 이렇게 해야 하나의 명령이 4대
   # 전부에게 동시에 전달되는 사고가 발생하지 않는다.
-
-  robot${n}/goal_pose:
-    type: geometry_msgs/msg/PoseStamped
-    from_domain: ${RELAY_DOMAIN}
-    to_domain: ${d}
-    remap: goal_pose
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 1}
-
-  robot${n}/mission_cmd:
-    type: std_msgs/msg/String
-    from_domain: ${RELAY_DOMAIN}
-    to_domain: ${d}
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+  # (goal_pose·mission_cmd·cmd_vel 다운링크는 2026-09-29 에 지웠다 — 로봇은 lane_agent_node 뿐이다.)
 
 EOF
-    if [ "$n" -eq 1 ] || [ "$n" -eq 2 ]; then
-        cat >> "$OUT/robot${n}_control.yaml" <<EOF
-  # 2026-09-22 (Track R): 단일 소유권(Single Ownership) 보장
-  # 관제국의 수동 teleop 명령은 온보드 DriveCommandGate 의 /cmd_vel_teleop 으로 전달되어
-  # E-STOP 및 자율주행(/cmd_vel_mission)과의 우선순위 중재를 거친 뒤 최종 /cmd_vel 로 안전하게 출력된다.
-  robot${n}/cmd_vel:
-    type: geometry_msgs/msg/Twist
-    from_domain: ${RELAY_DOMAIN}
-    to_domain: ${d}
-    remap: cmd_vel_teleop
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
-EOF
-    else
-        cat >> "$OUT/robot${n}_control.yaml" <<EOF
-  robot${n}/cmd_vel:
-    type: geometry_msgs/msg/Twist
-    from_domain: ${RELAY_DOMAIN}
-    to_domain: ${d}
-    remap: cmd_vel
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
-EOF
-    fi
-
-    cat >> "$OUT/robot${n}_control.yaml" <<EOF
+    cat >> "$OUT/pinky${n}_control.yaml" <<EOF
 
   # 🔴 2026-09-19 신설 — 사용자 결정 "로봇까지".
   #
@@ -172,7 +137,7 @@ EOF
   #    (제공 best_effort < 요구 reliable). reliable 로 내면 양쪽 구독자가 다 붙는다.
   #    대신 depth: 1 로 큐를 막는다 — 낡은 좌표를 재전송하는 것은 없느니만 못하다
   #    (신선도 문턱 500 ms 는 gateway_web/vision_ingest.py 가 강제한다).
-  robot${n}/vision_pose:
+  pinky${n}/vision_pose:
     type: geometry_msgs/msg/PoseStamped
     from_domain: ${RELAY_DOMAIN}
     to_domain: ${d}
@@ -180,12 +145,12 @@ EOF
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 1}
 EOF
 
-    # ══ Track R (Mini Project 2) 신규 5대 계약 토픽은 오직 Robot 1 & Robot 2 에만 적용 ══
-    # Robot #3, #4 는 본 프로젝트 운영 범위에서 제외되므로 이전 기준을 그대로 보존한다.
+    # ══ Track R (Mini Project 2) 신규 5대 계약 토픽은 오직 pinky1 & pinky2 에만 적용 ══
+    # pinky3, pinky4 는 본 프로젝트 운영 범위에서 제외되므로 이전 기준을 그대로 보존한다.
     if [ "$n" -eq 1 ] || [ "$n" -eq 2 ]; then
-        cat >> "$OUT/robot${n}_control.yaml" <<EOF
+        cat >> "$OUT/pinky${n}_control.yaml" <<EOF
 
-  # ══ 2026-09-22 신설: Team11 멀티로봇 관제 연동 5대 핵심 계약 토픽 (Robot 1/2 한정) ══
+  # ══ 2026-09-22 신설: Team11 멀티로봇 관제 연동 5대 핵심 계약 토픽 (pinky1/2 한정) ══
   # 1) RobotState (업링크: 로봇 도메인 -> 관제 도메인 8)
   /pinky${n}/state:
     type: pinky_fleet_msgs/msg/RobotState
@@ -217,10 +182,18 @@ EOF
     to_domain: ${d}
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  # 6) FleetCommand (다운링크: 관제 도메인 8 -> 로봇 도메인, Robot 1/2 한정 관리/주행 명령 브리지) [R-D3]
-  #    Team11 agent_node.py 연동용 (CMD_SET_INITIAL_POSE, CMD_SET_MAP, CMD_GOTO 등).
-  #    Nav2 + Marker 하이브리드 주행에서 온보드 PinkyAgent가 Nav2 NavigateToPose 목표를 수신하여 수행하며,
-  #    RelayFleetCoordinator는 ActionClient를 직접 구동하지 않고 관제/중재(HOLD/RELEASE)를 담당한다.
+  # 5-b) 항공뷰 위치 (다운링크: 관제 도메인 8 -> 로봇 도메인) — 팀11 overhead_tracker_node(ArUco) 가 내고
+  #      로봇 pose_fuser_node(lane_robot.launch.xml use_overhead) 가 map->odom TF 로 쓴다 (2026-09-29).
+  #      overhead_tracker 가 도메인 0 에서 돌면 0->8 미러(팀 브리지)를 먼저 거쳐야 한다.
+  /pinky${n}/overhead_pose:
+    type: geometry_msgs/msg/PoseStamped
+    from_domain: ${RELAY_DOMAIN}
+    to_domain: ${d}
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  # 6) FleetCommand (다운링크: 관제 도메인 8 -> 로봇 도메인, pinky1/2 한정 관리/주행 명령 브리지) [R-D3]
+  #    Team11 lane_agent_node 연동용 (CMD_SET_INITIAL_POSE, CMD_SET_MAP, STOP/RESUME/HEARTBEAT).
+  #    RelayFleetCoordinator 가 경로(Route)·허가(LaneCommand)·관리 명령(FleetCommand)을 낸다.
   /pinky${n}/command:
     type: pinky_fleet_msgs/msg/FleetCommand
     from_domain: ${RELAY_DOMAIN}
@@ -235,67 +208,73 @@ EOF
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  # 8) live 웹 대시보드용 (업링크: 로봇 도메인 -> 관제 도메인 8) [2026-09-29 개편 1단계]
-  #    주 대시보드는 팀11 pinky_fleet_station/live_web_node 이고, 중계 PC 도메인 8 에서 뜬다.
-  #    그 노드가 구독하는 이름 그대로 올린다 — 이름을 바꾸면 live 웹이 조용히 "미수신" 이 된다.
-  #    amcl_pose : 에이전트(hybrid_agent_node)가 /amcl_pose 를 이 이름으로 다시 낸다. 지도 위 P · 공분산 타원.
-  #    camera    : 로봇 camera_node(hybrid_robot.launch.xml use_camera)가 낸다. BEST_EFFORT depth 1 로 발행되므로
-  #                여기도 best_effort — reliable 로 적으면 짝이 안 맞아 빈 토픽이 된다(위 QoS 주의).
-  /pinky${n}/amcl_pose:
-    type: geometry_msgs/msg/PoseWithCovarianceStamped
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 1}
-
+  # 8) 차선 인식 (2026-09-29): 관제 PC 의 lane_pipeline_node(pinky_lane_station)가 **도메인 8** 에서 돈다.
+  #    로봇 camera_node 의 압축 영상(업링크, 이름·QoS 는 pinky_lane_station/config/bridge_pinkyN_up.yaml 과 같다)과
+  #    파이프라인이 내는 LanePath(다운링크). 이 둘이 없으면 레인 로봇은 차선을 못 본다.
   /pinky${n}/camera/image/compressed:
     type: sensor_msgs/msg/CompressedImage
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  /pinky${n}/lane_path:
+    type: pinky_lane_msgs/msg/LanePath
+    from_domain: ${RELAY_DOMAIN}
+    to_domain: ${d}
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  # 9) 비전 미션 (2026-09-30): 코디네이터 비전 모드가 내는 교차로 고정 동작·도착 정지선 수 (다운링크, 늦게 떠도 받게)
+  /pinky${n}/junction_plan:
+    type: pinky_lane_msgs/msg/JunctionPlan
+    from_domain: ${RELAY_DOMAIN}
+    to_domain: ${d}
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
 EOF
     fi
 
 
     # ── 감싼 서비스·액션 (topic_wrap.py 가 로봇 위에서 내놓는 토픽) ──────────
     for s in ${WRAP_SERVICES[@]+"${WRAP_SERVICES[@]}"}; do
-        cat >> "$OUT/robot${n}_control.yaml" <<EOF
+        cat >> "$OUT/pinky${n}_control.yaml" <<EOF
 
   # 감싼 서비스 '${s}' — 로봇 위 topic_wrap.py 가 서비스를 이 토픽 쌍으로 바꿔 준다.
   # 이름 규칙의 주인은 topic_wrap.py 의 topic_names() 다.
-  robot${n}/svc/${s}/request:
+  pinky${n}/svc/${s}/request:
     type: std_msgs/msg/String
     from_domain: ${RELAY_DOMAIN}
     to_domain: ${d}
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot${n}/svc/${s}/result:
+  pinky${n}/svc/${s}/result:
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 EOF
     done
     for a in ${WRAP_ACTIONS[@]+"${WRAP_ACTIONS[@]}"}; do
-        cat >> "$OUT/robot${n}_control.yaml" <<EOF
+        cat >> "$OUT/pinky${n}_control.yaml" <<EOF
 
   # 감싼 액션 '${a}'. ⚠️ 취소는 브리지를 건너느라 늦는다 — 비상 정지로 쓰지 말 것.
   #    비상 정지는 teleop_out 유닛을 끄는 것이고, 그건 바퀴로 가는 길을 끊는다.
-  robot${n}/act/${a}/goal:
+  pinky${n}/act/${a}/goal:
     type: std_msgs/msg/String
     from_domain: ${RELAY_DOMAIN}
     to_domain: ${d}
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  robot${n}/act/${a}/cancel:
+  pinky${n}/act/${a}/cancel:
     type: std_msgs/msg/String
     from_domain: ${RELAY_DOMAIN}
     to_domain: ${d}
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 
-  robot${n}/act/${a}/feedback:
+  pinky${n}/act/${a}/feedback:
     type: std_msgs/msg/String
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
 
-  robot${n}/act/${a}/result:
+  pinky${n}/act/${a}/result:
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 EOF
     done
-    echo "  ● $OUT/robot${n}_control.yaml   (도메인 ${d} <-> ${RELAY_DOMAIN})"
+    echo "  ● $OUT/pinky${n}_control.yaml   (도메인 ${d} <-> ${RELAY_DOMAIN})"
 done
 
 # ── 팀원 미러 브릿지 (8 → 9, 전 로봇 일괄) ──────────────────────────────────
@@ -314,8 +293,8 @@ cat <<EOF
 #    없는 보호를 있다고 적어 두는 것이 보호가 없는 것보다 나쁘므로 지운다.
 #
 #    지금의 보호는 "경로가 없다" 가 아니라 **"이름이 갈려 있다"** 이다:
-#      팀원 시뮬이 쓰는 robotN/cmd_vel        -> 아무 데도 안 간다 (여기에도 없다)
-#      조종기 전용 robotN/teleop/cmd_vel      -> 벌 2 가 나른다 (robotN_teleop_*.yaml)
+#      팀원 시뮬이 쓰는 pinkyN/cmd_vel        -> 아무 데도 안 간다 (여기에도 없다)
+#      조종기 전용 pinkyN/teleop/cmd_vel      -> 벌 2 가 나른다 (pinkyN_teleop_*.yaml)
 #    그리고 벌 2 는 **기본이 꺼짐**이라, 켜는 행위가 곧 "이 로봇을 넘긴다" 는 뜻이다.
 #
 # 이 미러는 여전히 **읽기 전용**이다. 여기 나열된 토픽이 팀원에게 노출되는 전부이고,
@@ -345,27 +324,23 @@ EOF
 for n in "${ROBOTS[@]}"; do
 cat <<EOF
 
-  robot${n}/odom:
+  pinky${n}/odom:
     type: nav_msgs/msg/Odometry
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot${n}/pose:
+  pinky${n}/pose:
     type: geometry_msgs/msg/PoseStamped
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
-  robot${n}/scan:
+  pinky${n}/scan:
     type: sensor_msgs/msg/LaserScan
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
 
-  robot${n}/camera/image_raw/compressed:
+  pinky${n}/camera/image_raw/compressed:
     type: sensor_msgs/msg/CompressedImage
     qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 2}
 
-  robot${n}/nav_status:
-    type: std_msgs/msg/String
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
-
-  robot${n}/battery_state:
+  pinky${n}/battery_state:
     type: sensor_msgs/msg/BatteryState
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 5}
 EOF
@@ -384,8 +359,8 @@ echo "  ● $OUT/team_mirror.yaml         (도메인 ${RELAY_DOMAIN} -> ${TEAM_D
 # **"팀원 시뮬레이션 cmd_vel 이 실물 로봇으로 나가는 사고 차단"** 이었다.
 # 그 사고는 지금도 막아야 한다. 그래서 길을 여는 대신 **이름을 가른다.**
 #
-#   팀원이 시뮬에 쓰는 이름   robot1/cmd_vel      <- 벌 2 가 **안 본다**
-#   주행 관제 전용 이름       robot1/teleop/cmd_vel <- 벌 2 가 이것만 본다
+#   팀원이 시뮬에 쓰는 이름   pinky1/cmd_vel      <- 벌 2 가 **안 본다**
+#   주행 관제 전용 이름       pinky1/teleop/cmd_vel <- 벌 2 가 이것만 본다
 #
 # 조종기가 일부러 이 이름으로 쏘지 않는 한 아무것도 안 나간다. 시뮬을 아무리
 # 돌려도 실물은 안 움직인다 — 원래 막으려던 사고가 그대로 막힌다.
@@ -393,8 +368,8 @@ echo "  ● $OUT/team_mirror.yaml         (도메인 ${RELAY_DOMAIN} -> ${TEAM_D
 # ⭐ 그리고 **두 벌로 쪼갠다.** 한 벌이 아니라 들어오는 다리와 나가는 다리를
 #    따로 둔다:
 #
-#     robotN_teleop_in.yaml    9 -> 8   팀원이 보낸 것을 **관제국이 본다**
-#     robotN_teleop_out.yaml   8 -> N   그것을 **로봇에게 내보낸다**
+#     pinkyN_teleop_in.yaml    9 -> 8   팀원이 보낸 것을 **관제국이 본다**
+#     pinkyN_teleop_out.yaml   8 -> N   그것을 **로봇에게 내보낸다**
 #
 #    이렇게 하면 강사가 `_out` 만 끌 수 있다. 그러면 팀원이 무엇을 시키려는지는
 #    화면에 그대로 보이면서 **로봇은 안 움직인다** — 관측을 잃지 않는 정지다.
@@ -410,69 +385,69 @@ for i in "${!ROBOTS[@]}"; do
     n="${ROBOTS[$i]}"
     d="${DOMAINS[$i]}"
 
-    cat > "$OUT/robot${n}_teleop_in.yaml" <<EOF
+    cat > "$OUT/pinky${n}_teleop_in.yaml" <<EOF
 # 자동 생성: generate_configs.sh — 직접 편집하지 말 것
 # 벌 2-A · 팀원(${TEAM_DOMAIN}) → 관제(${RELAY_DOMAIN})  [주행 명령을 관제국에 보인다]
 #
-# 여기까지는 로봇에 닿지 않는다. 내보내는 것은 robot${n}_teleop_out.yaml 이다.
-name: pinky_teleop_in_robot${n}
+# 여기까지는 로봇에 닿지 않는다. 내보내는 것은 pinky${n}_teleop_out.yaml 이다.
+name: pinky_teleop_in_pinky${n}
 from_domain: ${TEAM_DOMAIN}
 to_domain: ${RELAY_DOMAIN}
 
 topics:
 
-  # 팀원 조종기 전용 이름. 팀원이 시뮬에 쓰는 robot${n}/cmd_vel 과 **다른 이름**이라
+  # 팀원 조종기 전용 이름. 팀원이 시뮬에 쓰는 pinky${n}/cmd_vel 과 **다른 이름**이라
   # 시뮬 트래픽은 여기에 걸리지 않는다.
-  robot${n}/teleop/cmd_vel:
+  pinky${n}/teleop/cmd_vel:
     type: geometry_msgs/msg/Twist
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 
   # 누가 몰고 있는지. 조종기가 자기 이름을 함께 낸다 — 화면이 "누구의 명령인가" 를
   # 말할 수 있어야 강사가 감독할 수 있다.
-  robot${n}/teleop/operator:
+  pinky${n}/teleop/operator:
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
 EOF
     # 팀원에게 연 감싼 서비스 — teleop 밑으로 들어가므로 벌 2 의 규칙이 안 깨진다
     for s in ${WRAP_SERVICES_TEAM[@]+"${WRAP_SERVICES_TEAM[@]}"}; do
-        cat >> "$OUT/robot${n}_teleop_in.yaml" <<EOF
+        cat >> "$OUT/pinky${n}_teleop_in.yaml" <<EOF
 
-  robot${n}/teleop/svc/${s}/request:
+  pinky${n}/teleop/svc/${s}/request:
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 EOF
-        cat >> "$OUT/robot${n}_teleop_out.yaml" <<EOF
+        cat >> "$OUT/pinky${n}_teleop_out.yaml" <<EOF
 
-  robot${n}/teleop/svc/${s}/request:
+  pinky${n}/teleop/svc/${s}/request:
     type: std_msgs/msg/String
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 EOF
     done
-    echo "  ● $OUT/robot${n}_teleop_in.yaml   (도메인 ${TEAM_DOMAIN} -> ${RELAY_DOMAIN})"
+    echo "  ● $OUT/pinky${n}_teleop_in.yaml   (도메인 ${TEAM_DOMAIN} -> ${RELAY_DOMAIN})"
 
-    cat > "$OUT/robot${n}_teleop_out.yaml" <<EOF
+    cat > "$OUT/pinky${n}_teleop_out.yaml" <<EOF
 # 자동 생성: generate_configs.sh — 직접 편집하지 말 것
-# 벌 2-B · 관제(${RELAY_DOMAIN}) → 로봇 ${n}(${d})  [실제로 바퀴가 도는 다리]
+# 벌 2-B · 관제(${RELAY_DOMAIN}) → 로봇 pinky${n}(${d})  [실제로 바퀴가 도는 다리]
 #
 # ⚠️ 이 유닛을 끄면 로봇이 즉시 안 움직인다. 관측과 화면은 그대로다.
 #    팀원에게 로봇을 넘기고 회수하는 손잡이가 바로 이것이다.
-name: pinky_teleop_out_robot${n}
+name: pinky_teleop_out_pinky${n}
 from_domain: ${RELAY_DOMAIN}
 to_domain: ${d}
 
 topics:
 
   # 로봇 안에서는 표준 이름으로 되돌린다 — 온보드는 고칠 것이 없다.
-  robot${n}/teleop/cmd_vel:
+  pinky${n}/teleop/cmd_vel:
     type: geometry_msgs/msg/Twist
     remap: cmd_vel
     qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
 EOF
-    echo "  ● $OUT/robot${n}_teleop_out.yaml  (도메인 ${RELAY_DOMAIN} -> ${d})"
+    echo "  ● $OUT/pinky${n}_teleop_out.yaml  (도메인 ${RELAY_DOMAIN} -> ${d})"
 done
 
 echo
 echo "생성 완료. 적용: relay_station/domain_bridge/install_bridge.sh"
 echo "팀원 주행 벌은 기본으로 안 켠다 — 넘길 때만:"
-echo "  systemctl --user start pinky-domain-bridge@robot1_teleop_in"
-echo "  systemctl --user start pinky-domain-bridge@robot1_teleop_out"
+echo "  systemctl --user start pinky-domain-bridge@pinky1_teleop_in"
+echo "  systemctl --user start pinky-domain-bridge@pinky1_teleop_out"

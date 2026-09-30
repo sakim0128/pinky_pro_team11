@@ -181,7 +181,11 @@ def undefined_names(gateway_dir, require=False):
     return rep.hits, True
 
 
-FLEET_IMPORT_CODE = ("import sys; sys.path.insert(0, sys.argv[1]); "
+# 게이트웨이와 같은 규칙: relay 루트를 앞에, 형제 pinky_lane_station 소스(도로망 정본 구현)를 **뒤에** 붙인다(있을 때만 —
+# 실물은 install/setup.bash 가 준다).
+FLEET_IMPORT_CODE = ("import os, sys; sys.path.insert(0, sys.argv[1]); "
+                     "_l = os.path.join(os.path.dirname(sys.argv[1]), 'pinky_lane_station'); "
+                     "os.path.isdir(os.path.join(_l, 'pinky_lane_station')) and sys.path.append(_l); "
                      "from fleet.fleet_coordinator import RelayFleetCoordinator")
 
 
@@ -232,7 +236,7 @@ def main(argv=None):
 
     # 제3자 검수 G-1: 플릿 코디네이터 — --quiet 여도 문제는 찍는다(조용한 실패가 이 항목의 결함이었다)
     # 제3자 재검 GW-R2: 게이트웨이가 **실제로 뜨는 폴더**로 본다. 레포 폴더만 보면 실행본 본체가 사본이 됐을 때(§14-3 G-B 회귀)
-    #     게이트웨이는 fleet 을 못 찾는데 여기는 '정상' 이라 한다. 농장의 다른 파일(robot1_mission_navigator.py 등)까지
+    #     게이트웨이는 fleet 을 못 찾는데 여기는 '정상' 이라 한다. 농장의 다른 파일(옛 robot1_mission_navigator.py 등)까지
     #     소스 검사에 끌어들이지 않도록 이 검사만 옮긴다.
     fleet_problem = fleet_import_problem(args.exec_dir or args.gateway_dir)
     if fleet_problem:

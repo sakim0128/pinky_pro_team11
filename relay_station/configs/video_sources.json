@@ -12,7 +12,7 @@
     "  PORTABLE 사용자가 들고 다니며 켜고 끈다. 네트워크 도달도 장소에 따라 다르다.",
     "           phone, tablet-relay (pull)",
     "  ROBOT    로봇이 떠 있어야 한다. 현재 Publisher 0.",
-    "           robot1, robot2 (ros)",
+    "           pinky1, pinky2 (ros)",
     "",
     "따라서 '실물 시점'은 relay-cam · phone · tablet-relay 셋뿐이고,",
     "MCVA-21(2시점 5cm 일치)은 그중 둘이 동시에 살아 있을 때만 판정된다.",

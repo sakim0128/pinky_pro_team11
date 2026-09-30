@@ -21,7 +21,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from .road_graph import project_to_polyline
+from pinky_lane_station.road_graph import project_to_polyline
 
 DEFAULT_RESERVE_AHEAD = 0.40
 DEFAULT_RELEASE_BEHIND = 0.25
@@ -104,6 +104,38 @@ class Reservation:
             self.node_holder[start] = name
         return slot
 
+    def assign_conflict(self, name, goal_node, start_node=None):
+        """(부딪히는 로봇, 이유) 또는 None — 코디네이터가 경로를 배정하기 **전에** 본다(L3). ROS 없이 돈다.
+
+        도착한 로봇은 목표 노드를 **계속** 잡으므로(mark_arrived) 그 자리를 누가 지나가야 하면 영영 못 간다 — 그런 배정은
+        여기서 거절한다. L3 (관제 검수 §3.1): 같은 목표 노드. 직렬 검토(L3 후속): 목표가 다른 로봇의 경로 **위**이거나,
+        새 경로가 다른 로봇의 목표·도착해 선 자리를 **지나면** 한쪽이 서는 순간 다른 쪽이 경고도 없이 영구 대기했다.
+        2026-09-29(map5 임시 미션 pinky1 BL→TR · pinky2 BR→BL): register 는 출발 노드도 잡는다(BL = pinky1 출발 = pinky2 목표).
+        그 잡음은 로봇이 떠나면 풀리므로(release_behind) 거절 사유가 아니다 — **도착해 선(finished) 로봇**이 잡은 노드만 본다.
+        아직 출발 전이면 pinky2 는 J 앞에서 pinky1 이 BL·BL_J 를 놓을 때까지 기다린다(blocked_by 로 화면에 보인다).
+        """
+        for other, slot in self.robots.items():
+            if other == name:
+                continue
+            if slot.route.node_ids[-1] == goal_node:
+                return other, f'{other} 가 이미 목표 노드 {goal_node} 로 간다(도착한 로봇은 목표 노드를 계속 잡는다)'
+            if not slot.finished and goal_node in slot.route.node_ids[1:-1]:
+                return other, (f'목표 {goal_node} 가 {other} 의 경로 위다 — 여기 도착해 서면 {other} 가 지나가지 못한다')
+        holder = self.node_holder.get(goal_node)
+        if holder not in (None, name) and getattr(self.robots.get(holder), 'finished', False):
+            return holder, f'{holder} 가 목표 노드 {goal_node} 에 도착해 서 있다'
+        if start_node:
+            try:
+                path = self.graph.shortest_route(start_node, goal_node, step=0.10).node_ids
+            except Exception:                                   # noqa: BLE001 — 경로가 없으면 assign_route 가 말한다
+                return None
+            # 도착한 로봇이 잡는 노드는 제 목표뿐이다(mark_arrived) — 목표만 보면 도착해 선 자리도 걸린다
+            for nid in path[1:-1]:
+                for other, slot in self.robots.items():
+                    if other != name and slot.route.node_ids[-1] == nid:
+                        return other, (f'경로가 {other} 의 목표 {nid} 를 지난다 — {other} 가 도착해 서면 지나가지 못한다')
+        return None
+
     def remove(self, name):
         if self.robots.pop(name, None) is None:
             return
@@ -169,6 +201,23 @@ class Reservation:
             return
         idx = max(0, min(len(slot.cum) - 1, int(idx)))
         slot.reported_s = slot.cum[idx]
+
+    def request_next_now(self, name):
+        """거리와 무관하게 다음 엣지 요청을 지금 등록한다 (2026-09-29 교차로 규칙).
+
+        로봇이 정지선을 보고 JUNCTION_STOP 을 보고하면 코디네이터가 부른다 — 정지선이 reserve_ahead 보다 멀어도
+        요청이 서고, 선착순(요청 틱, 같은 틱이면 domain_id) 은 그대로다. 이미 요청했으면 그 틱을 지킨다.
+        반환: 요청한 엣지 id ('' 이면 없음 — 도착·마지막 엣지 뒤).
+        """
+        slot = self.robots.get(name)
+        if slot is None:
+            return ''
+        k = slot.next_edge_k
+        if slot.finished or k >= slot.n_edges:
+            return ''
+        eid = slot.route.edge_ids[k]
+        self.request_tick.setdefault((eid, name), self._tick)
+        return eid
 
     def _lead(self, slot):
         """다음 엣지 요청에 쓰는 진행도 — 가장 앞선 추정. 시험·도구가 progress_s 를 직접 올려도 따라간다.

@@ -41,7 +41,7 @@ def test_좌표를_한_번도_못_받아도_죽지_않는다(tmp_path):
     """🔴 뮤테이션 표적 — HUD 가드를 지우면 여기서 빨개진다."""
     r = _renderer(tmp_path)
     try:
-        for rid in ("robot1", "robot2", "gazebo_sim"):
+        for rid in ("pinky1", "pinky2", "gazebo_sim"):
             assert r.robots[rid]["x"] is None      # 지어낸 기본값이 없다
         assert r.thread is None
         assert r.is_running is False
@@ -53,18 +53,18 @@ def test_좌표를_한_번도_못_받아도_죽지_않는다(tmp_path):
 def test_좌표를_받으면_보고에_실리고_못_받으면_키가_없다(tmp_path):
     r = _renderer(tmp_path)
     try:
-        before = r.get_robot_data()["robot1"]
+        before = r.get_robot_data()["pinky1"]
         assert before["observed"] is False
         assert "x" not in before and "y" not in before and "yaw" not in before
 
-        r.update_robot_pose("robot1", 0.4, -0.2, 1.0)
-        after = r.get_robot_data()["robot1"]
+        r.update_robot_pose("pinky1", 0.4, -0.2, 1.0)
+        after = r.get_robot_data()["pinky1"]
         assert after["observed"] is True
         assert after["x"] == 0.4 and after["y"] == -0.2 and after["yaw"] == 1.0
 
         # 안 받은 로봇은 여전히 키가 없다 — 하나 받았다고 전부 관측이 되지 않는다
-        assert r.get_robot_data()["robot2"]["observed"] is False
-        assert "x" not in r.get_robot_data()["robot2"]
+        assert r.get_robot_data()["pinky2"]["observed"] is False
+        assert "x" not in r.get_robot_data()["pinky2"]
     finally:
         r.is_running = False
 
@@ -81,8 +81,8 @@ def test_좌표를_받은_뒤에도_스레드가_살아_있다(tmp_path):
     """숫자가 들어온 경로도 밟아 본다 — 좌표 갱신 후에도 안전하게 유지되는지."""
     r = _renderer(tmp_path)
     try:
-        r.update_robot_pose("robot1", 1.0, 2.0, 0.5)
-        r.update_robot_pose("robot2", -1.0, 0.0, -0.5)
+        r.update_robot_pose("pinky1", 1.0, 2.0, 0.5)
+        r.update_robot_pose("pinky2", -1.0, 0.0, -0.5)
         assert r.thread is None
         assert r.get_latest_jpeg()
     finally:

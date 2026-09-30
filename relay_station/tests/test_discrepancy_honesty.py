@@ -109,7 +109,27 @@ def test_같은_자리면_0_이_나온다_그건_진짜_0_이다():
     assert out["dist_err_cm"] == 0.0
 
 
+def test_화면이_state_를_먼저_본다():
+    """숫자를 쓰기 **전에** 게이트가 있어야 한다. 뒤에 있으면 이미 그린 뒤다."""
+    page = _page_without_comments()
+    gate = page.find("disc.state !== 'MEASURED'")
+    assert gate != -1, "화면에 state 게이트가 없다"
+    use = page.find("disc.dist_err_cm")
+    assert use != -1, "오차를 쓰는 자리가 없다 — 검사 대상이 사라졌나"
+    assert gate < use, "게이트가 숫자 사용보다 뒤에 있다"
 
 
+def test_초록_배지는_잰_경우에만_도달한다():
+    """`극우수` 배지가 게이트보다 앞에 있으면 안 잰 값에도 붙는다."""
+    page = _page_without_comments()
+    gate = page.find("disc.state !== 'MEASURED'")
+    green = page.find("실측 일치 극우수")
+    assert green != -1, "초록 배지 문구가 사라졌다 — 검사 대상 확인 필요"
+    assert gate < green, "초록 배지가 게이트보다 앞에 있다"
 
 
+def test_정착시각이_1970_으로_안_뜬다():
+    """`settledAt || 0` 은 Date(0) 이라 '정착한 적 없음' 이 '1970년에 정착함' 이 된다."""
+    page = open(PAGE, encoding="utf-8").read()
+    assert "settledAt || 0" not in page, "settledAt 이 아직 0 으로 떨어진다"
+    assert "r.settledAt ?" in page, "settledAt 존재 검사가 없다"

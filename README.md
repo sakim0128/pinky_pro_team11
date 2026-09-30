@@ -1,12 +1,12 @@
-# pinky_pro_team11 — mini_project_2 · 도로망 위 2대 차선 추종 자율주행
+# pinky_pro_team11 — 핑키 2대 비전 차선 주행 · 중계 관제 · 교차로 선착순
 
-[Pinky Pro](https://github.com/pinklab-art/pinky_pro) **2대**가 각자 시작점에서 목적지까지, 마스킹 테이프로 만든
-**분기가 있는 도로망**을 카메라로 차선을 인식해 주행한다. 관제 PC 가 라이다 맵 위 도로망 그래프에서
-경로를 계산해 로봇에 주고, 로봇은 그 경로를 따라가되 **좌우 위치는 카메라가 본 차선 중앙**으로 맞춘다.
-두 대가 폭 20 cm 도로에서 마주치면 비켜갈 길이 없으므로, 관제가 구간을 **예약**해 마주침 자체를 막는다.
+[Pinky Pro](https://github.com/pinklab-art/pinky_pro) **2대**가 마스킹 테이프 도로망 위에서 각자 시작점 → 목적지로 간다.
+로봇은 **카메라 세그멘테이션(왼쪽·오른쪽 차선)의 중점**을 따라 달리고, 천장 카메라(항공뷰 ArUco)가 준 **맵 위 위치**로
+도로망 경로(어느 길로)를 따른다. 교차로는 **정지선**을 보면 일단 서고, 관제가 **먼저 도착한 로봇**에게 통과를 허가한다.
+시작점·목적지는 관제 PC yaml 이 아니라 **웹(relay :8889)** 에서 고른다.
 
-> mini_project_1(2 대 멀티로봇 관제) 문서는 [`docs/mini_project_1.md`](docs/mini_project_1.md).
-> 이 브랜치는 그 코드에서 분기했고, AMCL·데드맨 스위치·브릿지·GUI 를 그대로 재사용한다.
+> 이 문서는 통합 브랜치(`mini_project_integration` → 작업 브랜치 `mini_project_integration_stand`, 2026-09-29) 기준이다.
+> 결정·변경 이력은 [`docs/integration/status.md`](docs/integration/status.md), mini_project_1(Nav2 2대 관제)은 [`docs/mini_project_1.md`](docs/mini_project_1.md).
 
 ---
 
@@ -14,307 +14,222 @@
 
 | # | 요구 | 구현 |
 |---|---|---|
-| 1 | **차선 추종** | YOLO-seg `lane` 인스턴스 중 화면 중앙에 가장 가까운 좌/우 쌍 → 중점 |
-| 2 | **중앙 정렬** | `ErrorX = target_x − 화면중앙` 을 각속도 보정항으로, 20 Hz. **좌우 위치는 100 % 카메라** |
-| 3 | **횡단보도 정지** 후 재주행 | `crosswalk` 인스턴스 하단 y 임계 → 3 s 정지 → 주행거리 기준 재래치 방지 |
-| 4 | **장애물 정지**, 제거 시 **자동 재개** | 라이다 전방 섹터 + 초음파 → 1 s 비면 복귀 |
-| + | 시작·목적지 지정, **2대 동시** | 도로망 그래프 경로 계획 + 구간 예약 (관제) |
-
-**코스**: 회색 카펫 + 흰 테이프, 흰 폼보드 벽, 도로 폭 약 20~25 cm, 분기·루프·횡단보도 2곳, 직각에 가까운 코너 다수.
+| 1 | **차선 추종** | YOLO-seg `left_lane`/`right_lane` → 샘플 행에서 좌/우 x → 중점 (차선 ≥ 3 이면 클래스 기준 가장 바깥 쌍) |
+| 2 | **중앙 정렬** | `error_x = (target_x − W/2)/(W/2)` 를 각속도 보정항으로, 20 Hz. 좌우 위치는 100 % 카메라 |
+| 3 | **횡단보도 정지** 후 재주행 | `crosswalk` 하단 y ≥ 0.8·H, 3 프레임 확정 → 3 s 정지 → 0.6 m 재래치 방지 |
+| 4 | **장애물 정지**, 제거 시 **자동 재개** | 라이다 전방 섹터 + 초음파 → 1 s 비면 복귀. `barricade` 클래스도 정지 트리거 |
+| + | 시작·목적지 지정, **2대 동시**, **교차로** | 웹 배정 → 도로망 경로 + 구간 예약(선착순) + 정지선 `JUNCTION_STOP` → 허가 뒤 통과 |
 
 ---
 
-## 왜 카메라만으로는 안 되는가
-
-분기가 있으면 차선 추종은 세 가지를 모른다: **갈림길에서 어느 쪽**, **여기가 목적지인지**, **교차로에서 어느 차선 쌍이 내 길인지**.
-셋 다 "맵 위 내 위치"가 있어야 풀린다. 라이다 맵과 mini_project_1 의 AMCL 이 이미 있으므로 **위치 파악용으로만** 살린다
-(`localization_launch.xml` — map_server + AMCL. planner/controller 는 띄우지 않는다).
-
-AMCL 은 5 cm 쯤 흔들려서 차선 중앙 유지에는 못 쓴다. 그건 카메라만 할 수 있다. 역할이 나뉜다:
-**맵 경로 = 어느 길로, 카메라 = 그 길의 어디에.**
-
----
-
-## 아키텍처
+## 아키텍처 (2026-09-29 결정: 코디네이터·웹·도로망·지도·로봇 이름 각 하나)
 
 ```mermaid
 flowchart LR
-    subgraph PC["관제 PC · domain 0"]
-        G[road_graph.yaml<br/>노드·엣지] --> RP[route_planner<br/>Dijkstra]
-        RP -->|Route| B
-        RS[reservation<br/>엣지 배타 점유] -->|clear_until| B
-        P[lane_pipeline_node<br/>YOLO-seg → 좌/우 쌍 → ErrorX] -->|LanePath 0.3 s| B
-        GUI[fleet_gui 확장<br/>그래프 편집 · 시작/목적지 · 예약 표시]
-        B[domain_bridge]
+    subgraph PC["중계 PC · ROS domain 8"]
+        GW["gateway_web_server :8889<br/>fleet_control_v2 (미션 배정 · 시작/정지 · 상태)<br/>+ RelayFleetCoordinator (경로 · 예약 · LaneCommand)"]
+        LP["lane_pipeline_node<br/>YOLO-seg → 좌/우 쌍 · 횡단보도 · 바리게이트 · 정지선 → LanePath"]
+        OC["overhead_camera_node → overhead_tracker_node<br/>천장 웹캠 ArUco → /pinkyN/overhead_pose"]
+        LW["live_web_node :8080<br/>(조회 전용, map5)"]
+        B["domain_bridge (8 ↔ 10 · 11)"]
     end
-    subgraph R["핑키 N · domain 10/11"]
-        AM[map_server + amcl<br/>위치만] --> LA
-        CAM[camera_node<br/>picamera2 → 반전 보정 → JPEG] -->|image/compressed| B
-        OG[obstacle_guard<br/>/scan + /us_sensor/range] --> LA
-        LA[lane_agent_node<br/>경로 pure-pursuit + 카메라 보정<br/>FSM · /cmd_vel 유일 발행자]
-        LA -->|LaneStatus · RobotState| B
+    subgraph R["핑키 N · domain 10 / 11"]
+        CAM["camera_node → /pinkyN/camera/image/compressed"]
+        PF["pose_fuser_node<br/>overhead_pose + odom → map→odom TF"]
+        LA["lane_agent_node (/cmd_vel 유일 발행자)<br/>route pure-pursuit + 카메라 보정 · FSM · 장애물 가드"]
     end
-    B -->|Route · LanePath · LaneCommand| LA
+    GW -->|Route · LaneCommand · FleetCommand| B --> LA
+    LP -->|LanePath 0.3 s| B
+    OC -->|overhead_pose| B --> PF --> LA
+    CAM --> B --> LP
+    LA -->|LaneStatus · RobotState| B --> GW
+    B --> LW
 ```
 
 ### 원칙
-1. `/cmd_vel` 발행자는 `lane_agent_node` 하나. Nav2 controller/planner 없음.
-2. **정지 권한은 로봇.** 관제는 "가도 되는 지점"(`clear_until`)과 "무엇이 보이는지"만 준다. 관제가 죽으면 로봇은 `link_watch` 로 멈춘다.
-3. 이미지 stamp 는 로봇이 찍고 이후 복사만. 두 기기 시계는 만나지 않는다.
+1. `/cmd_vel` 발행자는 로봇의 `lane_agent_node` 하나. Nav2 planner/controller 는 쓰지 않는다 (Nav2 하이브리드 스택은 삭제).
+2. **정지 권한은 로봇.** 관제는 "가도 되는 지점"(`clear_until`)과 "무엇이 보이는지"(LanePath)만 준다. 관제가 죽으면 `link_watch` 로 멈춘다.
+3. 위치는 항공뷰. 마커가 3 s 안 보이면 TF 를 끊어 로봇이 선다 (odom 만 믿고 오래 달리지 않는다).
+4. 이름은 `pinky1`·`pinky2` 하나. 토픽은 `/pinkyN/...`, 관제 도메인 8, 로봇 10·11.
 
 ---
 
-## 설계
+## 주행 규칙 (로봇 `lane_agent_node` · ROS-free `lane_driver`/`drive_fsm`)
 
-### 도로망 그래프 (`config/road_graph.yaml`)
-노드(끝점·분기·횡단보도, map 좌표) + 엣지(구간 중심선 폴리라인, 0.10 m 간격). 기존 `MapCanvas` 클릭으로 편집하고,
-라이다 맵 위에 항공 사진을 반투명으로 겹쳐 놓고 찍는다. 코스가 테이프라 바뀔 수 있으니 편집이 쉬워야 한다.
-중심선 정확도는 ±5 cm 면 충분하다 — 나머지는 카메라가 메운다.
+우선순위: `ESTOP > LINK_LOST > OBSTACLE_WAIT > BARRICADE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_CLEAR > JUNCTION_STOP > JUNCTION_PASS > ARRIVED > LANE_SEARCH > LANE_LOST > CRUISE > IDLE`
 
-### 구간 예약 (관제)
 ```
-매 틱, domain_id 오름차순:
-  뒤 엣지 해제 — 끝 노드를 0.15 m 지나면
-  앞 엣지 예약 — 시작까지 0.40 m 이내이고 비어 있으면 점유 → clear_until 연장
-로봇은 clear_until 웨이포인트에서 정지(WAIT_CLEARANCE), 연장되면 재출발
-```
-같은 엣지 반대 방향 마주침은 배타 점유로 **구조적으로** 불가능하다. 2대 상호 대기 교착(서로의 다음 엣지를 서로가 점유)은
-감지해 GUI 경고 + 수동 양보 버튼만 둔다 — 폭 20 cm 도로에서 자동 후진은 위험하다. 데모 시나리오는 시작·목적지 조합을
-그래프로 미리 검토해 이 경우를 피한다.
-
-### 인식 (관제 `lane_pipeline_node`)
-```
-lane 인스턴스마다 샘플 행 y = 0.72·H 에서 폴리곤 교차 x
-  좌 = x < W/2 중 최대, 우 = x > W/2 중 최소            # 화면 중앙에 가장 가까운 쌍
-  BOTH: 중점 · SINGLE: 보이는 쪽 ± half_lane_px(관측 이력 중앙값) · LOST
-error_x = (target_x − W/2)/(W/2)
-crosswalk 인스턴스 최하단 y ≥ stop_row_px → N 프레임 확정
-```
-**분기 모드**: 관제가 로봇 pose 로 분기 노드 반경 0.25 m 안임을 알면 `quality=JUNCTION` 을 보낸다. 로봇은 카메라 보정을
-끄고 맵 경로만 따른다. 교차로에서 차선 쌍이 모호해지는 문제를 풀지 않고 **회피**한다.
-샘플 행 방식을 쓰는 이유: 곡선 차선의 중심점(moments)은 화면 중앙을 넘어갈 수 있다.
-
-### 제어 (로봇 `lane_agent_node`, 20 Hz)
-```
-P   = Route lookahead(0.25 m) 점 → TF 로 로봇 좌표
-ω_route = 2·v·sin(atan2(P.y, P.x)) / L_d            # pure pursuit
-ω_cam   = −(Kp·error_x + Kd·Δerror_x/Δt)
+P   = Route lookahead(0.25 m) 점 → 로봇 좌표
+ω_route = 2·v·sin(atan2(P.y, P.x)) / L_d                 # pure pursuit (어느 길로)
+ω_cam   = −(Kp·error_x + Kd·Δerror_x/Δt)                  # 차선 중앙 (그 길의 어디에)
 ω = ω_route + w_cam·ω_cam,   w_cam = BOTH 1.0 · SINGLE 0.5 · JUNCTION/LOST/STALE 0
-v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),  clear_until 앞에서 감속·정지
+v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until 앞에서 감속·정지
 ```
-카메라가 차선을 못 봐도 맵 경로가 끌고 간다 — v2 의 "블라인드 선회"가 필요 없어진다. 대신 `w_cam=0` 이 0.6 m 이상
-이어지면 감속·경고(AMCL 만 믿고 오래 달리지 않는다).
 
-### 주행 FSM (로봇)
-```
-ESTOP > LINK_LOST > OBSTACLE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP > CROSSWALK_CLEAR
-      > ARRIVED > DRIVE(BOTH / SINGLE / JUNCTION / BLIND) > IDLE
-```
-- **OBSTACLE_WAIT** — 라이다(±35°, 0.18 m) 또는 초음파 ≤ 0.20 m, 2 연속 → 정지. 1 s 비면 **자동 복귀**. 상대 핑키인지 구분하지 않는다 — 예약이 제대로면 여기 오지 않고, 와도 동작은 같다.
-- **WAIT_CLEARANCE** — `clear_until` 도달 후 관제 연장 대기. `state_reason = "J1→C1 대기 (pinky1 점유)"`.
-- **CROSSWALK_STOP** — 확정 후 3.0 s → CLEAR. 재래치는 `travelled ≥ crosswalk_len + 0.25 m`. 그래프의 crosswalk 노드 반경 밖 트리거는 무시(오검출 방어).
-- **ARRIVED** — 목적지 노드 0.10 m 이내 → 정지, 점유 전부 해제.
-- 정지 중에도 zero Twist 20 Hz. 종료 시 작별 스핀. 영상·`LanePath` 는 BEST_EFFORT depth 1 — RELIABLE 은 재연결 시 낡은 값을 재생해 로봇을 혼자 움직인다.
+- **차선 쌍**: ≤ 2개면 화면 중앙에 가장 가까운 좌/우, ≥ 3개면 모델 클래스 기준 가장 바깥 쌍. 쌍이 0.5 s 안 보이면 `LANE_SEARCH`(제자리 회전 0.4 rad/s, 8 s 넘기면 정지).
+- **횡단보도**: 3 s 정지 → 통과, 재래치는 주행거리 0.6 m. 그래프 crosswalk 노드 반경 밖 트리거는 무시.
+- **장애물**: 라이다(±35°, 0.18 m) 또는 초음파 ≤ 0.20 m, 2 연속 → 정지, 1 s 비면 자동 복귀. **바리게이트**: 카메라 확정 → 정지, 1 s 안 보이면 재출발.
+- **교차로 (정지선 · 선착순)**:
 
-### 카메라로 핑키를 인식하지 않는 이유
-라이다(12.5 cm)가 핑키(14 cm)를 잡고, 관제가 두 로봇 위치를 안다. "전방에 뭔가 있음 + 상대가 그 근처" = 핑키, 아니면 장애물.
-클래스 추가·라벨링 없이 구분되고, 어차피 둘 다 "일단 멈춤"이다.
+```
+로봇  정지선(LanePath.stop_line_detected, 경로상 다음 분기 노드 ≤ stop_line_zone 0.6 m) 또는 분기 반경 0.25 m → JUNCTION_STOP (v=0)
+      → LaneStatus drive_state=12 보고
+관제  JUNCTION_STOP 보고 → 거리와 무관하게 다음 엣지 요청 등록 (reservation.request_next_now)
+      → 예약이 선착순(요청 틱, 같은 틱이면 domain_id 작은 쪽) 으로 분기 노드 + 다음 엣지를 한 로봇에만 → CLEARANCE(clear_until > 분기 idx)
+로봇  1 s 지났고 허가 있음 → JUNCTION_PASS (카메라 끄고 경로만, v_max×0.4) → 차선 쌍 0.3 s 보이면 CRUISE.  허가 없음 → "교차로 대기" 로 계속 정지
+관제  통과한 로봇이 노드를 0.25 m 지나면 놓는다 → 다음 로봇 허가
+```
+
+  정지선은 분기 노드 **0.1 m 이내** 앞에 붙인다. 정지선 클래스는 **아직 모델에 없다** — `pinky_lane_station/config/detector_yolo.yaml` 의
+  `# stop_line: [<id>]` 를 재학습 뒤 채운다. 그 전엔 분기 반경(항공뷰 위치) 트리거만 동작한다. lane_only 모드는 정지선만으로 1 s 정지 뒤 통과.
+  파라미터: `stop_line_zone`, `junction_wait_clearance`(false 면 예전처럼 1 s 뒤 통과), `fsm.junction_stop_seconds` (`pinky_fleet_agent/params/lane_agent.yaml`).
 
 ---
 
-## 차선만 추종 테스트 (경로·위치추정 없이)
+## 비전 미션 모드 (2026-09-30) — 위치추정 없이 카메라로 달리고 교차로만 고정 동작
 
-YOLO 모델이 나온 뒤 첫 실차 테스트. 시작·목적지 없이 기동 즉시 카메라가 본 좌/우 차선의 중앙을 따라간다.
-횡단보도 3 s 정지·장애물 정지·카메라 끊김 정지는 그대로 동작한다.
+항공뷰 없이 돈다. 코스: T자 교차로 하나, 1번(오른쪽 위 끝) · 2번(왼쪽 아래) · 3번(아래 가운데, 교차로 오른쪽 가지).
 
-**모델**: 가중치는 git 밖, 관제 PC `~/models/lane_26n.pt`. `pinky_lane_station/config/detector_yolo.yaml` 이 가리킨다.
-모델 클래스 0 → `left_lane`, 2 → `right_lane` (라벨은 차선이 3개 이상일 때만 쓰고, 2개 이하면 화면 위치로 정한다). 1 은 `crosswalk`,
-5 `barricade` 는 정지 트리거, 3 라바콘·4 신호등은 오버레이 표시용.
-yolo26 은 `pip install -U ultralytics`(8.4+). 학습 입력이 448×320 이라 `imgsz 448`(긴 변). 관제 PC 는 CPU, p95 > 100 ms 면 320 으로.
+| 시나리오 | 로봇 | 경로 | 교차로 동작 (임시값) | 출발 | 도착 정지선 |
+|---|---|---|---|---|---|
+| s1 (교차로에서 만남) | pinky1 | 2 → 1 | 직진 0.35 m | 0 s | 통행권 순서로: 먼저 지난 로봇 2번째(앞), 나중 1번째(뒤) |
+| s1 | pinky2 | 3 → 1 | 직진 0.18 → 우회전 90° → 직진 0.10 | 0 s | 〃 |
+| s2 (순차 출발) | pinky1 | 1 → 2 | 직진 0.35 m | 0 s | 1번째 |
+| s2 | pinky2 | 1 → 3 | 직진 0.18 → 좌회전 90° → 직진 0.10 | 10 s | 1번째 |
 
-**상위 50 % 마스킹**: 학습 때 이미지 상위 50 % 를 검정으로 채웠으므로 추론 입력도 똑같이 채운다
-(`pipeline.mask_top_frac: 0.50`, `pipeline_image.mask_top`). 관제 화면(`/pinky1/lane_debug/compressed`)은 **마스킹하지 않은 원본** 위에
-검출 바운딩박스(클래스·conf)·차선 중심점(빨간 원)·좌/우 샘플점(초록)·샘플 행·정지 행을 그린다. 회색 점선이 마스크 경계 —
-그 위쪽에 박스가 하나도 없어야 정상(모델이 그 영역을 못 본다). 세그 폴리곤까지 보려면 `pipeline.debug_polygons: true`.
-
-```bash
-# 관제 PC — 모델 로드·속도 확인 (ROS 불필요)
-python3 -m pinky_lane_station.bench_detector --config pinky_lane_station/config/detector_yolo.yaml --synthetic
-
-# 로봇 — 먼저 auto_start 없이 띄워 세그·부호를 본다
-export ROS_DOMAIN_ID=10
-ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 camera_orient:=rot180
-
-# 관제 PC — 브릿지 + 인식 파이프라인만 (coordinator 없음)
-export ROS_DOMAIN_ID=0
-ros2 launch pinky_lane_station lane_station.launch.xml use_coordinator:=False
-ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed     # 원본 + bbox + 차선 중심점 실시간
-ros2 topic echo /pinky1/lane_path                                        # quality · error_x_norm · crosswalk_detected
-ros2 topic echo /pinky1/scene_state                                      # infer_ms · fps · lane_count
-
-# 부호 확인: 로봇을 차선 왼쪽에 놓으면 error_x_norm > 0 이어야 한다. 반대면 launch 에 cam_sign:=-1.0
-# 주행
-ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True v_max:=0.10
-ros2 topic pub -1 /pinky1/lane_command pinky_lane_msgs/msg/LaneCommand "{command: 2}"   # STOP (3 ESTOP, 4 RESUME, 1 START)
+```
+로봇  차선 주행(카메라) → 빨간 테이프(YOLO red_line, 화면 하단 0.80·H) 앞 JUNCTION_STOP (1 s + 관제 허가 대기)
+관제  교차로 통행권 하나: 먼저 정지를 보고한 로봇 먼저, 0.5 s 안이면 domain_id 작은 쪽(pinky1=10)
+로봇  허가(CLEARANCE 1) → 고정 동작(odom, 장애물에 끊기면 남은 양만 이어서) → 차선 쌍이 보이면 주행, 안 보이면 방금 돈 쪽으로 탐색 회전
+관제  통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아간 순간 반납 → 다음 로봇 허가
+로봇  교차로 뒤 흰 정지선(영상 처리)을 N 번째 만나면 그 앞에서 도착. 출발 지점 정지선은 교차로 전이라 세지 않는다
+공통  장애물(라이다 상자 0.18 m = 앞면 8 cm + 10 cm, 초음파 0.10 m) 에서 정지, 치워지면 1 s 뒤 재출발
 ```
 
-값의 흐름: 로봇 `camera_node` → `/pinky1/camera/image/compressed` → 관제 `lane_pipeline_node`(YOLO → 폴리곤 → 0.72·H 행에서 좌/우 x →
-중앙 → `error_x_norm`, 횡단보도 하단 y ≥ 0.8·H) → `/pinky1/lane_path` → 로봇 `lane_agent_node`(lane_only: ω = −Kp·e − Kd·ė,
-v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. LanePath 가 0.9 s 끊기면 정지.
+- 설정: 교차로 동작·시나리오 `pinky_lane_station/config/vision_mission.yaml`(관제), 흰 정지선 임계값 `detector_yolo.yaml` 의 `stop_line:`,
+  빨간 테이프는 모델 클래스 이름 `red_line`(`class_map`), 로봇 튜닝 `lane_agent.yaml`(`maneuver:` · `guard.us_stop` · `stop_line_min_gap`).
+- 현장 준비: 1번 지점 흰 정지선 두 개(간격 30 cm 이상), 2·3번에 하나씩. 로봇은 각 출발 지점에 차선 방향으로.
 
-**차선 규칙 (D14)**
-- 차선 ≤ 2개: 화면 중앙에 가장 가까운 좌/우 쌍. **≥ 3개**: 모델 클래스 기준 가장 바깥 쌍 — 왼쪽 클래스 중 가장 왼쪽,
-  오른쪽 클래스 중 가장 오른쪽 (왼쪽 1 + 오른쪽 2 면 오른쪽은 왼쪽과 가장 먼 것). 클래스가 위치와 모순이면 위치 규칙. `scene_state.pair_rule` 로 확인.
-- 차선 쌍이 0.5 s 이상 안 보이면(한쪽만 보이거나 없음) `LANE_SEARCH`: 제자리 회전 0.4 rad/s. 방향은 경로가 있으면 다음 웨이포인트 쪽,
-  없으면 안 보이는 차선 쪽(왼쪽만 보이면 우회전). 쌍이 0.3 s 이어지면 주행 복귀, 8 s 넘기면 정지(`state_reason` 에 실패).
-  끄려면 `fsm.lane_search: false` (그때는 0.6 s 직전 명령 유지 후 정지).
-- 횡단보도: 하단 y ≥ 0.8·H 에서 3 프레임 확정 → 3 s 정지 → 0.6 m 재래치. 바리게이트: 같은 조건으로 확정 → `BARRICADE_WAIT`,
-  10 프레임(≈1 s) 안 보이면 자동 재출발. 라이다 장애물 정지와 겹쳐 동작한다.
-- 교차로(경로 모드만): 항공뷰 위치가 그래프 분기 노드 반경 0.25 m 에 들어오면 `JUNCTION_STOP` 1 s → `JUNCTION_PASS`
-  (카메라 끄고 경로 pure-pursuit, v_max × 0.4) → 반경 밖에서 차선 쌍이 0.3 s 보이면 주행 복귀. 0.6 m 재래치.
-- 메시지가 바뀌었으므로 **양쪽 모두 `pinky_lane_msgs` 재빌드** (LanePath.barricade_*, SceneState 좌/우 수, LaneStatus 10~13).
+```bash
+# 관제 PC (도메인 0 예) — 브리지 + 인식, 그리고 게이트웨이를 비전 모드로
+ros2 launch pinky_lane_station lane_station.launch.xml pinky1_domain:=10 pinky2_domain:=11
+python3 relay_station/gateway_web/gateway_web_server.py --port 8889 --map-yaml pinky_fleet_station/config/map5.yaml --no-camera --vision
+# 핑키 (각각) — lane_only, auto_start 없이 (관제가 계획·START 를 준다)
+ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 v_max:=0.15
+# 웹 http://<관제 PC>:8889/fleet_control_v2.html → 대시보드 "시나리오 1 시작" / "시나리오 2 시작" · 일시정지 · 재시작 · 비상정지
+```
+
+실물 없이 도커로 돌려 보기(시나리오 폐루프 · 태블릿 가상 카메라 · 게이트웨이 `--vision`): [`docs/integration/mock_test.md`](docs/integration/mock_test.md).
+
+로봇 둘(핑키1 팀 방식 · 핑키2 Nav2)을 도커로 두고 실제 중계 · 태블릿에 녹화 영상을 먹이는 시험 시나리오: [`docs/integration/mixed_fleet_test.md`](docs/integration/mixed_fleet_test.md).
+
+현장 조정 순서: 로봇 1대로 경로마다 교차로 동작 값 재기(`vision_mission.yaml` 고치고 게이트웨이만 재시작) → 시나리오 2 → 시나리오 1.
+인식 확인은 `python3 tools/view_image.py /pinky1/lane_debug/compressed` (상단 글자 `red=` `stop=`, 흰 정지선은 분홍 상자).
 
 ---
 
-## 항공뷰 위치추정 (관제 `overhead_tracker_node` → 로봇 `pose_fuser_node`)
+## 운영 (웹에서 시작점·목적지 → 출발)
 
-AMCL 대신 천장 웹캠이 핑키 머리 위 ArUco(id 1/2) 를 보고 map 좌표를 준다. 관제 노드(팀원, `pinky_fleet_station`) 는
-yaml 의 고정 호모그래피로 `/pinkyN/overhead_pose`(PoseStamped, map) 를 발행하고, 브릿지(`bridge_lane.yaml`) 가 로봇으로 넘기면
-로봇 `pose_fuser_node` 가 수신 시각 − `station_latency`(0.15 s) 의 odom 에 붙여 map→odom TF 를 발행한다.
-같은 노드가 `/pinkyN/pose_fix`(PoseFix, 중계 비전 API·바닥 마커) 도 받는다. 중계 PC(domain 8) 구성에서는 `overhead_pose` 가
-로봇으로 브릿지되지 않으므로(relay_station 설계) 그쪽에서는 `pose_fix` 로 넣는다. `lane_agent_node` 는 TF 만 읽는다.
-항공뷰가 `fix_timeout`(3 s) 끊기면 TF 를 끊어 로봇이 선다.
+브라우저 `http://<중계 PC>:8889/fleet_control_v2.html`
 
-```bash
-# 1) 캘리브레이션 (관제 PC, ROS 없이). 지도 네 꼭짓점 마커 id : map 좌표(m, 줄자로 잰 마커 중심)
-python3 tools/overhead_calib.py --device 0 --corners "40:0.10,0.10;41:2.25,0.10;42:2.25,1.15;43:0.10,1.15" \
-    --write pinky_fleet_station/config/overhead_tracker.yaml
-#    출력의 "로봇 마커 1: map (x, y)" 를 줄자와 비교 (5 cm 이내). 최대 재투영 오차 2 cm 넘으면 좌표 재측정
-# 2) 관제: 웹캠 → /overhead/camera/image/compressed 발행 노드 + 트래커
-ros2 launch pinky_fleet_station overhead_tracker.launch.xml
-ros2 topic echo /pinky1/overhead_pose
-# 3) 로봇: AMCL 없이 (lane_robot.launch.xml 을 위치추정 없이 띄우고 pose_fuser_node 를 더한다)
-ros2 launch pinky_fleet_agent lane_overhead.launch.xml robot_name:=pinky1 domain_id:=10
-ros2 topic echo /pinky1/fix_status          # accepted/rejected/age
-```
+1. **설정 탭 → "미션 배정"**: 로봇마다 시작/목적지(도로망 endpoint 노드 드롭다운) → **배정**. 같은 목적지, 다른 로봇 경로 안의 목적지는 서버가 거절(409).
+   API: `POST /api/fleet/assign {"robot":"pinky1","start":"BL","goal":"TR"}`. 목록은 `GET /api/fleet/profiles` 의 `graph.endpoints`.
+2. **③ 초기 위치 보내기** (출발 노드를 `CMD_SET_INITIAL_POSE` 로) — 항공뷰가 살아 있으면 pose_fuser 가 곧 덮어쓴다.
+3. **주행 시작** (`/api/fleet/start`). 일시정지 `stop` · 재개 `resume` · 비상정지 `estop` · 로봇별 `/api/pinkyN/stop|resume`.
+4. 대시보드 카드: `BL→TR`, drive_state(교차로 정지/통과 포함), 예약 `waiting_for`/`blocked_by`, `junction_wait_sec`.
 
-마커를 로봇 전방과 다르게 붙였으면 `marker_yaw_offset`(rad), 마커 중심이 `base_footprint` 앞에 있으면 `marker_offset_x`(m).
-꼭짓점 마커 id 와 로봇 마커 id(`overhead_tracker.yaml` 의 `pinky1_marker_id`) 는 팀원 설정을 따른다.
+움직이는 명령은 중계 PC 자신 또는 `relay_station/configs/control_allow.json` 에 허용된 노트북 한 사람만 낸다 ([`docs/integration/control_policy.md`](docs/integration/control_policy.md)).
 
-## 메시지 (`pinky_lane_msgs`, 신규)
+---
+
+## 지도 · 도로망
+
+- 운영 지도는 **map5** (`pinky_fleet_station/config/map5.yaml` + `config/maps/map5.pgm`, 236×128 셀, 0.01 m, 원점 [−0.01, −0.01] → x 0..2.36 m, y 0..1.28 m).
+- 도로망 정본은 **`pinky_lane_station/config/road_graph.yaml` 하나**. 중계 프로파일(`relay_station/fleet/config/profiles/team11_map5`)이 상대경로로 읽는다.
+  지금 좌표는 **임시**(BL 왼쪽 하단 · BR 오른쪽 하단 · TR 오른쪽 상단 · J 교차로) — 새 맵 위에서 `graph_editor` 로 다시 찍는다.
+- 편집: `ros2 run pinky_lane_station graph_editor -- --map pinky_fleet_station/config/map5.yaml --graph pinky_lane_station/config/road_graph.yaml`
+  (또는 텔레옵 주행 기록 `record_graph`). 시작·목적지 후보 = `type: endpoint` 노드, 교차로 = `type: junction`.
+
+---
+
+## 메시지 (`pinky_lane_msgs` · `pinky_fleet_msgs`)
 
 | 메시지 | 방향 | 핵심 필드 |
 |---|---|---|
-| `Route` | PC→로봇 (R, TL) | waypoints[] · edge_end_idx[] · edge_ids[] · goal_idx · crosswalk_idx[] · junction_idx[] |
-| `LanePath` | PC→로봇 (BE/1) | source_stamp · quality(BOTH/SINGLE/JUNCTION/STALE/LOST) · error_x_norm · left/right_x · half_lane_px |
-| `SceneState` | PC 내부 | crosswalk_detected · crosswalk_bottom_y · detector_name · infer_ms |
-| `LaneCommand` | PC→로봇 (R/10) | HEARTBEAT/START/STOP/ESTOP/RESUME/SET_SPEED · **clear_until_idx** |
-| `LaneStatus` | 로봇→PC (R/10) | state · state_reason · route_idx · edge_id · error_x_norm · path_age · lidar_min · us_range |
+| `Route` | 관제→로봇 (TRANSIENT_LOCAL) | waypoints[] · edge_end_idx[] · edge_ids[] · goal_idx · crosswalk_idx[] · junction_idx[] |
+| `LanePath` | 관제→로봇 (BEST_EFFORT/1) | quality(BOTH/SINGLE/JUNCTION/STALE/LOST) · error_x_norm · left/right_seen · crosswalk_detected · barricade_detected · **stop_line_detected** |
+| `LaneCommand` | 관제→로봇 (RELIABLE/10, 10 Hz) | HEARTBEAT/START/STOP/ESTOP/RESUME/SET_SPEED/CLEARANCE · route_seq · clear_until_idx |
+| `LaneStatus` | 로봇→관제 (10 Hz) | drive_state 0~13 (12 JUNCTION_STOP · 13 JUNCTION_PASS) · state_reason · route_idx · clear_until_idx · lane_quality |
+| `SceneState` | 관제 내부 | crosswalk/barricade/stop_line raw·detected·bottom_y·conf · lane_count · pair_rule · infer_ms |
+| `RobotState` / `FleetCommand` | 로봇↔관제 | pose · localized · domain_id · SET_INITIAL_POSE · SET_SPEED · SET_MAP |
 
-기존 `FleetCommand`(`CMD_SET_INITIAL_POSE`, `CMD_HEARTBEAT`)와 `RobotState`(pose 보고)는 그대로 쓴다. `pinky_fleet_msgs` 필드는 건드리지 않는다.
+메시지가 바뀌면 **관제 PC·핑키 모두 `pinky_lane_msgs` 재빌드**.
 
 ---
 
 ## 패키지
 
-| 위치 | 파일 | 역할 |
-|---|---|---|
-| `pinky_fleet_agent/` (로봇, 확장) | `lane_agent_node` `camera_node` · ROS-free `route_follower` `lane_control` `drive_fsm` `obstacle_guard` `lane_driver` · `launch/lane_robot.launch.xml` `lane_agent.launch.xml` `lane_only.launch.xml` · `params/lane_agent.yaml` | bringup + AMCL + 초음파 + 카메라 + 주행 (`/cmd_vel` 유일 발행자) |
-| `pinky_lane_station/` (PC, 신규) | `lane_coordinator_node`(경로·예약·출발) `lane_pipeline_node`(인식) `fake_lane_robot`(가짜 로봇 + 합성 카메라) `graph_editor` `bench_detector` · ROS-free `road_graph` `reservation` `lane_target` `lane_mission` `synthetic_camera` `detectors/{stub,classic,ultralytics_backend}` · `config/{road_graph,lane_mission,detector_lane,detector_yolo,bridge_lane}.yaml` · `launch/{lane_station,lane_bridge,fake_lane}.launch.xml` | 인식·경로·예약·시뮬 |
-| `pinky_fleet_station/` (PC, 그대로) | `bridge_fleet.yaml`(state/command) · `map_canvas` · `config/map4.*` | 기존 관제 재사용. GUI 차선 모드는 M2 이후 |
-| `pinky_lane_msgs/` (신규) | 위 5 개 | |
-| `tools/` | `record_drive.py` `extract_frames.py` · `collect_logs.sh` `purge_logs.sh` `bag_report.py` `bag_to_video.py` | 데이터 수집 · 블랙박스 수거·삭제·분석 |
-
-**재사용**: `link_watch.py`(그대로, 관제·LanePath 두 채널) · `map_canvas` 좌표 변환 · `bridge_fleet.yaml` QoS 논리 · 업스트림 `localization_launch.xml`.
-
-### 로봇·관제 코드가 같은 코어를 쓴다
-
-`LaneDriver`(ROS-free) 가 경로 추종·FSM·장애물·링크 감시를 전부 들고 있고, 실차 `lane_agent_node` 와 가짜 `fake_lane_robot` 은 그 위에 입출력만 얹는다. 실차와 시뮬의 차이는 위치(TF ↔ 유니사이클 적분)·라이다(실측 ↔ 원 교차)·카메라(picamera2 ↔ 합성 이미지) 세 가지뿐이다. 합성 카메라 이미지도 실제 토픽으로 나가 `lane_pipeline_node` 를 거쳐 돌아오므로 메시지·QoS·시각 규칙까지 같은 길을 탄다.
+| 위치 | 역할 |
+|---|---|
+| `pinky_fleet_agent/` (로봇) | `lane_agent_node`(주행, `/cmd_vel`) · `camera_node` · `pose_fuser_node`(항공뷰 → TF) · ROS-free `lane_driver` `drive_fsm` `lane_control` `route_follower` `obstacle_guard` `link_watch` · `launch/lane_robot.launch.xml` `lane_only.launch.xml` · `params/lane_agent.yaml` (튜닝값은 여기 한 곳) |
+| `pinky_lane_station/` (관제) | `lane_pipeline_node`(인식) · ROS-free `lane_target` `road_graph` `detectors/{ultralytics_backend,classic,stub}` · `graph_editor` `record_graph` `bench_detector` `fake_lane_robot` · `config/{road_graph,lane_mission,detector_yolo,detector_lane}.yaml` `bridge_pinkyN_{up,down}.yaml`(도메인은 launch 인수) · `launch/lane_station.launch.xml`(브리지 + 인식) `fake_lane.launch.xml` |
+| `relay_station/` (관제, colcon 밖) | `gateway_web/gateway_web_server.py`(:8889 웹 · 코디네이터 호스트 · 영상 중계) · `fleet/{fleet_coordinator,reservation,profiles}.py` · `domain_bridge/`(8↔10·11 설정·생성기·systemd) · `configs/`(DDS · 제어권 허용) — [`relay_station/README.md`](relay_station/README.md), [`docs/integration/relay_station.md`](docs/integration/relay_station.md) |
+| `pinky_fleet_station/` (관제) | `overhead_camera_node` + `overhead_tracker_node`(항공뷰 ArUco → `/pinkyN/overhead_pose`, [`docs/integration/overhead_tracker.md`](docs/integration/overhead_tracker.md)) · `live_web_node`(:8080 조회, [`docs/integration/live_web.md`](docs/integration/live_web.md)) · `config/map5.*` · mini_project_1 의 Nav2 관제(`gui_node` `coordinator_node` `agent_node`)는 이력용 |
+| `pinky_lane_msgs/` `pinky_fleet_msgs/` | 위 메시지 |
+| `tools/` | 데이터 수집 `record_drive.py` `extract_frames.py` · 블랙박스 `collect_logs.sh` `bag_report.py` · 항공뷰 캘리브레이션 `overhead_calib.py` |
 
 ---
 
 ## 실행
 
-**환경 (확정)**
-
-| | 저장소 체크아웃 | 워크스페이스 | 도메인 | 빌드 패키지 |
+| | 체크아웃 | 워크스페이스 | 도메인 | 빌드 |
 |---|---|---|---|---|
-| 관제 PC (`sungah`) | `/home/sungah/fleet_ws/src/pinky_pro_team11` | `~/fleet_ws` | 0 | `pinky_lane_msgs pinky_fleet_agent pinky_lane_station` |
-| 핑키 (`pinky@192.168.4.1`) | `/home/pinky/pinky_pro/src/pinky_pro_team11` | `~/pinky_pro` | 10 (pinky2 는 11) | `pinky_lane_msgs pinky_fleet_agent` |
-
-두 체크아웃 모두 `mini_project_2` 브랜치. 위치추정(마커·항공뷰) 작업은 `mini_project_2_aerial_view`.
+| 관제(중계) PC | `~/fleet_ws/src/pinky_pro_team11` | `~/fleet_ws` | 8 | `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent pinky_lane_station pinky_fleet_station` |
+| 핑키 (`pinky@192.168.4.1`) | `/home/pinky/pinky_pro/src/pinky_pro_team11` | `~/pinky_pro` | 10 (pinky2 는 11) | `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` |
 
 ```bash
-# 최신 코드 받기 + 빌드 (양쪽 공통 패턴)
-cd <체크아웃> && git checkout mini_project_2 && git pull
+# 공통
 cd <워크스페이스> && colcon build --packages-select <빌드 패키지> && source install/setup.bash
-```
 
-```bash
-# 관제 PC — 하드웨어 없는 폐루프 (가짜 로봇 2대 + 인식 + 예약). 실제 핑키는 움직이지 않는다.
-export ROS_DOMAIN_ID=0
-ros2 launch pinky_lane_station fake_lane.launch.xml auto_start:=True
-ros2 topic echo /fleet/lane/status                       # 진행·예약·상태 JSON
-ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed
-ros2 launch pinky_lane_station fake_lane.launch.xml obstacle:="[0.3, -0.45, 0.05]"   # 장애물 정지 확인
+# 관제 PC (도메인 8, ~/fleet_ws) — 순서대로. relay 스크립트는 체크아웃을 ~/pinky_pro/src/pinky_pro_team11 로 가정하므로
+# 다른 경로면 REPO_ROOT=~/fleet_ws/src/pinky_pro_team11 를 주거나 아래처럼 직접 띄운다
+export ROS_DOMAIN_ID=8
+ros2 run domain_bridge domain_bridge relay_station/domain_bridge/configs/pinky1_control.yaml &   # 브리지 8↔10
+ros2 run domain_bridge domain_bridge relay_station/domain_bridge/configs/pinky2_control.yaml &   # 브리지 8↔11
+python3 relay_station/gateway_web/gateway_web_server.py --port 8889 --map-yaml pinky_fleet_station/config/map5.yaml --no-camera   # 웹 :8889 (코디네이터 포함)
+#   (relay_station/launch_master_gateway.sh 는 위 셋을 CycloneDDS 로 한 번에 띄운다 — 핑키도 Cyclone 일 때만)
+ROS_DOMAIN_ID=8 ros2 launch pinky_lane_station lane_station.launch.xml use_bridge:=False    # 차선 인식 (브리지는 위가 나른다)
+#   relay 브리지 대신 팀11 브리지로 갈 때(관제 0 · 로봇 45/46 등): 도메인은 인수다 — yaml 을 고치지 않는다
+#   ROS_DOMAIN_ID=0 ros2 launch pinky_lane_station lane_station.launch.xml pinky1_domain:=45 pinky2_domain:=46
+ROS_DOMAIN_ID=8 ros2 launch pinky_fleet_station overhead_tracker.launch.xml camera_device:=0 # 천장 웹캠 + ArUco → overhead_pose
+ROS_DOMAIN_ID=8 ros2 launch pinky_fleet_station live_web.launch.xml                          # (선택) 조회 웹 :8080
+ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed                         # 원본 + bbox + 차선 중심점
 
-# 로봇 (각 핑키에서)
+# 핑키 (각 로봇)
 export ROS_DOMAIN_ID=10   # pinky2 는 11
-ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 \
-    map:=$HOME/map/map4.yaml camera_orient:=rot180
+ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 map:=$HOME/map/map5.yaml camera_orient:=rot180
+#   use_overhead:=True(기본) 항공뷰 pose_fuser · marker_yaw_offset / marker_offset_x 로 마커 부착 보정 · use_amcl:=True 면 AMCL
 
-# 관제 PC — 실차
-ros2 launch pinky_lane_station lane_station.launch.xml
-ros2 topic pub -1 /fleet/lane/control std_msgs/msg/String "{data: '{\"cmd\": \"start\"}'}"
-#   assign: {"cmd":"assign","robot":"pinky2","start":"RE","goal":"TC"}  stop/resume/estop/reset
-
-# 추론 벤치 (CPU/GPU·imgsz 결정)
-ros2 run pinky_lane_station bench_detector -- --config config/detector_lane.yaml --images ~/drive_data/frames --device cpu --device cuda:0
-
-# 블랙박스 기록: 어느 launch 든 record:=True (로봇·관제). 수거·삭제·분석은 tools/README.md §8
-ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True record:=True
-python3 tools/bag_report.py ~/pinky_logs/<날짜>/<bag>        # 라이다·초음파 튐, 속도 불일치, 상태 전이 → report.md/events.csv
+# 차선만 추종 테스트 (경로·위치추정 없이)
+ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True v_max:=0.10
 
 # 테스트 (ROS 불필요)
 python3 -m pytest pinky_lane_station/test pinky_fleet_agent/test pinky_fleet_station/test -q
+cd relay_station && python3 -m pytest tests -q          # rclpy 가 있어야 전부 돈다
 ```
 
-미션·경로는 `pinky_lane_station/config/lane_mission.yaml`(start/goal 노드, 출발 지연), 인식은 `detector_lane.yaml`(`classic` ↔ `ultralytics` + `best.pt`), 로봇 튜닝값은 `pinky_fleet_agent/params/lane_agent.yaml` 한 곳에서만 바꾼다 (launch 는 덮어쓰지 않는다 — 테스트가 지킨다).
+인식 모델: `~/models/lane_26n.pt` (git 밖), 클래스 0 왼쪽 라인 · 1 횡단보도 · 2 오른쪽 라인 · 3 라바콘 · 4 신호등 · 5 바리게이트 (정지선은 미정).
+추론 입력은 상위 50 % 를 마스킹한다(`pipeline.mask_top_frac: 0.50`, 2026-09-30 — 모델 학습은 30 % 마스킹). 벤치: `python3 -m pinky_lane_station.bench_detector --config pinky_lane_station/config/detector_yolo.yaml --synthetic`.
 
 ---
 
-## 데이터 수집
+## 미결 · 확인이 필요한 것
 
-절차와 스크립트는 [`tools/README.md`](tools/README.md). `record_drive.py`(로봇, mp4 + stamp CSV, `--snap` 방향 확인) · `extract_frames.py`(PC, 프레임 솎기).
-세션(`course_a`~`e`, `crosswalk`)을 나눠 찍어야 세션 단위 train/val 분할이 된다. 함께 `ros2 bag record /odom /scan /tf /tf_static /amcl_pose /cmd_vel`.
-
----
-
-## 마일스톤
-
-| | 내용 | 완료 기준 |
-|---|---|---|
-| M0 ✓ | 그래프 편집기 + `road_graph.yaml` | 라이다 맵에 사진 정합, 노드·엣지 완성, 경로가 GUI 에 그려짐 |
-| M1 (코드 완료, 관제 PC 실행 검증 전) | 메시지 + ROS-free 코어 + 노드 + 하드웨어 없는 폐루프 | 가짜 로봇 2대가 경로 추종·예약 대기·횡단보도 정지·도착. pytest 그린. 추론 벤치 |
-| M2 | 카메라 노드 + 전송 | p95 < 250 ms, 좌/우 일치 육안 확인 |
-| M3 | `best.pt` 연결, 쌍 선택·SINGLE·crosswalk 튜닝 (녹화 영상) | `target_x` 궤적이 중앙, 분기에서 JUNCTION 전환 |
-| M4 | 실차 1대: AMCL + 경로 + 카메라 보정 + 장애물 | 시작→목적지 3/3, 분기 정확, 벽 접촉 0, 장애물 자동 재개, PC 종료 시 1 s 정지 |
-| M5 | 횡단보도 | 3.0 ± 0.3 s, 통과당 1 회, 두 곳 모두 |
-| M6 | 실차 2대: 예약 + 동시 출발 | 겹치는 경로에서 마주침 0, 대기 후 재출발, 둘 다 도착 |
-| M7 | 문서 + 평가 리포트 | 인식률 · 중앙 정렬 RMS · 정지 성공률 · 완주율 |
-
----
-
-## 확인이 필요한 것
-
-- **그래프 좌표**: `road_graph.yaml` 의 노드 좌표는 사진에서 손으로 놓은 초안 — 벽 위에 있을 수 있다. 편집기로 4 점 정합 후 수정 필요. 토폴로지(TR→TC→TL, TR→MC, JW→JS)도 확인
-- **시나리오 2 목적지**: 중앙 상부(MC)·우상단(RE) 출발은 정해졌고, 어디로 가는지 미정 (`lane_mission.yaml` 주석의 예시는 가정)
-- `--snap` 으로 고른 카메라 보정값 (`camera_orient`), 초음파 노드(`ros2 run pinky_sensor_adc main_node`) 동작 여부
-- `cam_sign`: 실차에서 로봇을 차선 왼쪽에 두고 우회전(ω<0) 이 나오는지 한 번 확인
-- 이 저장소의 ROS 노드는 ROS 가 없는 환경에서 작성했다 — ROS-free 코어와 텍스트 불변식만 pytest 로 검증했고, 노드 실행(`fake_lane.launch.xml`)은 관제 PC 에서 처음 돌린다
-
-## Live 웹 상태 조회
-
-주행 명령을 발행하지 않는 웹 모니터를 추가했습니다. 기존 실기 백엔드에 연결해
-위치·측정 속도·차선 주행 상태·미션과 수신 상태를 표시합니다.
-설치 및 실행: [live 웹 안내](docs/integration/live_web.md).
+- **정지선 클래스**: 차선 세그 vs 주행가능영역 세그 미결 → 재학습 뒤 `detector_yolo.yaml` `stop_line: [<id>]`.
+- **새 맵**: map5 규격으로 다시 저장하고 `road_graph.yaml` 좌표를 편집기로 다시 찍는다(지금은 임시 4노드).
+- **DDS 통일**: 중계는 CycloneDDS(`relay_station/configs/cyclonedds*.xml`), 팀11 기존 스크립트 `scripts/setup_dds_interface.sh` 는 Fast DDS. 세 기기 RMW 가 같아야 한다.
+  핑키에 `rmw_cyclonedds_cpp` 가 있는지(`ros2 pkg list | grep cyclonedds`) 확인 뒤 Cyclone 으로 통일 예정.
+- **항공뷰 캘리브레이션**: `tools/overhead_calib.py` 로 map5 좌표 호모그래피를 `overhead_tracker.yaml` 에 기록. 마커 id (로봇 1/2, 꼭짓점 40~43) 확정.
+- **rclpy 시험 재측정**: relay 시험 중 rclpy/ROS msgs 가 필요한 것은 이번 정리에서 컴파일만 했다 — 중계 PC 에서 `cd relay_station && pytest tests -q`.
+- **live 웹(:8080)** 은 조회 전용으로 남겼다 — 둘 중 하나를 지울지는 나중에.
+- 데이터 수집·블랙박스 절차는 [`tools/README.md`](tools/README.md).

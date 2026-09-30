@@ -1,106 +1,94 @@
-# relay_station — 중계 브리지 (rkd1rjs2 팀원 몫)
+# relay_station — 중계 관제국 (rkd1rjs2 팀원 몫)
 
 `relay_station/` 은 rkd1rjs2/robot_mini_project_pinky 의 중계 관제국을 이 저장소 구조로 옮긴 것이다.
 **colcon 패키지가 아니다**(`relay_station/COLCON_IGNORE`) — `colcon build` 는 건너뛴다. 순수 Python·셸이고,
-실행에는 ROS 2 Jazzy 와 이 저장소의 `pinky_fleet_msgs` · `pinky_lane_msgs` 가 필요하다. 파일 안내와 옮기며 바꾼 것은
-[`relay_station/README.md`](../../relay_station/README.md).
+실행에는 ROS 2 Jazzy 와 이 저장소의 `pinky_fleet_msgs` · `pinky_lane_msgs` · `pinky_lane_station`(도로망 `road_graph`
+구현은 그 패키지 하나다)이 필요하다. 파일 안내와 옮기며 바꾼 것은 [`relay_station/README.md`](../../relay_station/README.md).
 
-**2026-09-29 개편**: 주 대시보드는 팀11 live 웹(`pinky_fleet_station/live_web_node`, `:8080`)이다. 중계는 화면을 버리고
-**도메인 브리지 · 플릿 코디네이터 · 제어 문(제어권) · 영상 중계** 네 가지만 한다. 중계 PC 에서 live 웹을 **도메인 8** 로 띄우면
-live 웹의 지도·로봇·카메라·미션 버튼이 그대로 중계 코디네이터와 이어진다(같은 토픽 계약).
+## 2026-09-29 팀 결정 — 코디네이터 하나 · 도로망 하나 · 이름 하나 · 지도 map5
 
-## 역할
-
-| 역할 | 누가 | 어디 |
+| | 전 | 후 |
 | :-- | :-- | :-- |
-| 주 대시보드 — 지도 · 로봇 위치 · 전방/상부 카메라 · 미션 버튼 · 속도 상한 | 팀11 live 웹 | `:8080` · `relay_station/launch_live_web.sh` |
-| 도메인 브리지 — 로봇 10·11 ↔ 관제 8 | 중계 | `relay_station/domain_bridge/` |
-| 플릿 코디네이터 — 도로망 · 구간 예약 · `LaneCommand` · `Route` | 중계 | `relay_station/fleet/` (`/fleet/lane/control` · `/fleet/lane/status`) |
-| 제어 문 — 누가 움직이는 명령을 낼 수 있나 | 중계 | `:8889` · [`control_policy.md`](control_policy.md) |
-| 중계 콘솔 — 버스 상태 · 제어권 · 좌표 프로파일 ①②③ · 멈춤 · 폰 영상 | 중계 | `http://<중계 PC>:8889/` (`relay_console.html`) |
-| 영상 중계 — 폰 카메라 앱 · 로컬 캠 | 중계 | `/api/sources` · `/video_feed?src=` |
+| 코디네이터(경로 배정·구간 예약·`LaneCommand`) | 관제 PC `lane_coordinator_node` 와 중계 `fleet_coordinator` 둘 | **중계 `relay_station/fleet/fleet_coordinator.py` 하나** — `pinky_lane_station` 의 코디네이터·`reservation.py` 는 지웠다 |
+| 도로망 구현 · 파일 | `road_graph.py` 두 벌, `road_graph.yaml` 셋(팀11·relay legacy·relay map4) | **`pinky_lane_station.road_graph` 하나**, 파일은 `pinky_lane_station/config/road_graph.yaml` 하나 — relay 프로파일이 상대경로로 읽는다 |
+| 로봇 이름 | 토픽 `/robotN/*` · id `robotN` · API `/api/robotN/*` 와 `pinkyN` 이 섞임 | **`pinky1` · `pinky2`** 하나(별칭 표 없음) |
+| 로봇 쪽 | Nav2 하이브리드(`hybrid_agent_node` · `/cmd_vel` 게이트)와 레인 로봇 | **`lane_agent_node` 만**(`lane_robot.launch.xml`) — Nav2 직접 경로(`goal_pose` · `mission_cmd` · `nav_status` · 관제 teleop `cmd_vel`)는 브리지·게이트웨이·화면에서 지웠다 |
+| 지도 | live 웹·상부 추적기 map5, 중계 프로파일 map4/legacy | **map5** 하나 — 프로파일 `team11_map5`(로봇 지도 이름 `map5`) |
 
-팀11 레인 관제(`pinky_lane_station`)와는 **같은 메시지 계약**을 쓰는 다른 코디네이터다. **같은 로봇에 두 코디네이터를 동시에
-붙이지 않는다**(둘 다 `/pinkyN/lane_command` · `/pinkyN/route` 를 낸다). live 웹은 어느 쪽과도 같이 뜬다.
+같은 로봇에 코디네이터가 하나뿐이니 "둘 중 하나만 띄운다" 는 규칙은 사라졌다. 관제 PC 의 `lane_station.launch.xml` 은
+브릿지 + `lane_pipeline_node`(차선 인식)만 띄운다.
 
-## 실행
+## 도로망·미션 (임시, 2026-09-29)
+
+`pinky_lane_station/config/road_graph.yaml` — map5 좌표(원점 좌하단 −0.01/−0.01, 2.36 × 1.28 m)의 **자리표시 4노드**:
+BL(0.20, 0.20) · BR(2.15, 0.20) · TR(2.15, 1.08) endpoint, J(1.18, 0.64) junction, 엣지 BL_J · J_TR · J_BR(직선).
+**새 맵 위에서 `graph_editor` 로 다시 찍는다**(파일 머리 주석). 임시 미션은 pinky1 BL→TR, pinky2 BR→BL
+(`relay_station/fleet/config/profiles/team11_map5/lane_mission.yaml`, 관제 PC 의 `pinky_lane_station/config/lane_mission.yaml` 도 같은 값 —
+후자는 파이프라인·가짜 로봇의 로봇 목록일 뿐, 배정은 중계가 한다).
+
+시작·목적지는 **중계 웹에서 고른다**: V2 설정 탭의 "미션 배정" 카드 → `POST /api/fleet/assign {robot, start, goal}`
+(후보는 도로망의 endpoint 노드 — `/api/fleet/profiles` 의 `graph.endpoints`). 규칙(L3): 두 목표가 다르고, 어느 목표도
+다른 로봇 경로 **안**(중간 노드)에 있지 않아야 한다. 출발 노드를 다른 로봇이 아직 쥐고 있는 것은 거절 사유가 아니다 —
+그 로봇이 떠나면 놓는다(`Reservation.assign_conflict`, `relay_station/tests/test_assign_map5.py`).
+
+## 실행 (중계 PC, 도메인 8)
 
 ```bash
 # 이 저장소 루트
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent pinky_fleet_station && source install/setup.bash
+colcon build --packages-select pinky_fleet_msgs pinky_lane_msgs pinky_lane_station pinky_fleet_agent pinky_fleet_station
+source install/setup.bash
 
-# 1) 값 채우기 — 주소·NIC 는 전부 자리표시자다 (relay_station/README.md "실행 전에 바꿔야 하는 것")
+# 0) 값 채우기 — 주소·NIC 는 전부 자리표시자다 (relay_station/README.md "실행 전에 바꿔야 하는 것")
 #    relay_station/configs/{fleet_domains.env,cyclonedds.xml,video_sources.json} · FIELD_NIC
 #    팀원 노트북에서 움직이는 명령을 내리려면 relay_station/configs/control_allow.json 에 그 노트북 주소를 enabled:true 로 (재기동 없음)
-export RELAY_VISION_API_KEY=<공유 키>          # 외부 비전 PoseFix 를 받을 때만. 없으면 그 API 는 401
+export RELAY_VISION_API_KEY=<공유 키>          # 비전 수신 API 를 쓸 때만. 없으면 그 API 는 전부 401
 
-# 2) 중계 PC (도메인 8)
-relay_station/launch_master_gateway.sh          # DDS 프로파일 선택 → 브리지 → 게이트웨이 :8889 (코디네이터 포함)
-relay_station/launch_live_web.sh                # 주 대시보드 :8080 — 지도 = 지금 고른 중계 좌표 프로파일의 지도
+# 1) 도메인 브리지 — 로봇 10·11 <-> 관제 8 (pinky1_control · pinky2_control · team_mirror · watchdog)
+relay_station/domain_bridge/install_bridge.sh          # 또는 launch_master_gateway.sh 가 같이 띄운다
 
-# 3) 로봇 (도메인 10 · 11)
-ros2 launch pinky_fleet_agent hybrid_robot.launch.xml robot_name:=pinky1 domain_id:=10 map_name:=map4
-#    전방 카메라(camera_node)는 use_camera:=True 가 기본 — live 웹 전방 카메라 타일이 이것을 본다
+# 2) 게이트웨이 웹 :8889 — 플릿 코디네이터를 안에 품는다(프로파일 team11_map5 → 도로망·미션 로드, 경로 배정)
+ROS_DOMAIN_ID=8 python3 relay_station/gateway_web/gateway_web_server.py --port 8889
+#    (relay_station/launch_master_gateway.sh = DDS 프로파일 선택 → 브리지 → 웹 서버)
+
+# 3) 차선 인식 — 로봇 카메라를 받아 LanePath 를 낸다 (pinky_lane_station, 같은 도메인 8 에서)
+ROS_DOMAIN_ID=8 ros2 launch pinky_lane_station lane_station.launch.xml use_bridge:=False \
+    mission:=$PWD/pinky_lane_station/config/lane_mission.yaml
+#    (브릿지는 1) 의 domain_bridge 가 나른다 — pinkyN_control.yaml 이 /pinkyN/camera/image/compressed(업)·/pinkyN/lane_path(다운)를
+#     싣는다(2026-09-29 추가). pinky_lane_station 의 lane_bridge(도메인 0 기준)는 띄우지 않는다)
+
+# 4) 항공뷰 — 상부 카메라 ArUco → /pinkyN/overhead_pose (pinky_fleet_station, docs/integration/overhead_tracker.md)
+ROS_DOMAIN_ID=8 ros2 launch pinky_fleet_station overhead_tracker.launch.xml
+#    또는 태블릿이 로봇 좌표를 HTTP 로 보낸다 → 중계가 같은 /pinkyN/overhead_pose 로 낸다 (docs/integration/tablet_pose.md).
+#    한 로봇에는 한 출처만 — 둘을 같은 로봇에 쓰지 않는다
+
+# 로봇 (도메인 10 · 11) — lane_agent_node 만
+ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 map:=$HOME/map/map5.yaml
 ```
 
-| 누가 | 여는 곳 | 할 수 있는 것 |
-| :-- | :-- | :-- |
-| 누구나(같은 Wi-Fi) | `http://<중계 PC>:8080/` | 보기 — 지도 · 로봇 · 카메라 · 미션 상태 |
-| 중계 PC | `http://localhost:8889/` (콘솔) | 전부 — 주행 시작/재시작 · ①②③ · 로봇 재개 · 멈춤 · 제어권 |
-| 허용된 팀원 노트북 | `http://<중계 PC>:8889/` | 움직이는 명령(한 번에 한 사람) + 멈춤 |
-| 그 밖의 주소 · `:18081` | `:8889` · `:18081` | 보기 전용 콘솔 — 멈춤만 |
+브라우저: `http://<중계 PC>:8889/fleet_control_v2.html` — 설정 탭에서 **① 좌표 프로파일(team11_map5) → ② 로봇 지도 전환(map5) →
+③ 초기 위치 → ④ "미션 배정"(시작·목적지)** 뒤 주행 시작. 로봇별 정지·재개는 로봇 카드(`/api/pinkyN/stop` · `/api/pinkyN/resume`).
+`http://<중계 PC>:18081` 로 열면 **보기 전용**(움직이는 조작이 숨는다 · `/api/status` 의 `view_only`).
 
-live 웹의 미션 버튼은 ROS 로 바로 발행해 제어 문을 지나지 않는다. 그래서 `launch_live_web.sh` 는 기본으로 버튼을 끄고
-(`LIVE_WEB_CONTROL=true` 로 켬), 켜는 것은 중계 PC 자신이 쓸 때만이다 — 팀원의 움직이는 명령은 `:8889` 로.
-
-## 계약 (live 웹 ↔ 중계)
-
-| 토픽 | 방향 | 누가 내나 |
-| :-- | :-- | :-- |
-| `/pinkyN/state` · `/pinkyN/lane_status` | 로봇 → 8 | 에이전트 (브리지) |
-| `/pinkyN/amcl_pose` (PoseWithCovarianceStamped) | 로봇 → 8 | `hybrid_agent_node` 가 `/amcl_pose` 를 다시 낸다 (브리지) |
-| `/pinkyN/camera/image/compressed` | 로봇 → 8 | `camera_node` (브리지, best_effort depth 1) |
-| `/pinkyN/overhead_pose` · 상부 카메라 | 중계 PC | 상부 추적기(`overhead_tracker_node`)를 도메인 8 에서 |
-| `/fleet/lane/control` `{cmd: start·stop·resume·estop·assign·reset}` | 8 | live 웹 버튼 · 게이트웨이 → 중계 코디네이터 |
-| `/fleet/lane/status` (`mission` · `warning` · `robots` …) | 8 | 중계 코디네이터 |
-| `/pinkyN/command` (FleetCommand) | 8 → 로봇 | live 웹 `SET_SPEED` · `SET_INITIAL_POSE`, 코디네이터 (브리지) |
-
-`relay_station/tests/test_live_web_contract.py` 가 live 웹 소스를 직접 읽어 이 표를 대조한다 — 이름이 바뀌면 먼저 빨개진다.
-live 웹은 로봇이 보고한 지도가 자기 `map_yaml` 과 **원점·크기까지 같을 때만** 로봇을 그린다. 그래서 좌표 프로파일을 바꾸면
-(콘솔 ① → ②) live 웹도 `launch_live_web.sh` 로 다시 띄운다.
-
-## 중계 상태 — `GET /api/relay/health`
-
-콘솔과 보기 전용 화면이 이것 하나를 2 초마다 본다: 도메인 · DDS 프로파일 · 코디네이터(미션 · 비상정지 래치 · 경고 · 프로파일) ·
-제어권 · live 웹이 떠 있나 · 로봇마다 [브리지 발행자 수(state · lane_status · diag · amcl_pose · camera) · 최근 수신 · 지도 대조 ·
-세움 이유 · 온보드 진단(Nav2 활성 수 · `/estop` · 게이트 출처 · 지도 적재 · 링크유실 래치)]. 못 잰 값은 `null` 이다.
+**팀원 노트북에서 움직이는 명령**(2026-09-28 저녁): 기본은 중계 PC 자신만 움직이는 명령(배정·재개·좌표 전환·플릿 start/resume)을
+낸다. `relay_station/configs/control_allow.json` 에 노트북 LAN 주소를 `enabled: true` 로 넣으면 그 노트북의 `:8889` 화면에서도 낼 수 있다 —
+**한 번에 한 사람**(첫 명령이 제어권, 다른 허용 노트북은 409 와 노랑 알약, 30 s 무응답이면 만료) · 중계 PC 콘솔은 언제나 제어권을 가져온다 ·
+멈추는 명령(일시정지·비상정지·로봇 정지)은 누구든. 규칙·접점·시험: [`control_policy.md`](control_policy.md).
 
 ## 영상 공유
 
+중계는 카메라 소스를 모아 브라우저에 다시 내보낸다(MJPEG). 폰·태블릿의 카메라 앱, 로컬 웹캠, 로봇 카메라 토픽(`/pinkyN/camera/image_raw/compressed`)이 소스가 된다.
+
 | | |
 | :-- | :-- |
-| `GET /api/sources` | 소스 목록(id · 종류 · 최근 프레임 시각 · 수신 fps) |
-| `GET /video_feed?src=<id>` | 그 소스의 MJPEG 스트림 (`/video_feed` 만 주면 기본 소스) — 콘솔의 영상 타일 |
+| `GET /api/sources` | 소스 목록(id · 종류 · 최근 프레임 시각 · 수신 fps) — 로봇 소스 id 는 `pinky1` · `pinky2` |
+| `GET /video_feed?src=<id>` | 그 소스의 MJPEG 스트림 (`/video_feed` 만 주면 기본 소스) |
+| `GET /robot_camera_feed?id=pinky1` | 로봇 온보드 카메라 |
+| `GET /` (`index.html`) | 멀티뷰 — 소스 타일을 사람이 연다(기본은 전부 닫힘) |
 | 소스 설정 | `relay_station/configs/video_sources.json` (당겨올 URL, 후보 주소, 발견 규칙) · `MCV_HOST_CAMERA_URL` |
 
 폰 카메라 앱은 이 저장소에 없다(원 저장소 `packaging/android-app`, APK 는 손으로 전달). 앱은 `:18086` 에서 MJPEG 를 내고
-중계가 당겨온다 — 폰과 중계 PC 가 **같은 네트워크**에 있어야 한다. 로봇 전방 카메라는 live 웹이 ROS 토픽으로 직접 본다.
-
-## 개편에서 지운 것 (2026-09-29)
-
-중계 화면 V2(`fleet_control_v2.*`) · 옛 멀티뷰 `index.html` · 데스크톱 GUI(`relay_controller_gui.py`) · 태블릿 비전 월드와 캘리브레이션
-(`vision_world` · `calibration` · `drift` · `framing` · `masks` · `censorship`) · 원 저장소 단일 로봇 목표/미션 API(`/api/robot1/goal` ·
-`/api/robot1/mission`) · `/api/ops/*` · Jenkins · 로그 API. 남은 HTTP 경로는 `relay_station/tests/test_relay_surface.py` 가 목록으로 잠근다.
-`relay_station/scripts/control_robot1.sh` 의 목표·미션 메뉴는 이제 404 를 받아 "거절" 로 끝난다(직접 발행으로 우회하지 않는다) —
-긴급 정지 메뉴(`/api/robot1/stop` + 0 속도 직접 발행)는 그대로다. 기록: [`status.md`](status.md) 09-29 절.
-
-## map4 ↔ map5
-
-live 웹의 기본 지도·차선 도면(`fleet-lanes.svg`)은 **map5**(236×128 셀, 0.01 m/셀)에 맞춰 그려져 있고, 중계의 좌표 프로파일
-(`relay_station/fleet/config/profiles/`)은 **map4**(47×25 셀, 0.05 m/셀, 가운데 원점)다. `launch_live_web.sh` 는 프로파일 지도(map4)를
-live 웹에 넘기므로 로봇 위치는 맞게 찍히지만, map5 에 맞춘 차선 도면은 조금 어긋나 보인다. 로봇 Nav2 지도를 무엇으로 통일할지는
-팀 결정이고, **map5 프로파일은 그 뒤에 넣는다**.
+중계가 당겨온다 — 폰과 중계 PC 가 **같은 네트워크**에 있어야 한다.
 
 ## 시험
 
@@ -108,12 +96,14 @@ live 웹에 넘기므로 로봇 위치는 맞게 찍히지만, map5 에 맞춘 �
 cd relay_station && python3 -m pytest tests -q        # numpy · opencv-python · psutil · pyyaml 필요, install/setup.bash 뒤
 ```
 
-기대(ROS 2 Jazzy 컨테이너): `relay_station/README.md` "시험" 절의 수치. skip 은 통과가 아니다(환경 4 + 대사 대상 없음 2).
-`tests/test_team11_export.py` 가 공개 규칙(키 기본값 없음 · 키 없으면 거절 · 사설 주소는 자리표시자뿐 · 개인 경로 없음 ·
-외부 사이트 낱말 없음 · COLCON_IGNORE)을 잠근다.
+rclpy 없이도 도는 것: 도로망·배정(`test_assign_map5.py` · `test_assign_ui.py` · `test_junction_first_come.py`), 브리지 설정
+(`test_bridge_two_sets.py` · `test_topic_wrap.py` · `test_control_topic_naming.py`), 화면 정직성·제어권 정책 등. 코디네이터·게이트웨이를
+실제로 부르는 것(`test_d7_robot_stop.py` · `test_fleet_profiles.py` · `test_review_0926_*.py`)은 ROS 2 Jazzy 컨테이너에서.
+`tests/test_team11_export.py` 가 공개 규칙(키 기본값 없음 · 키 없으면 거절 · 사설 주소는 자리표시자뿐 · 개인 경로 없음 · 외부 사이트 낱말 없음 ·
+COLCON_IGNORE)을 잠근다. 옛 map4 도로망은 예약 규칙 회귀 시험의 **픽스처**(`tests/fixtures/map4_road_graph.yaml`)로만 남아 있다.
 
 ## 다시 옮길 때
 
 원 저장소 main 이 바뀌면 같은 규칙으로 다시 내보낸다(내보내기 도구는 원 저장소에 있다 — 실제 주소 치환표를 담아 공개하지 않는다).
-기준 커밋은 `relay_station/README.md` 첫 줄과 [`source_versions.md`](source_versions.md) 에 적는다. 개편으로 지운 파일은 다시 옮길 때
-제외 목록에 넣는다(되살아나면 `test_relay_surface.py` 가 잡는다).
+기준 커밋은 `relay_station/README.md` 첫 줄과 [`source_versions.md`](source_versions.md) 에 적는다. 2026-09-29 의 통일(코디네이터·도로망·
+이름·map5)은 이 저장소 쪽 변경이라 다시 옮길 때 원 저장소의 `robotN` 이름·Nav2 경로를 되살리지 않도록 본다.

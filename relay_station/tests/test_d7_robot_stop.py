@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""D7 · `/api/robot1/stop` 이 Nav2 로봇을 실제로 세운다.
+"""D7 · `/api/pinky1/stop` 이 로봇을 실제로 세운다.
 
-관제 팜 실측(09-24): `/api/robot1/stop`(`/api/stop`·`/api/nav/stop`)은 `/robot1/mission_cmd` "stop" 만 냈다.
+관제 팜 실측(09-24): 옛 `/api/robot1/stop`(`/api/stop`·`/api/nav/stop`)은 `/robot1/mission_cmd` "stop" 만 냈다(둘 다 지금은 없다).
 Nav2 에이전트·DriveCommandGate 는 그 토픽을 안 들어서 주행 중 정지가 **무효**였다. 게다가 D8 구독자 1 은
 **브리지**라 "정지 명령 전달 (수신자 1)" 이라는 거짓 성공을 냈다.
 
@@ -33,9 +33,8 @@ from relay_station.fleet.fleet_coordinator import (
 from relay_station.fleet.reservation import Reservation
 from relay_station.fleet.road_graph import RoadGraph
 from relay_station.fleet.route_comparator import RouteComparator
-from pinky_fleet_agent.route_chain import RouteChain
 
-GRAPH = os.path.join(REPO, "relay_station", "fleet", "config", "road_graph.yaml")
+GRAPH = os.path.join(REPO, "pinky_lane_station", "config", "road_graph.yaml")       # 도로망 정본(map5 임시)
 
 
 def _coord(state="RUNNING", now=100.0):
@@ -53,9 +52,9 @@ def _coord(state="RUNNING", now=100.0):
     c.get_clock = lambda: types.SimpleNamespace(now=lambda: types.SimpleNamespace(to_msg=lambda: Time()))
     c.robots = {}
     c.lane_cmd_pubs, c.fleet_cmd_pubs = {}, {}
-    for name, dom, start in (("pinky1", 10, "START_A"), ("pinky2", 11, "START_B")):
-        ctx = FleetRobotContext(name, dom, start, "GOAL_C", drive_mode=DRIVE_MODE_NAV2)
-        ctx.route = c.graph.shortest_route(start, "GOAL_C", step=0.10)
+    for name, dom, start, goal in (("pinky1", 10, "BL", "TR"), ("pinky2", 11, "BR", "BL")):
+        ctx = FleetRobotContext(name, dom, start, goal, drive_mode=DRIVE_MODE_NAV2)
+        ctx.route = c.graph.shortest_route(start, goal, step=0.10)
         ctx.route_seq = 3
         ctx.start_acknowledged = True
         ctx.clear_until_idx = 5
@@ -188,12 +187,6 @@ def test_S6_직접_해제한_뒤의_ESTOP_보고로는_되살리지_않는다__S
     assert not c.estop_latched and c.mission_state == "RUNNING"
 
 
-def test_robot1_별칭과_모르는_로봇():
-    c = _coord()
-    assert c.stop_robot("robot1") and c.robots["pinky1"].held
-    assert c.stop_robot("pinky9") is False
-
-
 def test_제어_토픽_JSON_으로도_정지_재개된다():
     c = _coord()
     c._cb_control(String(data=json.dumps({"cmd": "stop_robot", "robot": "pinky2"})))
@@ -230,24 +223,6 @@ def test_P1_D8_제어_토픽으로_와도_플릿_ESTOP_중_재개는_거부():
     c = _coord(state="ESTOP")
     c._cb_control(String(data=json.dumps({"cmd": "resume_robot", "robot": "pinky2"})))
     assert all(m.command != LaneCommand.CMD_RESUME for m in _sent(c.lane_cmd_pubs["pinky2"]))
-
-
-def test_P1_규약_재개가_ESTOP_래치를_풀_수_있는_유일한_길은_resume_fleet():
-    c = _coord(state="ESTOP")
-    chain = RouteChain()
-    ctx = c.robots["pinky1"]
-    msg = c._to_route_msg("pinky1", ctx.route_seq, ctx.route)
-    chain.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)
-    chain.on_lane_command(LaneCommand.CMD_START, ctx.route_seq, 0)
-    chain.on_lane_command(LaneCommand.CMD_ESTOP, 0, 0)
-    c.resume_robot("pinky1")
-    for m in _sent(c.lane_cmd_pubs["pinky1"]):
-        chain.on_lane_command(m.command, m.route_seq, m.clear_until_idx)
-    assert chain.estop                                       # 로봇 재개로는 안 풀렸다
-    c.resume_fleet()
-    for m in _sent(c.lane_cmd_pubs["pinky1"]):
-        chain.on_lane_command(m.command, m.route_seq, m.clear_until_idx)
-    assert not chain.estop
 
 
 # ---- 관제 검수 P3 · 로봇별 정지 중인 로봇에는 START 를 보내지 않는다 ----------------------
@@ -363,27 +338,12 @@ def test_검토P1_resume_fleet_만_ESTOP_래치를_푼다():
     assert c.get_fleet_status_dict()["estop_latched"] is False
 
 
-def test_규약_로봇별_STOP_은_에이전트에서_HOLD__estop_아님():
-    c = _coord()
-    ctx = c.robots["pinky1"]
-    msg = c._to_route_msg("pinky1", ctx.route_seq, ctx.route)
-    chain = RouteChain()
-    chain.on_route(msg.route_seq, [(p.x, p.y) for p in msg.waypoints], msg.goal_idx)
-    chain.on_lane_command(LaneCommand.CMD_START, ctx.route_seq, 0)
-    chain.on_lane_command(LaneCommand.CMD_CLEARANCE, ctx.route_seq, 8)
-    c.stop_robot("pinky1")
-    (stop,) = _sent(c.lane_cmd_pubs["pinky1"])
-    acts = chain.on_lane_command(stop.command, stop.route_seq, stop.clear_until_idx)
-    assert [a[0] for a in acts] == ["cancel"]
-
-
 # ---- 게이트웨이 HTTP: 가짜 요청으로 do_POST 를 직접 부른다 -----------------
 
 @pytest.fixture
 def gw(monkeypatch):
     import gateway_web_server as g
     node = MagicMock()
-    node.send_mission.return_value = 1        # 도메인 8 구독자 1 = 브리지
     coord = MagicMock()
     coord.last_heard_sec.return_value = 0.3
     coord.now.return_value = 100.0
@@ -427,10 +387,7 @@ def _dispatched(node):
     return [call[0][0] for call in node.send_fleet_control.call_args_list]
 
 
-@pytest.mark.parametrize("path,robot", [
-    ("/api/robot1/stop", "pinky1"), ("/api/stop", "pinky1"),
-    ("/api/nav/stop", "pinky1"), ("/api/robot2/stop", "pinky2"),
-])
+@pytest.mark.parametrize("path,robot", [("/api/pinky1/stop", "pinky1"), ("/api/pinky2/stop", "pinky2")])
 def test_정지_API_는_플릿_경로로_보내고_원격에서도_받는다(gw, path, robot):
     g, node, _ = gw
     code, body = _post(g, path)                       # 로컬이 아닌 주소
@@ -441,24 +398,31 @@ def test_정지_API_는_플릿_경로로_보내고_원격에서도_받는다(gw,
 
 
 def test_정지_응답이_브리지_구독자를_로봇_수신으로_포장하지_않는다(gw):
-    g, _, _ = gw
-    _, body = _post(g, "/api/robot1/stop")
-    legacy = body["legacy_mission_cmd"]
-    assert legacy["d8_subscribers"] == 1
-    assert legacy["means"] == "DOMAIN_8_SUBSCRIBER_EXISTS_INCLUDING_BRIDGE"
+    g, node, _ = gw
+    _, body = _post(g, "/api/pinky1/stop")
+    assert "legacy_mission_cmd" not in body                      # 옛 /robot1/mission_cmd 경로는 없다(2026-09-29)
     assert "수신자" not in body["message"]
+    assert not node.send_mission.called
+
+
+def test_옛_robotN_경로는_없다(gw):
+    g, node, _ = gw
+    for path in ("/api/pinky1/stop", "/api/stop", "/api/nav/stop", "/api/pinky2/stop", "/api/pinky1/resume"):
+        code, _ = _post(g, path, ip="127.0.0.1")
+        assert code == 404, path
+    assert _dispatched(node) == []
 
 
 def test_로봇_소식이_끊겼으면_보냈지만_모른다고_말한다(gw):
     g, _, coord = gw
     coord.hold_confirmation.return_value = None           # 정지 뒤 보고 없음
     coord.last_heard_sec.return_value = 9.0
-    code, body = _post(g, "/api/robot1/stop")
+    code, body = _post(g, "/api/pinky1/stop")
     assert code == 202 and body["success"] is False and body["dispatched"] is True
     assert body["reason"] == "NO_STOP_ACK" and body["confirmed"] is None
     assert body["robot_heard_recently"] is False and "모른다" in body["message"]
     coord.last_heard_sec.return_value = None
-    _, body = _post(g, "/api/robot1/stop")
+    _, body = _post(g, "/api/pinky1/stop")
     assert body["robot_heard_recently"] is None and body["robot_last_heard_sec"] is None
 
 
@@ -466,14 +430,14 @@ def test_P2_수신자가_없으면_success_가_아니다__코디네이터_없음
     """관제 검수 P2: 예전엔 받을 곳이 없어도 success:true 200 이었다."""
     g, node, _ = gw
     monkeypatch.setattr(g, "GLOBAL_FLEET_COORDINATOR", None)
-    code, body = _post(g, "/api/robot1/stop")
+    code, body = _post(g, "/api/pinky1/stop")
     assert code == 503 and body["success"] is False and body["reason"] == "NO_FLEET_COORDINATOR"
 
 
 def test_P2_로봇이_아직_주행_중이라고_보고하면_202(gw):
     g, _, coord = gw
     coord.hold_confirmation.return_value = False
-    code, body = _post(g, "/api/robot1/stop")
+    code, body = _post(g, "/api/pinky1/stop")
     assert code == 202 and body["success"] is False and body["confirmed"] is False
     assert body["reason"] == "ROBOT_STILL_CRUISING"
 
@@ -484,7 +448,7 @@ def test_P2_확인_기준_시각은_보내기_전에_잡는다(gw):
     order = []
     coord.now.side_effect = lambda: order.append("now") or 100.0
     node.send_fleet_control.side_effect = lambda _m: order.append("send")
-    _post(g, "/api/robot1/stop")
+    _post(g, "/api/pinky1/stop")
     assert order[:2] == ["now", "send"]
     assert coord.hold_confirmation.call_args[0] == ("pinky1", 100.0)
 
@@ -492,22 +456,22 @@ def test_P2_확인_기준_시각은_보내기_전에_잡는다(gw):
 def test_P1_플릿_비상정지_중_로봇_재개는_409_이고_보내지_않는다(gw):
     g, node, coord = gw
     coord.mission_state = "ESTOP"
-    code, body = _post(g, "/api/robot1/resume", ip="127.0.0.1")
+    code, body = _post(g, "/api/pinky1/resume", ip="127.0.0.1")
     assert code == 409 and body["reason"] == "FLEET_ESTOP" and _dispatched(node) == []
 
 
 def test_ROS_노드가_없으면_503(gw, monkeypatch):
     g, _, _ = gw
     monkeypatch.setattr(g, "GLOBAL_ROBOT_SUB_NODE", None)
-    code, body = _post(g, "/api/robot1/stop")
+    code, body = _post(g, "/api/pinky1/stop")
     assert code == 503 and body["reason"] == "NO_ROS_NODE"
 
 
 def test_재개는_로컬에서만(gw):
     g, node, _ = gw
-    code, _ = _post(g, "/api/robot1/resume")
+    code, _ = _post(g, "/api/pinky1/resume")
     assert code == 403 and _dispatched(node) == []
-    code, body = _post(g, "/api/robot1/resume", ip="127.0.0.1")
+    code, body = _post(g, "/api/pinky1/resume", ip="127.0.0.1")
     assert code == 200 and _dispatched(node) == [{"cmd": "resume_robot", "robot": "pinky1"}]
 
 
@@ -529,7 +493,7 @@ def test_검토P3_정지_응답은_보고가_늦게_와도_기다렸다가_확�
     g, _, coord = gw
     monkeypatch.setattr(g, "STOP_CONFIRM_WAIT_SEC", 1.0)
     coord.hold_confirmation.side_effect = [None, None, True]
-    code, body = _post(g, "/api/robot1/stop")
+    code, body = _post(g, "/api/pinky1/stop")
     assert code == 200 and body["confirmed"] is True
     assert coord.hold_confirmation.call_count == 3
 
@@ -540,19 +504,8 @@ def test_검토P1_플릿_비상정지_래치_중이면_start_와_로봇_재개�
     coord.estop_latched = True
     code, body = _post(g, "/api/fleet/start", ip="127.0.0.1")
     assert code == 409 and body["reason"] == "FLEET_ESTOP" and _dispatched(node) == []
-    code, body = _post(g, "/api/robot1/resume", ip="127.0.0.1")
+    code, body = _post(g, "/api/pinky1/resume", ip="127.0.0.1")
     assert code == 409 and _dispatched(node) == []
-
-
-# ---- 관제 검수 REVIEW_20260925 S1 · 에이전트를 거치지 않는 목표·미션 경로 ----------------------------------
-
-
-
-
-
-
-
-
 
 
 def test_검토S_경로_없는_Nav2_로봇은_start_에서_FleetCommand_RESUME_으로_STOP_이_풀린다():
@@ -616,7 +569,7 @@ def test_R5_플릿_정지_중_로봇_재개는_HOLD_만_풀고_RESUME_을_안_�
 def test_R5_게이트웨이는_플릿이_서_있다고_말한다(gw):
     g, node, coord = gw
     coord.mission_state = "STOPPED"
-    c, body = _post(g, "/api/robot1/resume", ip="127.0.0.1")
+    c, body = _post(g, "/api/pinky1/resume", ip="127.0.0.1")
     assert c == 200 and "서 있다" in body["message"]
 
 

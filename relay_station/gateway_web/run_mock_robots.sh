@@ -17,7 +17,7 @@ export ROS_DOMAIN_ID=10
 export PYTHONUNBUFFERED=1
 
 echo "============================================================"
-echo " 🤖 Launching Mock Robot Publisher (/robot1 & /robot2)"
+echo " 🤖 Launching Mock Robot Publisher (/pinky1 & /pinky2)"
 echo "============================================================"
 
 cd "$SCRIPT_DIR"

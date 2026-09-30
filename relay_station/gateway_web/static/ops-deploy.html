@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CI/CD 배포 · 백업 (관제 화면에서 분리됨)</title>
+<style>
+:root {
+      --bg-color: #0d1117;
+      --card-bg: #161b22;
+      --border-color: #30363d;
+      --accent-cyan: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-gold: #f2cc60;
+      --text-main: #f0f6fc;
+      --text-muted: #8b949e;
+      --tab-active: #1f6feb;
+    }
+* {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.4;
+      padding: 16px;
+    }
+.badge {
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      background: #21262d;
+      border: 1px solid var(--border-color);
+    }
+.badge.green {
+      color: var(--accent-green);
+      border-color: rgba(63, 185, 80, 0.4);
+      background: rgba(63, 185, 80, 0.1);
+    }
+.badge.cyan {
+      color: var(--accent-cyan);
+      border-color: rgba(88, 166, 255, 0.4);
+      background: rgba(88, 166, 255, 0.1);
+    }
+.badge.gold {
+      color: var(--accent-gold);
+      border-color: rgba(242, 204, 96, 0.4);
+      background: rgba(242, 204, 96, 0.1);
+    }
+.stream-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+.stream-header {
+      padding: 10px 16px;
+      background: #1c2128;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+.stream-header h2 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+.nav-tab {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 22px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+.nav-tab:hover {
+      background: #21262d;
+      color: var(--text-main);
+    }
+.nav-tab.active {
+      background: var(--accent-blue);
+      color: #ffffff;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 14px rgba(88, 166, 255, 0.4);
+    }
+.latency-item {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+.ops-warn { background:#3d1d1d; border:1px solid #b62324; border-radius:8px;
+            padding:12px 16px; margin:16px; font-size:0.85rem; line-height:1.7; }
+.global-tab-pane { display:block !important; }
+body { padding-bottom: 40px; }
+</style>
+</head>
+<body>
+  <div class="ops-warn">
+    🔴 <b>이 화면은 현장 관제 화면(<code>/</code>)에서 분리된 것이다</b> — 사용자 지시 2026-09-12.
+    현장에서 쓸 일이 없고, 관제 중 오조작 표면을 줄이려는 것이다.
+    <br><br>
+    ⚠️ <b>이건 보안 수정이 아니다.</b> <code>/api/jenkins/build</code> 엔드포인트는
+    <b>그대로 열려 있다</b>(FD-13 미해소). 버튼을 화면에서 뺀다고 엔드포인트가 닫히지 않는다 —
+    LAN 에서 curl 하면 된다. 실제로 막으려면 서버 쪽을 고쳐야 한다.
+    <br><br>
+    🔴 <b>이건 다른 배포 체계(외부 플랫폼)의 배포가 아니다.</b> 여기 버튼은 <b>중계 노트북 자기 Jenkins</b>
+    (<code>localhost:8085</code>, job <code>deploy-pinky-fleet</code>)를 쳐서
+    <b>로봇 플릿</b>에 배포·백업한다. 다른 배포 체계는 <b>별도 체계</b>(푸시→CI→사람이 누르는
+    승인 화면)이고 여기와 <b>계통이 다르다</b> — 그쪽 webhook 정책(사용자가 꺼 둔 것)은 여기에 적용되지 않는다.
+    두 계통을 섞어 읽으면 한쪽 규칙으로 다른 쪽을 판단하게 된다.
+    <br><br>
+    ⚠️ 중계 쪽 배포 정책은 이 문서가 주장하지 않는다 — 확인된 바 없다.
+    <br><br>
+    되돌리려면 이 파일의 조각을 <code>index.html</code> 로 되돌리면 된다 —
+    <b>지운 게 아니라 옮긴 것</b>이다.
+  </div>
+  <!-- [탭 4] CI/CD 원클릭 배포 & 백업 관제 (Jenkins) -->
+  <!-- ===================================================================== -->
+  <div id="pane-ci-cd" class="global-tab-pane">
+    <!-- 4-1. 젠킨스 서버 상태 및 빠른 액션 바 -->
+    <div class="stream-card" style="margin-bottom: 16px;">
+      <div class="stream-header" style="flex-wrap: wrap; gap: 10px;">
+        <div>
+          <h2><span>🚀</span> Jenkins CI/CD 플릿 배포 &amp; 백업 관제 센터</h2>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 3px;">GitHub (pinky_pro_team11) 연동 실물 로봇 4대 무선 원클릭 배포/백업</div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <span class="badge green" id="jk-status-badge">🟢 ONLINE :8085</span>
+          <span class="badge cyan">빌드: #<span id="jk-build-num">-</span></span>
+          <span class="badge gold" id="jk-build-res-badge">결과: <span id="jk-build-result">READY</span></span>
+          <span class="badge" id="jk-queue-badge">대기큐: <span id="jk-queue">0</span></span>
+          <a id="jk-full-link" href="#" target="_blank" class="badge cyan" style="text-decoration: none; padding: 6px 14px; cursor: pointer; border: 1px solid var(--accent-cyan);">🌐 Jenkins 전체 관리자 새창 열기</a>
+        </div>
+      </div>
+      <div id="jk-action-msg" style="display:none; margin: 12px 16px 0 16px; padding: 10px 16px; border-radius: 6px; font-weight: bold; font-size: 0.85rem;"></div>
+    </div>
+
+    <!-- 4-2. 로봇별 원클릭 작업 카드 그리드 -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 16px;">
+      <!-- Relay Station -->
+      <div class="latency-item" style="padding: 16px; background: #161b22; border: 1px solid #238636; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: bold; color: #3fb950;">🛰️ Relay Station (중계장비)</span>
+          <span class="badge green" style="font-size: 0.72rem;">HOST :8889</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;">IP: 198.51.100.3 (관제 대시보드 및 게이트웨이)</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #238636; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('relay_station', 'deploy')">🚀 중계웹 배포</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #30363d; color: var(--text-main); border: none; cursor: pointer;" onclick="triggerJenkins('relay_station', 'status_check')">📡 상태 진단</button>
+        </div>
+      </div>
+
+      <!-- Robot 1 -->
+      <div class="latency-item" style="padding: 16px; background: #161b22; border: 1px solid #30363d; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: bold; color: var(--accent-blue);">🤖 Robot #1 (Main)</span>
+          <span class="badge cyan" style="font-size: 0.72rem;">2205</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;">IP: 198.51.100.5 (pinky10)</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #1f6feb; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('pinky1', 'deploy')">🚀 배포</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #238636; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('pinky1', 'backup')">📥 백업</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #30363d; color: var(--text-main); border: none; cursor: pointer;" onclick="triggerJenkins('pinky1', 'status_check')">📡 진단</button>
+        </div>
+      </div>
+
+      <!-- Robot 2 -->
+      <div class="latency-item" style="padding: 16px; background: #161b22; border: 1px solid #30363d; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: bold; color: var(--accent-cyan);">🤖 Robot #2 (Sub)</span>
+          <span class="badge cyan" style="font-size: 0.72rem;">2206</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;">IP: 198.51.100.6 (pinky11)</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #1f6feb; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('pinky2', 'deploy')">🚀 배포</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #238636; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('pinky2', 'backup')">📥 백업</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #30363d; color: var(--text-main); border: none; cursor: pointer;" onclick="triggerJenkins('pinky2', 'status_check')">📡 진단</button>
+        </div>
+      </div>
+
+      <!-- Robot 3 -->
+      <div class="latency-item" style="padding: 16px; background: #161b22; border: 1px solid #30363d; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: bold; color: #a371f7;">🤖 Robot #3 (PP25022)</span>
+          <span class="badge cyan" style="font-size: 0.72rem;">2207</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;">IP: 198.51.100.8 (pinky12)</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #1f6feb; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('pinky3', 'deploy')">🚀 배포</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #238636; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('pinky3', 'backup')">📥 백업</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #30363d; color: var(--text-main); border: none; cursor: pointer;" onclick="triggerJenkins('pinky3', 'status_check')">📡 진단</button>
+        </div>
+      </div>
+
+      <!-- Robot 4 -->
+      <div class="latency-item" style="padding: 16px; background: #161b22; border: 1px solid #30363d; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: bold; color: #e3b341;">🤖 Robot #4 (신규장비)</span>
+          <span class="badge cyan" style="font-size: 0.72rem;">2208</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;">IP: 198.51.100.9 (pinky13)</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #1f6feb; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('pinky4', 'deploy')">🚀 배포</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #238636; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('pinky4', 'backup')">📥 백업</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #30363d; color: var(--text-main); border: none; cursor: pointer;" onclick="triggerJenkins('pinky4', 'status_check')">📡 진단</button>
+        </div>
+      </div>
+
+      <!-- All Robots -->
+      <div class="latency-item" style="padding: 16px; background: #1c2128; border: 1px solid #484f58; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: bold; color: #f0883e;">🚀 전체 4대 로봇 일괄</span>
+          <span class="badge gold" style="font-size: 0.72rem;">ALL FLEET</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;">모든 온라인 로봇 동시 작업</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #8957e5; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('all', 'deploy')">🚀 전체 배포</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #238636; color: #fff; border: none; cursor: pointer;" onclick="triggerJenkins('all', 'backup')">📥 전체 백업</button>
+          <button class="nav-tab" style="padding: 6px 12px; font-size: 0.78rem; background: #30363d; color: var(--text-main); border: none; cursor: pointer;" onclick="triggerJenkins('all', 'status_check')">📡 전체 진단</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4-3. 실시간 젠킨스 빌드 콘솔 로그 -->
+    <div class="stream-card">
+      <div class="stream-header">
+        <h2><span>📋</span> Jenkins 실시간 빌드 콘솔 로그 (Live Console Output)</h2>
+        <button class="badge cyan" style="cursor: pointer; border: none;" onclick="fetchJenkinsStatus()">🔄 로그 새로고침</button>
+      </div>
+      <div style="padding: 14px;">
+        <pre id="jk-console-log" style="background:#090d12; color:#3fb950; padding:14px; border-radius:8px; font-family:monospace; height:260px; overflow-y:auto; font-size:0.83rem; border:1px solid #30363d; white-space:pre-wrap; line-height:1.4; margin:0;">로그 대기 중...</pre>
+      </div>
+    </div>
+  </div>
+<script>
+  function switchGlobalTab() { /* 이 페이지는 탭이 하나뿐이다 */ }
+    async function triggerJenkins(target, action) {
+      const msgEl = document.getElementById('jk-action-msg');
+      if (msgEl) {
+        msgEl.style.display = 'block';
+        msgEl.style.background = '#21262d';
+        msgEl.style.color = '#58a6ff';
+        msgEl.textContent = `⏳ [${target.toUpperCase()}] ${action.toUpperCase()} 작업 요청 중... (잠시만 기다려주세요)`;
+      }
+      try {
+        const res = await fetch(`/api/jenkins/build?target=${target}&action=${action}`);
+        const data = await res.json();
+        if (data.success) {
+          if (msgEl) {
+            msgEl.style.background = '#1b4721';
+            msgEl.style.color = '#3fb950';
+            msgEl.textContent = `✅ [${target.toUpperCase()}] ${action.toUpperCase()} 작업이 젠킨스 빌드 큐에 등록되었습니다! 실시간 로그를 확인하세요.`;
+          }
+          setTimeout(fetchJenkinsStatus, 1500);
+        } else {
+          if (msgEl) {
+            msgEl.style.background = '#4c1f24';
+            msgEl.style.color = '#f85149';
+            msgEl.textContent = `❌ 빌드 요청 실패: ${data.message}`;
+          }
+        }
+      } catch (e) {
+        if (msgEl) {
+          msgEl.style.background = '#4c1f24';
+          msgEl.style.color = '#f85149';
+          msgEl.textContent = `❌ 네트워크 통신 에러: ${e}`;
+        }
+      }
+    }
+
+    // 젠킨스 상태 및 콘솔 로그 주기적 폴링
+    async function fetchJenkinsStatus() {
+      try {
+        const res = await fetch('/api/jenkins/status');
+        if (res.ok) {
+          const data = await res.json();
+          const sBadge = document.getElementById('jk-status-badge');
+          const bNum = document.getElementById('jk-build-num');
+          const bRes = document.getElementById('jk-build-result');
+          const bResBadge = document.getElementById('jk-build-res-badge');
+          const qEl = document.getElementById('jk-queue');
+          const logEl = document.getElementById('jk-console-log');
+          const fLink = document.getElementById('jk-full-link');
+          const bLink = document.getElementById('jenkins-badge-link');
+
+          const jkUrl = 'http://' + window.location.hostname + ':8085';
+          if (fLink) fLink.href = jkUrl;
+          if (bLink) bLink.href = jkUrl;
+
+          if (data.online) {
+            if (sBadge) { sBadge.textContent = '🟢 ONLINE :8085'; sBadge.className = 'badge green'; }
+            if (bNum) bNum.textContent = data.last_build_number || '-';
+            if (bRes) bRes.textContent = data.last_result || 'READY';
+            if (bResBadge) {
+              if (data.is_building) {
+                bResBadge.className = 'badge cyan';
+                bRes.textContent = 'BUILDING... ⏳';
+              } else if (data.last_result === 'SUCCESS') {
+                bResBadge.className = 'badge green';
+              } else if (data.last_result === 'FAILURE') {
+                bResBadge.className = 'badge red';
+              } else {
+                bResBadge.className = 'badge gold';
+              }
+            }
+            if (qEl) qEl.textContent = data.in_queue ? '1 (대기중)' : '0';
+            if (data.console_log && logEl) {
+              logEl.textContent = data.console_log;
+            }
+          } else {
+            if (sBadge) { sBadge.textContent = '🔴 OFFLINE'; sBadge.className = 'badge red'; }
+          }
+        }
+      } catch (e) {}
+    }
+
+    setInterval(fetchJenkinsStatus, 2500);
+    fetchJenkinsStatus();
+</script>
+</body>
+</html>

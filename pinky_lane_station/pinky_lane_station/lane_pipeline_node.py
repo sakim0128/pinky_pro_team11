@@ -23,6 +23,8 @@ from .detectors import create_detector
 from .lane_mission import LaneMissionError, load_lane_mission
 from .lane_target import QUALITY_STALE, LaneTargetEstimator, TargetParams
 from .pipeline_image import draw_debug, mask_top
+from .stop_line_detector import WhiteStopLineDetector
+from .stop_line_detector import params_from_dict as stop_line_params
 
 try:
     import cv2
@@ -46,14 +48,16 @@ def load_detector_config(path):
     pipeline = {'max_rate': 10.0, 'stale_period': 0.3, 'stale_max_seconds': 2.0, 'warmup': True,
                 'mask_top_frac': 0.0, 'mask_fill': 0, 'debug_polygons': False}
     pipeline.update(data.get('pipeline') or {})
+    pipeline['stop_line'] = stop_line_params(data.get('stop_line'))
     return det, target, pipeline
 
 
 class RobotLane:
-    def __init__(self, spec, target_params):
+    def __init__(self, spec, target_params, stop_params=None):
         self.spec = spec
         self.name = spec['name']
         self.est = LaneTargetEstimator(target_params)
+        self.stop_line = WhiteStopLineDetector(stop_params)
         self.seq = 0
         self.last_msg = None            # 마지막으로 보낸 LanePath (STALE 재발행용)
         self.last_frame_time = None     # 관제 시계
@@ -91,7 +95,7 @@ class LanePipeline(Node):
         self._debug_pubs = {}
         debug = bool(self.get_parameter('publish_debug_image').value)
         for spec in mission.robots:
-            rl = RobotLane(spec, target_params)
+            rl = RobotLane(spec, target_params, pipe['stop_line'])
             self._robots[rl.name] = rl
             self._path_pubs[rl.name] = self.create_publisher(LanePath, spec['lane_path_topic'],
                                                              BEST_EFFORT_1)
@@ -129,6 +133,7 @@ class LanePipeline(Node):
         masked = mask_top(img, self._mask_frac, self._mask_fill) if self._mask_frac > 0 else img
         instances, infer_ms = self.detector.infer_timed(masked)
         r = rl.est.update(instances, W, H)
+        sl = rl.stop_line.update(img)            # 목적지 흰 정지선 — 원본(마스킹 전) 영상에서
 
         rl.seq += 1
         lp = LanePath()
@@ -149,6 +154,10 @@ class LanePipeline(Node):
         lp.crosswalk_bottom_y = int(r.crosswalk_bottom_y)
         lp.barricade_detected = bool(r.barricade_detected)
         lp.barricade_bottom_y = int(r.barricade_bottom_y)
+        lp.red_line_detected = bool(r.red_line_detected)
+        lp.red_line_bottom_y = int(r.red_line_bottom_y)
+        lp.stop_line_detected = bool(sl.detected)
+        lp.stop_line_bottom_y = int(sl.bottom_y)
         lp.pipeline_latency = float(self._now() - t_in)
         self._path_pubs[name].publish(lp)
         rl.last_msg = lp
@@ -170,17 +179,26 @@ class LanePipeline(Node):
         sc.barricade_detected = bool(r.barricade_detected)
         sc.barricade_bottom_y = int(r.barricade_bottom_y)
         sc.barricade_confidence = float(r.barricade_confidence)
+        sc.red_line_raw = bool(r.red_line_raw)
+        sc.red_line_detected = bool(r.red_line_detected)
+        sc.red_line_bottom_y = int(r.red_line_bottom_y)
+        sc.red_line_confidence = float(r.red_line_confidence)
+        sc.stop_line_raw = bool(sl.raw)
+        sc.stop_line_detected = bool(sl.detected)
+        sc.stop_line_bottom_y = int(sl.bottom_y)
+        sc.stop_line_width_frac = float(sl.width_frac)
         sc.detector_name = self._det_name
         sc.infer_ms = float(infer_ms)
         sc.fps = len(rl.fps_t) / 2.0
         self._scene_pubs[name].publish(sc)
 
         if name in self._debug_pubs:
-            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms)
+            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms, sl)
 
-    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0):
+    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0, stop_line=None):
         dbg = draw_debug(img, instances, r, mask_frac=self._mask_frac, infer_ms=infer_ms,
-                         stop_row_frac=self._stop_row_frac, draw_polygons=self._debug_polygons)
+                         stop_row_frac=self._stop_row_frac, draw_polygons=self._debug_polygons,
+                         stop_line=stop_line)
         ok, buf = cv2.imencode('.jpg', dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
         if not ok:
             return
