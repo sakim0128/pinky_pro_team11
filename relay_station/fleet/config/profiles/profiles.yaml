@@ -1,0 +1,31 @@
+# 좌표 프로파일 (R-7 웹 전환, 2026-09-26). 경로는 이 파일 기준 상대경로.
+#
+# 무엇: 도로망·미션·화면 지도·로봇 지도 이름을 한 묶음으로 고른다. 코드를 바꾸지 않고 **중계 웹의 설정 탭**에서
+#       바꾼다(월요일 실물 전환 — 태블릿 T-11 · 관제 C-M1 과 같은 순간에 맞추려고).
+# 기본은 legacy(예전과 같다). 고른 값은 게이트웨이 재시작 뒤에도 남는다($XDG_STATE_HOME/pinky_relay/fleet_profile).
+# 규칙: 한 프로파일의 모든 좌표(도로망 노드·엣지 점, 미션 출발·도착)는 그 지도 안이어야 한다 — 시험이 잰다.
+#       로봇 이름은 프로파일끼리 같아야 한다(코디네이터의 토픽은 기동 때 한 번 만든다).
+# ⚠️ map4 ↔ map5: 이 레포의 live 웹(pinky_fleet_station)·상부 추적기는 **map5**(236×128, 0.01 m/셀, 원점 −0.01/−0.01)를 쓰고,
+#    여기 프로파일은 **map4**(47×25, 0.05 m/셀, 가운데 원점)다. map5 프로파일은 팀이 로봇 Nav2 지도를 정한 뒤에 넣는다.
+
+default: legacy
+
+profiles:
+  legacy:
+    label: "옛 가상 경기장 — 5노드, 좌하단 원점 2.34 × 1.26 (FIELD CONFIG PENDING)"
+    frame: legacy_bottom_left
+    mission: ../lane_mission.yaml
+    map: null                 # 화면 지도는 게이트웨이의 --map-yaml 그대로(예전과 같다)
+    robot_map_name: my_map
+  map4:
+    label: "팀11 map4 — 14노드, 가운데 원점 2.35 × 1.25 · 시나리오 1 (BL→TC, BL→RE)"
+    frame: team11_map4
+    mission: team11_map4/lane_mission.yaml
+    map: team11_map4/map4.yaml
+    robot_map_name: map4
+  map4_s2:
+    label: "팀11 map4 — 시나리오 2 (MC→BL, RE→TC · 교차로에서 만남)"
+    frame: team11_map4
+    mission: team11_map4/lane_mission_s2.yaml
+    map: team11_map4/map4.yaml
+    robot_map_name: map4

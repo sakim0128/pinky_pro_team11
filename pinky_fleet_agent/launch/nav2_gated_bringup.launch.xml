@@ -1,0 +1,82 @@
+<?xml version='1.0'?>
+<!--
+  Nav2 전체 (hybrid_robot.launch.xml 전용). pinklab-art/pinky_pro (Apache-2.0)
+  pinky_navigation/launch/bringup_launch.xml 과 같은 구성이고 두 가지가 다르다.
+
+  1. navigation 은 이 패키지의 nav2_gated_navigation.launch.xml 을 쓴다 (출력 = /cmd_vel_mission).
+  2. use_pose_fuser:=True 면 AMCL 을 띄우지 않고 map_server 만 띄운다. map->odom 은 pose_fuser_node 가 낸다.
+     False(기본)면 원본 localization_launch.xml (map_server + amcl) 을 그대로 쓴다.
+-->
+<launch>
+    <set_env name="RCUTILS_LOGGING_BUFFERED_STREAM" value="1"/>
+
+    <arg name="namespace" default=""/>
+    <arg name="map" default=""/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="params_file" default="$(find-pkg-share pinky_fleet_agent)/params/nav2_params_fleet.yaml"/>
+    <arg name="autostart" default="True"/>
+    <arg name="container_name" default="nav2_container"/>
+    <arg name="use_respawn" default="False"/>
+    <arg name="log_level" default="info"/>
+    <arg name="use_pose_fuser" default="False"/>
+    <arg name="lifecycle_nodes_nav" default="['controller_server',
+                       'smoother_server',
+                       'planner_server',
+                       'behavior_server',
+                       'bt_navigator',
+                       'waypoint_follower',
+                       'velocity_smoother']"/>
+
+    <group>
+        <push-ros-namespace namespace="$(var namespace)"/>
+        <node pkg="rclcpp_components" exec="component_container_isolated" name='$(var container_name)' output="screen" args="--ros-args --log-level $(var log_level)">
+            <param from="$(var params_file)"/>
+            <param name='map' value="$(var map)"/>
+            <param name='autostart' value="$(var autostart)"/>
+            <param name='use_sim_time' value="$(var use_sim_time)"/>
+
+            <remap from="/tf" to="tf"/>
+            <remap from="/tf_static" to="tf_static"/>
+        </node>
+
+        <include file="$(find-pkg-share pinky_navigation)/launch/localization_launch.xml"
+                 unless="$(var use_pose_fuser)">
+            <arg name="params_file" value="$(var params_file)"/>
+            <arg name="map" value="$(var map)"/>
+            <arg name="use_sim_time" value="$(var use_sim_time)"/>
+            <arg name="autostart" value="$(var autostart)"/>
+            <arg name="use_composition" value="True"/>
+            <arg name="use_respawn" value="$(var use_respawn)"/>
+            <arg name="container_name" value="$(var container_name)"/>
+            <arg name="lifecycle_nodes" value="['map_server', 'amcl']"/>
+        </include>
+
+        <load_composable_node target="$(var container_name)" if="$(var use_pose_fuser)">
+            <composable_node pkg="nav2_map_server" plugin="nav2_map_server::MapServer" name="map_server">
+                <param from="$(var params_file)"/>
+                <param name='use_sim_time' value="$(var use_sim_time)"/>
+                <param name='yaml_filename' value="$(var map)"/>
+
+                <remap from="/tf" to="tf"/>
+                <remap from="/tf_static" to="tf_static"/>
+            </composable_node>
+
+            <composable_node pkg="nav2_lifecycle_manager" plugin="nav2_lifecycle_manager::LifecycleManager" name="lifecycle_manager_localization">
+                <param name='use_sim_time' value="$(var use_sim_time)"/>
+                <param name='autostart' value="$(var autostart)"/>
+                <param name='node_names' value="['map_server']"/>
+            </composable_node>
+        </load_composable_node>
+
+        <include file="$(find-pkg-share pinky_fleet_agent)/launch/nav2_gated_navigation.launch.xml">
+            <arg name="params_file" value="$(var params_file)"/>
+            <arg name="use_sim_time" value="$(var use_sim_time)"/>
+            <arg name="autostart" value="$(var autostart)"/>
+            <arg name="use_composition" value="True"/>
+            <arg name="use_respawn" value="$(var use_respawn)"/>
+            <arg name="container_name" value="$(var container_name)"/>
+            <arg name="lifecycle_nodes" value="$(var lifecycle_nodes_nav)"/>
+        </include>
+    </group>
+
+</launch>

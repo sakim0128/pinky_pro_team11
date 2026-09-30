@@ -1,0 +1,10 @@
+{
+  "_설명": "아레나 실물 규격. 캘리브레이션의 목적지 좌표계다. 원점 = 좌하단 바닥, 단위 cm.",
+  "_출처": "docs/DECISIONS_20260917_FIELD.md §3 (관제사 보고값 — map4.pgm/yaml 레포 부재, 헤더 미검증). FIELD_ARENA_SPECIFICATION.md §3 은 아직 270 기준이라 출처가 아니다",
+  "_경고": "이 파일의 version 이 바뀌면 **게이트웨이 프로세스를 재기동한 뒤부터** 기존 영수증은 state=DRIFT·reason=ARENA_CHANGED 로 읽히고 homography_for 는 None 이다(calibration.py 는 기동 시 1회 load_arena). 영수증 파일은 지워지지 않는다(receipts.jsonl 은 덧붙이기만). 실제로 내려왔는지는 GET /api/calibration 원문으로만(R-21). version 을 반드시 함께 올린다.",
+  "version": "map4-2026-09-17",
+  "widthCm": 235.0,
+  "heightCm": 125.0,
+  "_landmarks_status": "2026-09-17 아레나가 map4(235x125 cm, origin [-1.175,-0.625]) 로 바뀌어 270 기준 줄자값 7개는 무효 -> 비움. 재실측(R-15) 전엔 모서리 핀 4개만으로 정착한다. 옛 값은 git 이력(spec-2026-09-10). 랜드마크가 비어 있는 동안 모든 정착은 accuracyMeasured:false 로 남는다(UI 검증점 드롭다운이 비고 재투영 오차를 잴 점이 없다).",
+  "landmarks": {}
+}

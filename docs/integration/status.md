@@ -138,3 +138,72 @@ Overhead 카드와 P′ 위치를 연결한다.
 - 아직 publisher가 없으므로 값이나 영상을 만들지 않는다.
 
 검증: station 테스트 88개 통과, ROS 3개 패키지 colcon 빌드 성공.
+
+## 2026-09-28 — relay_station(중계 관제국)·hybrid 로봇 스택 이식 (rkd1rjs2 팀원)
+
+완료한 변경(브랜치 `mini_project_integration`, upstream `5faddf1` 위 → 09-28 저녁 `main` `094e5d7`(= 새 브랜치 `mini_project_integration`) 병합, 충돌 0 — PR 대상은 `mini_project_integration`):
+
+- 로봇 온보드: `pinky_fleet_agent` 에 `hybrid_agent_node`(Nav2 + 레인 관제 수신) · `drive_command_gate`(`/cmd_vel` 단일 발행자) ·
+  `pose_fuser_node`(aerial_view 원본) · `route_chain` 을 **추가**했다. 기존 `agent_node`·`lane_agent_node`·launch 는 바이트 그대로.
+  새 최상위 launch `hybrid_robot.launch.xml`. `pinky_lane_msgs` 에 `PoseFix.msg`(aerial_view 와 바이트 동일)를 더했다.
+  기록: [`docs/hybrid_nav2_gate.md`](../hybrid_nav2_gate.md) (§6 "main 동기" — 원 저장소 에이전트 커밋을 따라온 표).
+- 중계 관제국 `relay_station/`(웹 관제 `:8889` · 플릿 코디네이터 · 도메인 브리지 · 영상 공유). `COLCON_IGNORE` — 빌드 대상 아님.
+  이 저장소 관제(`pinky_lane_station`)와 같은 메시지 계약을 쓰는 다른 구현이라 **같은 로봇에 둘을 동시에 붙이지 않는다**.
+  안내: [`relay_station.md`](relay_station.md).
+- 공개 규칙: 비전 API 키는 코드에 기본값이 없고 없으면 거절 · 사설/tailnet 주소는 자리표시자 · 개인 경로 없음 —
+  `relay_station/tests/test_team11_export.py` 가 잠근다.
+
+확인할 사항:
+
+- **map4 ↔ map5**: live 웹·상부 추적기는 map5, 중계 좌표 프로파일은 map4. 로봇 Nav2 지도를 무엇으로 통일할지 팀 결정 뒤
+  map5 프로파일을 넣는다(`relay_station/fleet/config/profiles/profiles.yaml` 주석).
+- 실물 배포는 09-28 저녁 원 저장소 쪽(중계 노트북 + 실물 두 대)에서 했다. 이 저장소 체크아웃으로는 아직 돌려 보지 않았다.
+- 상류 `mini_project_1`(`094e5d7`)과의 관계: `nav2_params_fleet.yaml` 튠은 하이브리드 런치가 같은 파일을 쓰므로 그대로 적용. `agent_node` 의
+  Nav2 파라미터 감사(`param_audit`)는 `hybrid_agent_node` 에 아직 없다(후속). 하이브리드 스택은 절대 토픽(`/cmd_vel` · `/estop`)이라
+  `pinky_fleet_sim` 의 네임스페이스 로봇에서는 뜨지 않는다(실기 전용). 표는 `docs/hybrid_nav2_gate.md` §8.
+
+검증(ROS 2 Jazzy 컨테이너, `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤):
+수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7(병합 전) · §8(`094e5d7` 병합 뒤: 에이전트 319 · 중계 1425/22 · station·lane 188/24). station·lane 시험은 그대로 초록.
+
+## 2026-09-28 저녁 — 제어권 정책: 팀원 노트북도 중계를 거쳐 움직이는 명령을 낸다 (rkd1rjs2 팀원)
+
+완료한 변경(원 저장소 main `1eed3f8` → 이 브랜치 `mini_project_integration`, `relay_station/` 안과 `docs/integration/` 만):
+
+- `relay_station/gateway_web/control_policy.py`(순수 정책) + `gateway_web_server.py` 배선: 움직이는 다섯 경로(목표·미션·로봇 재개·좌표 전환·
+  플릿 start/resume/assign)가 정책을 지난다. 기본은 예전과 같이 **중계 PC 자신만**. `relay_station/configs/control_allow.json` 에 팀원 노트북
+  주소를 `enabled: true` 로 넣으면(재기동 없음) 그 노트북에서도 낸다 — 한 번에 한 사람(409 `CONTROL_HELD`) · 30 s 무응답 만료 · 중계 PC 콘솔 우선 ·
+  멈추는 명령은 정책 밖. `GET /api/control` · `POST /api/control/{acquire,release}` · `/api/status` 에 `control` 블록.
+- V2 화면 헤더에 제어권 알약 + 잡기/놓기. 남이 쥐면 움직이는 버튼을 잠근다(숨기지 않음).
+- 기록: [`control_policy.md`](control_policy.md). 시험: `tests/test_control_policy.py`(순수 12) · `tests/test_control_0928_control_policy_wiring.py`(정적 8).
+
+확인할 사항:
+
+- 허용은 **주소 단위**이고 이름은 표시용이다(같은 Wi-Fi 안의 신뢰를 전제). 인증이 필요해지면 토큰을 따로 둔다.
+- `:18081` 원격 경로는 여전히 보기 전용이다(socat 출처 127.0.0.2 는 허용 목록에 없다).
+- 이 저장소 체크아웃에서의 실기 확인은 아직이다 — 팀원 노트북 한 대를 허용 목록에 넣고 `주행 시작` 이 먹는지, 두 번째 노트북이 409 를 받는지, 중계 PC 가 누르면 제어권이 넘어오는지 세 가지를 본다.
+
+검증(rkd1rjs2 노트북, rclpy 없는 Windows — 정적·순수만): `test_team11_export.py` 7 · `test_no_baked_addresses.py` · `test_control_policy.py` 12 ·
+`test_control_0928_control_policy_wiring.py` 8 · `test_control_0928_webui_p1.py` 11 · `test_v2_front_honesty.py` 6 통과. rclpy 가 필요한 나머지는
+컨테이너 재측정 전이다(README "시험" 절의 1425/22 는 이 변경 **전** 수치).
+
+## 2026-09-29 — 중계 브리지 개편: 주 대시보드 = live 웹 (rkd1rjs2 팀원)
+
+완료한 변경(브랜치 `mini_project_integration`, `be5256a` 1단계 · `47ee78b` 2단계):
+
+- 주 대시보드는 `pinky_fleet_station` live 웹(`:8080`). 중계 PC 에서 도메인 8 로 띄운다(`relay_station/launch_live_web.sh`) — live 웹의
+  미션 버튼·상태가 그대로 중계 코디네이터(`/fleet/lane/control` · `/fleet/lane/status`)와 이어진다. **live 웹 코드는 바꾸지 않았다.**
+- 1단계(계약): 중계 브리지에 `/pinkyN/amcl_pose` · `/pinkyN/camera/image/compressed` 업링크, 코디네이터 상태에 `mission` 문자열,
+  `hybrid_robot.launch.xml` 에 팀11 `camera_node`(use_camera, lane_robot 과 같은 기본값), 게이트웨이 런처의 DDS 설정 경로 수정.
+- 2단계(걷어내기): 중계 화면 V2 · 옛 `index.html` · 데스크톱 GUI · 태블릿 비전 월드·캘리브레이션 · 단일 로봇 목표/미션 API 삭제(-14k 줄).
+  새로 `relay_console.html`(버스 상태 · 제어권 · ①②③ · 멈춤 · 폰 영상) 과 `GET /api/relay/health`. 남은 HTTP 경로는 시험이 목록으로 잠근다.
+- 안내: [`relay_station.md`](relay_station.md).
+
+확인할 사항:
+
+- live 웹 미션 버튼은 제어 문을 지나지 않아 기본 꺼짐(`LIVE_WEB_CONTROL=true` 는 중계 PC 자신이 쓸 때만). 팀원 노트북이 한 화면에서
+  움직이게 하려면 live 웹 버튼이 `:8889` 제어권을 거치도록 바꾸는 협의가 필요하다(설계 "열린 결정 1" (b)).
+- map4 ↔ map5: live 웹 차선 도면은 map5 기준 — 중계가 map4 프로파일이면 로봇 위치는 맞고 도면만 조금 어긋난다.
+- 실물 확인 전이다. 중계 PC 에서 `launch_live_web.sh` → 로봇 카드 · 지도 위 P · 전방 카메라 · 미션 문자열이 보이는지.
+
+검증(ROS 2 Jazzy 컨테이너): 중계 986 passed / 6 skipped(failed 0) · 에이전트 320 passed · hybrid_robot 런치 수락 · E2E(중계 코디네이터 +
+live 웹 한 도메인: 미션 ASSIGNED → 시작 RUNNING → 일시정지 STOPPED) · 실제 게이트웨이 기동(`/` = 콘솔, 지운 경로 404).

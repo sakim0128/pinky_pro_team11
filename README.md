@@ -180,7 +180,9 @@ v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. LanePath 가 0.9 s 끊기면 정지
 
 AMCL 대신 천장 웹캠이 핑키 머리 위 ArUco(id 1/2) 를 보고 map 좌표를 준다. 관제 노드(팀원, `pinky_fleet_station`) 는
 yaml 의 고정 호모그래피로 `/pinkyN/overhead_pose`(PoseStamped, map) 를 발행하고, 브릿지(`bridge_lane.yaml`) 가 로봇으로 넘기면
-로봇 `pose_fuser_node` 가 수신 시각 − `station_latency`(0.15 s) 의 odom 에 붙여 map→odom TF 를 발행한다. `lane_agent_node` 는 TF 만 읽는다.
+로봇 `pose_fuser_node` 가 수신 시각 − `station_latency`(0.15 s) 의 odom 에 붙여 map→odom TF 를 발행한다.
+같은 노드가 `/pinkyN/pose_fix`(PoseFix, 중계 비전 API·바닥 마커) 도 받는다. 중계 PC(domain 8) 구성에서는 `overhead_pose` 가
+로봇으로 브릿지되지 않으므로(relay_station 설계) 그쪽에서는 `pose_fix` 로 넣는다. `lane_agent_node` 는 TF 만 읽는다.
 항공뷰가 `fix_timeout`(3 s) 끊기면 TF 를 끊어 로봇이 선다.
 
 ```bash
@@ -191,8 +193,8 @@ python3 tools/overhead_calib.py --device 0 --corners "40:0.10,0.10;41:2.25,0.10;
 # 2) 관제: 웹캠 → /overhead/camera/image/compressed 발행 노드 + 트래커
 ros2 launch pinky_fleet_station overhead_tracker.launch.xml
 ros2 topic echo /pinky1/overhead_pose
-# 3) 로봇: AMCL 없이
-ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 use_overhead:=True   # (기본)
+# 3) 로봇: AMCL 없이 (lane_robot.launch.xml 을 위치추정 없이 띄우고 pose_fuser_node 를 더한다)
+ros2 launch pinky_fleet_agent lane_overhead.launch.xml robot_name:=pinky1 domain_id:=10
 ros2 topic echo /pinky1/fix_status          # accepted/rejected/age
 ```
 

@@ -245,8 +245,9 @@ def test_bridge_lane_topics_match_nodes_and_mission(lane_mission):
     assert "f'/{name}/overhead_pose'" in fuser and 'PoseStamped' in fuser
     setup = read(os.path.join(AGENT, 'setup.py'))
     assert 'pose_fuser_node = pinky_fleet_agent.pose_fuser_node:main' in setup
-    launch = read(os.path.join(AGENT, 'launch', 'lane_robot.launch.xml'))
-    assert 'exec="pose_fuser_node"' in launch and 'use_overhead' in launch and '$(eval' not in launch
+    launch = read(os.path.join(AGENT, 'launch', 'lane_overhead.launch.xml'))
+    assert 'exec="pose_fuser_node"' in launch and 'lane_robot.launch.xml' in launch
+    assert '<arg name="launch_localization" value="False"/>' in launch      # AMCL 과 동시에 안 뜬다
 
 
 def test_bridge_lane_message_types_exist():

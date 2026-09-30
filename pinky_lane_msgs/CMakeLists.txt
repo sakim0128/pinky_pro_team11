@@ -17,6 +17,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LaneCommand.msg"
   "msg/LaneStatus.msg"
   "msg/SceneState.msg"
+  "msg/PoseFix.msg"
   DEPENDENCIES std_msgs geometry_msgs builtin_interfaces
 )
 

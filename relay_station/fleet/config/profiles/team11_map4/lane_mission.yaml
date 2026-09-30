@@ -1,0 +1,41 @@
+# 좌표 프로파일 map4 — 시나리오 1 (팀11 기본): pinky1 BL→TC, pinky2 BL→RE (6 s 뒤)
+# 도로망·지도: 팀11 mini_project_2 1f505cb 원본(같은 폴더, SOURCE.md). 좌표 = map4: 원점 경기장 **가운데**,
+#   x −1.175~1.175 m · y −0.625~0.625 m (2.35 × 1.25), 해상도 0.05 m.
+# 로봇·시나리오: 팀11 pinky_lane_station/config/lane_mission.yaml 그대로 + 우리 drive_mode: nav2 (D6).
+# 예약 파라미터는 relay_station/fleet/config/lane_mission.yaml 과 같다.
+# ⚠️ 이 파일은 웹의 좌표 프로파일 전환(설정 탭)이 고른다 — 직접 고치면 전환된 뒤에야 쓰인다.
+
+graph: road_graph.yaml
+
+reservation:
+  reserve_ahead: 0.40
+  release_behind: 0.25
+  node_stop_margin: 0.20
+
+coordinator:
+  tick_rate: 10.0
+  state_timeout: 2.0
+  start_retry_max: 5
+  start_retry_interval: 1.0
+  goal_event_timeout: 3.0
+  auto_start: false
+
+defaults:
+  max_linear_vel: 0.15
+  max_angular_vel: 1.2
+
+robots:
+  - name: pinky1
+    drive_mode: nav2
+    domain_id: 10
+    start: BL
+    goal: TC
+    depart_delay: 0.0
+    color: "#ff5a7a"
+  - name: pinky2
+    drive_mode: nav2
+    domain_id: 11
+    start: BL
+    goal: RE
+    depart_delay: 6.0
+    color: "#38bdf8"
