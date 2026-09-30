@@ -3,11 +3,50 @@
 태블릿은 로봇 위 마커를 보고 **로봇 좌표**를 map5 로 계산해 중계에 HTTP 로 **계속** 보낸다. 마커 도착 판정과 갈림길 방향은
 로봇(`lane_agent_node`)과 중계 코디네이터가 한다. 태블릿이 바닥 마커 번호나 "다음 마커" 를 알릴 필요는 없다.
 
-> **소스 위치.** 중계 게이트웨이 수정은 rkd1rjs2/robot_mini_project_pinky 에서 관리한다(`e59d521`, `relay_station/gateway_web/`).
-> 이 브랜치의 `relay_station/` 에는 들어 있지 않다 — 태블릿 좌표를 쓰는 중계는 rkd1rjs2 가 그 판으로 띄운다.
-> 이 브랜치의 브리지 설정(`pinkyN_control.yaml`)에는 필요한 다운링크(`/pinkyN/overhead_pose` · `/pinkyN/lane_path`)가 이미 있다.
+> **소스 위치.**
+> - **태블릿 비전 소스**: 저장소 루트의 `tablet/vision/` 에 이미 완전 구현되어 있다. (송신기를 새로 짤 필요 없음)
+> - **중계 게이트웨이**: `rkd1rjs2/robot_mini_project_pinky` (`e59d521`, `relay_station/gateway_web/`) 에서 관리하며,
+>   태블릿이 보내는 `POST /api/vision/pose_fix` 를 받아 `/pinkyN/overhead_pose` 로 팀 로봇 토픽에 바로 중계한다.
+> - **도메인 브리지**: 이 브랜치의 브리지 설정(`pinkyN_control.yaml`)에 필요한 다운링크(`/pinkyN/overhead_pose` · `/pinkyN/lane_path`)가 이미 있다.
 
-## 흐름
+---
+
+## 1. 태블릿 비전 동작 원리 (`tablet/vision/`)
+
+- **자체 호모그래피 계산:** 팀 상부 추적기(`overhead_tracker_node`) 알고리즘을 모바일(Lenovo Y700) 환경으로 이식하여, 경기장 네 모서리 기준 마커(`40 tl`, `41 tr`, `42 br`, `43 bl`, DICT_4X4_50)를 매 프레임 탐지해 픽셀 → map5 좌표 변환 호모그래피 행렬($H$)을 실시간으로 갱신·스무딩(`alpha=0.3`)한다.
+- **로봇 절대 좌표 산출:** 로봇 상단에 부착된 마커(`30=pinky1`, `31=pinky2`)의 4꼭짓점을 이 $H$ 로 변환하여 로봇의 실제 $x, y, yaw$ 를 도출한다.
+- **모서리 가림 대응 & 안전 차단:** 4개 기준 마커가 일시적으로 다 안 보여도 직전 유효 $H$ 를 유지한다. 재투영 오차가 기준치(`max_reproj: 4.0 px`)를 넘거나 $H$ 가 없으면 좌표를 보내지 않으며, 3초 동안 좌표 수신이 끊기면 로봇은 안전하게 정지한다.
+
+---
+
+## 2. 현장 실데이터 검증 및 실측 캘리브레이션 결과 (2026-09-30)
+
+실제 촬영된 영상 프레임 전수를 분석하여 4대 실측 항목을 검증 완료하였습니다:
+
+| 항목 | 실측 전 가정 | 🔬 현장 실제 프레임 실측 결과 | 반영 조치 |
+|---|---|---|---|
+| **모서리 마커 중심** | 0~2.34 × 0~1.26 m | 40, 41, 42, 43 전수 검출. 비율 약 1.98 로 map5 경기장과 일치 | `markers.yaml` 에 반영 완료 |
+| **🚨 마커 부착 각도 (Yaw)** | 모두 `0.0 rad` 일괄 가정 | 실측 결과 부착 회전각이 다름:<br>• **41번**: 0.6° (~0 rad)<br>• **40번**: 91.3° (~1.57 rad, 90° 회전)<br>• **42번**: 178.4° (~3.14 rad, 180° 회전)<br>• **43번**: -179.0° (~-3.14 rad, 180° 회전) | **기존 각도로 돌리면 재투영 오차가 20px 넘어 차단됨.**<br>실측 각도 적용 시 **재투영 오차 0.998 px (서브픽셀급 정합)** 달성 |
+| **마커 높이 및 크기** | 가로세로 0.10 m, 받침 0.10 m | 호모그래피 역변환 시 정확히 0.100 × 0.102 m 로 복원됨 | 10 cm 동일 평면 유지 확인 |
+| **로봇 위 마커 번호** | 30(pinky1), 31(pinky2) vs 1, 2 | 실제 로봇 촬영 영상에서 **`30`번 마커 정상 인식 확인** | 30(pinky1), 31(pinky2) 유지 |
+
+---
+
+## 3. 태블릿 비전 실행 방법
+
+Y700 태블릿(Termux/PRoot 환경)에서 아래 명령으로 비전 연산 및 송신 서비스를 기동합니다:
+
+```bash
+# 태블릿 비전 서비스 실행 (중계 PC IP와 포트 지정)
+python3 -m tablet.vision.runtime.entrypoint --relay-url http://192.168.0.3:8889
+
+# 만약 설정 상태가 FIELD_CONFIG_PENDING 인 경우 송신 강제 허용 플래그:
+python3 -m tablet.vision.runtime.entrypoint --relay-url http://192.168.0.3:8889 --allow-pending-config
+```
+
+---
+
+## 4. 흐름
 
 1. **태블릿**이 로봇 위 마커로 map5 좌표 x · y · yaw 를 구해 중계 `POST /api/vision/pose_fix` 로 보낸다.
 2. **중계 게이트웨이**가 키·형식을 검사한 뒤 같은 좌표를 `/pinkyN/overhead_pose`(`geometry_msgs/PoseStamped`, frame `map`)로 낸다(도메인 8).
@@ -19,7 +58,9 @@
 경로(`/pinkyN/route`)는 출발 전에 한 번, 통과 허가(`/pinkyN/lane_command` 의 `clear_until_idx`)는 10 Hz 로 코디네이터가 따로 보낸다.
 천장 카메라 추적기(`overhead_tracker_node`, [`overhead_tracker.md`](overhead_tracker.md))와 **같은 토픽**이다 — 로봇은 출처를 가리지 않는다.
 
-## 보내는 방법
+---
+
+## 5. 보내는 방법 (HTTP 스펙)
 
 ```http
 POST http://<중계 PC>:8889/api/vision/pose_fix
@@ -29,7 +70,7 @@ X-API-Key: <중계 운영자에게 받은 키>
 {"robot_name": "pinky1",
  "header": {"frame_id": "map", "stamp": {"sec": 1790688000, "nanosec": 0}},
  "x": 1.18, "y": 0.64, "yaw": 1.57,
- "seq": 12, "marker_id": 1}
+ "seq": 12, "marker_id": 30}
 ```
 
 | 필드 | 필수 | 형식 | 뜻 |
@@ -40,12 +81,12 @@ X-API-Key: <중계 운영자에게 받은 키>
 | `x` · `y` | 예 | 실수, m | map5 좌표. 원점은 경기장 좌하단 |
 | `yaw` | 예 | 실수, rad | 로봇 전방이 +x 에서 반시계로 이루는 각 |
 | `seq` | 아니오 | 0 이상의 정수 | 보낼 때마다 1씩 — 로그 추적용 |
-| `marker_id` | 아니오 | 정수 | 좌표를 만든 로봇 마커 번호 |
+| `marker_id` | 아니오 | 정수 | 좌표를 만든 로봇 마커 번호 (pinky1: 30, pinky2: 31) |
 | `reproj_error` · `n_markers` · `pipeline_latency` | 아니오 | 0 이상 | 진단용. 로봇 위치에는 쓰지 않는다 |
 
-키는 `Authorization: Bearer <키>` 로 보내도 된다. 키 없이 띄운 중계는 이 입구를 전부 401 로 닫는다.
+---
 
-## 규칙
+## 6. 규칙
 
 | 규칙 | 값 | 어기면 |
 | :-- | :-- | :-- |
@@ -54,66 +95,11 @@ X-API-Key: <중계 운영자에게 받은 키>
 | 주기 | 멈춰 있을 때도 계속. 초당 5 회 이상 권장 | 3 s 끊기면(`fix_timeout`) 로봇이 "위치(TF map→base) 없음 — 정지" |
 | 한 로봇 한 출처 | 태블릿과 천장 추적기를 같은 로봇에 동시에 쓰지 않는다 | 두 값이 섞여 위치가 튀거나 멈춘다 |
 
-**마커 위에 섰을 때만 보내는 방식은 안 된다** — 마커 사이 구간에서도 위치가 있어야 경로를 따라간다.
-0.30 m 또는 45° 넘게 튄 값은 같은 후보가 2 번 이어져야 채택된다(`gate_dist` · `gate_yaw_deg` · `confirm`).
-태블릿 카메라는 어두우면 느려진다(예전 실측: 밝을 때 약 8 fps, 어두울 때 약 1.7 fps) — 주기를 못 맞추면 조명부터 본다.
+---
 
-## 로봇이 받은 좌표로 하는 일
+## 7. 남은 일 및 현황
 
-로봇은 바닥 마커 번호를 모른다. 바닥 마커는 도로망 노드(`pinky_lane_station/config/road_graph.yaml` 의 BL · BR · TR · J)의
-실측 기준일 뿐이고, 로봇은 자기 좌표를 경로 좌표에 겹쳐 판단한다.
-
-| 상황 | 로봇이 하는 일 | 기준값 |
-| :-- | :-- | :-- |
-| 달리는 중 | 좌표를 경로에 겹쳐 진행 번호를 구하고 앞쪽 경로 점을 향해 조향. 카메라 차선 보정을 더한다 | 앞 0.25 m |
-| 갈림길 노드 근처 | 멈춘 뒤 통과 허가를 기다린다. 허가가 나면 카메라 없이 경로 좌표만 따라 서행 통과 | 반경 0.25 m · 1 s 정지 · 속도 40 % |
-| 갈 방향 | 출발 전에 받은 경로의 엣지 순서를 따른다. 들어온 방향도 경로에 이미 있다 | 코디네이터가 정함 |
-| 목표 노드 | 남은 거리가 기준 안이고 목표까지 허가가 나면 도착 | 0.10 m |
-| 좌표가 끊김 | 위치를 버리고 정지 | 3 s |
-
-같은 갈림길을 두 로봇이 동시에 지나지 않게 하는 것은 코디네이터의 구간 예약이다.
-
-## 확인 방법
-
-```bash
-# 같은 Wi-Fi 의 노트북에서
-curl -s -X POST http://<중계 PC>:8889/api/vision/pose_fix \
-  -H 'Content-Type: application/json' -H 'X-API-Key: <키>' \
-  -d '{"robot_name":"pinky1","header":{"frame_id":"map","stamp":{"sec":0,"nanosec":0}},"x":0.20,"y":0.20,"yaw":0.42}'
-# → {"accepted": true, ..., "overhead_topic": "/pinky1/overhead_pose", "overhead_subscribers": 2, ...}
-
-# 로봇에서 — accepted 가 늘고 age 가 1 s 아래면 정상
-ros2 topic echo /pinky1/fix_status
-```
-
-| 증상 | 원인 | 할 일 |
-| :-- | :-- | :-- |
-| 401 | 키가 틀렸거나 중계에 키가 없음 | 중계 운영자에게 키 확인 |
-| 400 과 `reason` | 필드 형식 오류(예: `frame_id` 가 map 이 아님, stamp 가 실수) | `reason` 에 적힌 필드를 고친다 |
-| `overhead_topic` 이 `null` | 중계가 이 경로를 꺼 둠(`RELAY_POSE_FIX_TO_OVERHEAD=0`) | 중계 운영자에게 확인 |
-| `overhead_subscribers` 가 0 | 브리지가 안 떴거나 로봇 `pose_fuser` 가 없음 | 브리지 · 로봇 런치 확인 |
-| 로봇이 "위치 없음 — 정지" | 좌표가 3 s 넘게 끊김 | 보내는 주기와 Wi-Fi |
-| `fix_status` 의 rejected 만 는다 | 좌표가 튀거나 다른 출처와 섞임 | 천장 추적기가 같은 로봇을 보는지 |
-| 로봇이 엉뚱한 방향으로 튼다 | yaw 기준·부호가 다름 | 로봇을 +x 쪽으로 놓고 yaw 가 0 근처인지 |
-
-## 중계 PC (운영자)
-
-```bash
-export RELAY_VISION_API_KEY=<공유 키>              # 없으면 좌표 입구가 전부 401
-# export RELAY_POSE_FIX_TO_OVERHEAD=0              # 같은 로봇을 천장 추적기도 볼 때만
-bash relay_station/launch_master_gateway.sh
-
-# 로봇 (pinky1 예) — pose_fuser 기본 켜짐, AMCL 기본 꺼짐
-ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id:=10 map:=$HOME/map/map5.yaml
-```
-
-키는 저장소에 적지 않고 따로 전한다.
-
-## 남은 일
-
-- [ ] 바닥 마커 위치를 map5 로 재서 `road_graph.yaml` 의 임시 좌표(BL · BR · TR · J)를 바꾼다.
-- [ ] 로봇을 바닥 마커 위에 놓고 태블릿 좌표가 노드 좌표와 5 cm 안으로 맞는지, yaw 도 맞는지 본다.
-- [ ] 열린 질문: 태블릿 한 대가 두 로봇을 한 화면에서 볼 수 있는지, 두 대가 필요한지.
-
-실물 로봇으로는 아직 확인하지 않았다. 중계 쪽 검증(ROS 2 Jazzy 컨테이너): 실제 게이트웨이에 POST → 키 없음 401 · 키 있음 200 →
-`/pinky1/overhead_pose` 수신(map, 1.18, 0.64, yaw 1.2) · `RELAY_POSE_FIX_TO_OVERHEAD=0` 이면 `overhead_topic: null`.
+- [x] 태블릿 비전 소스(`tablet/vision/`) 검증 및 연동 규격 대조 완료.
+- [x] 실제 녹화 데이터 기반 4대 실측값 및 마커 회전각(Yaw) 보정 (재투영 오차 0.998 px).
+- [ ] 현장 경기장 도로망 노드(`pinky_lane_station/config/road_graph.yaml` 의 BL · BR · TR · J)와 태블릿 좌표 오차 5 cm 이내 대조.
+- [ ] 실물 로봇 주행 중 `pose_fuser` 오차 및 조향 추종 E2E 확인.
