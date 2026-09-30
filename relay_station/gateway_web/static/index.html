@@ -325,127 +325,226 @@
     </div>
   </header>
 
-  <!-- 최상단 글로벌 내비게이션 탭 -->
+  <!-- 최상단 글로벌 내비게이션 탭 (중복 제거 단일화) -->
   <nav class="main-nav-tabs">
     <button class="nav-tab active" onclick="switchGlobalTab('pane-main-dash', this)">
-      <span>📊</span> 1. 메인 대시보드 & 가이드
+      <span>🚀</span> 1. 통합 관제 대시보드 (2D 맵 + 뷰어)
     </button>
-    <button class="nav-tab" onclick="switchGlobalTab('pane-map-view', this)">
-      <span>🗺️</span> 2. 맵 & 위치 관제
+    <button class="nav-tab" onclick="switchGlobalTab('pane-multi-cams', this)">
+      <span>📹</span> 2. 다중 영상 모니터 (4분할)
     </button>
-    <button class="nav-tab" onclick="switchGlobalTab('pane-robot-cams', this)">
-      <span>🎥</span> 3. 로봇 온보드 카메라
-    </button>
-    <button class="nav-tab" onclick="switchGlobalTab('pane-calibration-backup', this)">
-      <span>📐</span> 4. 좌표계 수동 정착 (비상/백업용)
+    <button class="nav-tab" onclick="switchGlobalTab('pane-diagnostics-config', this)">
+      <span>🛠️</span> 3. 진단 및 설정 (백업 도구)
     </button>
   </nav>
 
   <!-- ===================================================================== -->
-  <!-- [탭 1] 메인 대시보드 (태블릿 영상 + 실시간 네트워크 정보 + 팀원 가이드) -->
+  <!-- [탭 1] 통합 관제 대시보드 (실시간 2D 맵 + 단일 뷰포트 + 로봇 상태) -->
   <!-- ===================================================================== -->
   <div id="pane-main-dash" class="global-tab-pane active">
-    <!-- 1-1. 실시간 영상 관제: 현장 스마트폰 + 노트북 웹캠 + 가제보 3D 탑뷰 -->
-    <!-- 📹 현장 관제 카메라 (다중 소스 & AR 워터마크/동적 강조 지원) -->
-    <!-- ===== MCV-1D 멀티뷰: 실물 시점을 동시에 =====
-     소스 id 를 여기 적지 않는다. /api/sources 를 읽어 성질로 거른다.
-     2026-09-10: id 를 배열에 박아 둬서 tablet-relay 가 빠진 것을 아무도 못 알아챘다. -->
-    <div class="stream-card" style="margin-bottom: 16px;" id="mv-card">
-      <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
-    <div style="display:flex; align-items:center; gap:8px;">
-      <span style="font-size:1.05rem;">🎥 실물 시점</span>
-      <span class="badge" id="mv-count" style="background:#21262d;">-</span>
-    </div>
-    <div style="display:flex; gap:6px; align-items:center;">
-      <span id="mv-note" style="font-size:0.75rem; color:var(--text-muted);"></span>
-      <button class="badge cyan" style="cursor:pointer; border:none;" onclick="mvSync(true)">🔄 새로고침</button>
-    </div>
+
+    <!-- 최상단 미션 툴바 (주행/정지/비상정지/고장주입) -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span class="badge green" id="drive-ready-state" style="font-size: 0.85rem; padding: 4px 10px;">🟢 FLEET ACTIVE</span>
+        <span class="badge" id="hdr-profile-label" style="background:#21262d; font-size: 0.82rem;">좌표: team11_map5</span>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">미션: 4노드(BL·BR·TR·J) 교차로 순차 발진</span>
       </div>
-      <div id="mv-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; padding:12px;"></div>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <button class="badge" style="background:#238636; color:#fff; border:none; padding:6px 14px; font-weight:700; cursor:pointer;" onclick="fleetCmd('start')">▶️ 주행 시작</button>
+        <button class="badge" style="background:#30363d; color:#c9d1d9; border:none; padding:6px 14px; cursor:pointer;" onclick="fleetCmd('stop')">⏸️ 일시정지</button>
+        <button class="badge" style="background:#1f6feb; color:#fff; border:none; padding:6px 14px; cursor:pointer;" onclick="fleetCmd('resume')">🔄 재시작</button>
+        <button class="badge" style="background:#da3633; color:#fff; border:none; padding:6px 14px; font-weight:700; cursor:pointer;" onclick="fleetCmd('estop')">🛑 E-STOP</button>
+        <button class="badge" id="btn-fault-toggle" style="background:#9e6a03; color:#fff; border:none; padding:6px 14px; font-weight:700; cursor:pointer;" onclick="toggleFaultPoseFix()" title="관제 위치(overhead_pose) 전송을 차단하여 로봇이 3초 뒤 데드맨으로 정지하는지 검증">⚠️ 관제 위치 차단 테스트</button>
+      </div>
     </div>
 
-    <div class="stream-card" style="margin-bottom: 16px;">
-      <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
-        <h2><span>📹</span> 현장 관제 카메라 (Live Stream)</h2>
-        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-          <!-- 소스 선택 버튼 그룹 -->
+    <!-- 중앙 핵심 관제 1:1 그리드 (2D 관제 맵 + 통합 카메라 뷰어) -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; align-items: start;">
+      
+      <!-- 좌측: 2D 실시간 아레나 관제 맵 -->
+      <div id="col-interactive-map" style="background: var(--bg-card); border-radius: 10px; border: 1px solid var(--border-color); padding: 14px; position: relative;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: 700; font-size: 0.95rem; color: #58a6ff;">🗺️ 2D 실시간 아레나 관제 맵 (Robot #1 · #2 + Vision Fix)</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">🖱️ 마우스 오버: 좌표 확인</span>
+        </div>
+        
+        <div style="position: relative; width: 100%; display: flex; justify-content: center; background: #0d1117; border-radius: 8px; overflow: hidden; border: 1px solid #21262d;">
+          <canvas id="navCanvas" width="540" height="340" style="cursor: crosshair; touch-action: none; max-width: 100%; height: auto; display: block;"></canvas>
+          <div id="nav-tooltip" style="position: absolute; display: none; pointer-events: none; background: rgba(13,17,23,0.92); border: 1px solid #58a6ff; border-radius: 4px; padding: 4px 8px; font-size: 0.75rem; color: #f0f6fc; font-family: monospace; white-space: nowrap; z-index: 10;"></div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">
+          <div>범례: <span style="color:#ff9900; font-weight:600;">● P1 Odom</span> · <span style="color:#a371f7; font-weight:600;">● P2 Odom</span> · <span style="color:#eab308; font-weight:600;">⌖ P2 관제Fix</span></div>
+          <div id="nav-live-hover" style="font-family: monospace; color: #58a6ff;">지도 위 마우스 오버 시 좌표 확인</div>
+        </div>
+      </div>
+
+      <!-- 우측: 단일 통합 영상 뷰포트 (Single Viewport Switcher) -->
+      <div class="stream-card" style="margin-bottom: 0;">
+        <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
           <div style="display: flex; gap: 4px; background: #0d1117; padding: 2px 4px; border-radius: 20px; border: 1px solid #30363d;">
-            <button id="btn-src-phone" class="badge cyan" style="cursor: pointer; border: none;" onclick="selectCameraSource('phone')">📱 스마트폰</button>
-            <button id="btn-src-relay" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('relay-cam')">💻 노트북 웹캠</button>
-            <button id="btn-src-gazebo" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('gazebo')">🏭 가제보 가상</button>
+            <button id="btn-src-gazebo" class="badge cyan" style="cursor: pointer; border: none;" onclick="selectCameraSource('gazebo')">🏭 Gazebo 3D 가상</button>
+            <button id="btn-src-phone" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('phone')">📱 상부 실물 카메라</button>
+            <button id="btn-src-pinky1" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('pinky1')">🤖 Pinky 1 온보드</button>
+            <button id="btn-src-pinky2" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('pinky2')">🤖 Pinky 2 온보드</button>
           </div>
-
-          <!-- AR / 영상 강화 필터 토글 그룹 -->
           <div style="display: flex; gap: 4px; align-items: center;">
-            <button id="btn-toggle-boost" class="badge" style="cursor: pointer; border: 1px solid #e3b341; color: #f2cc60; background: #21262d;" onclick="toggleDynamicBoost()" title="움직이는 로봇의 색상을 진하게 강조하고 배경 톤다운">✨ 동적 강조: OFF</button>
-            <button id="btn-toggle-watermark" class="badge" style="cursor: pointer; border: 1px solid #388bfd; color: #58a6ff; background: #21262d;" onclick="toggleGazeboWatermark()" title="가제보 디지털 트윈 벽체/선반을 청사진 워터마크로 오버레이">📐 가제보 워터마크: OFF</button>
-            <button id="btn-toggle-style" class="badge" style="cursor: pointer; display: none; border: 1px solid #8957e5; color: #d2a8ff; background: #21262d;" onclick="toggleWatermarkStyle()">스타일: 청사진 엣지</button>
+            <button id="btn-toggle-boost" class="badge" style="cursor: pointer; border: 1px solid #e3b341; color: #f2cc60; background: #21262d;" onclick="toggleDynamicBoost()">✨ 채도강조</button>
+            <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectMainStream()">🔄 새로고침</button>
           </div>
-
-          <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectMainStream()">🔄 새로고침</button>
-          <span class="badge" id="tablet-badge">확인 전</span>
         </div>
-      </div>
-      <div class="video-viewport" style="height: 420px; background: #000; display: flex; align-items: center; justify-content: center; position: relative;">
-        <img id="tablet-stream-img" src="/video_feed" alt="Surveillance Camera Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/video_feed')">
-        <div id="overlay-badge-layer" style="position: absolute; top: 12px; left: 16px; display: flex; gap: 6px;"></div>
-      </div>
-      <div class="stream-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 16px;">
-        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
-          <span style="font-size: 0.82rem; color: var(--text-muted);">
-            선택 소스: <strong id="active-source-label" style="color:#58a6ff;">📱 스마트폰 카메라 (phone)</strong>
-          </span>
-          <span style="font-size: 0.82rem; color: var(--text-muted);">
-            영상 필터: <strong id="active-fx-label" style="color:#7ee787;">원본 스트림</strong>
-          </span>
+        <div class="video-viewport" style="height: 340px; background: #000; display: flex; align-items: center; justify-content: center; position: relative;">
+          <img id="tablet-stream-img" src="/gazebo_feed" alt="Main Camera Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/gazebo_feed')">
+          <div id="overlay-badge-layer" style="position: absolute; top: 12px; left: 16px; display: flex; gap: 6px;"></div>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <a href="/camera_streamer" target="_blank" class="badge cyan" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-size:0.75rem;">📱 웹 송출기</a>
-          <button class="badge" style="cursor: pointer; background: #238636; color: #fff; border: none; font-size:0.75rem;" onclick="autoScanCamera()">🔍 폰 IP 탐색</button>
+        <div class="stream-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">
+            선택 소스: <strong id="active-source-label" style="color:#3fb950;">🏭 Gazebo 3D 가상 카메라 (디지털 트윈)</strong>
+          </span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);" id="active-stream-fps">30 FPS LIVE STREAM</span>
         </div>
       </div>
     </div>
 
-    <!-- 1-1-B. 로봇 온보드 & Gazebo 듀얼 뷰 -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-      <!-- Robot #1 실물 온보드 카메라 -->
-      <div class="stream-card">
-        <div class="stream-header">
-          <h2><span>🤖</span> Pinky #1 실물 온보드 카메라 (Live)</h2>
-          <div style="display: flex; gap: 6px; align-items: center;">
-            <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectStream('r1-main-stream-img', '/robot_camera_feed?id=pinky1')">🔄 새로고침</button>
-            <span class="badge green" id="r1-main-badge">15 FPS LIVE</span>
+    <!-- 하단 Robot #1 · #2 통합 상태 카드 (나란히 배치) -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
+      <!-- Pinky 1 -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong style="color: #ff9900; font-size: 1rem;">🤖 Pinky 1 (Main)</strong>
+            <span class="badge" id="p1-runtime-badge" style="font-size: 0.72rem; background: #21262d;">미연결</span>
           </div>
+          <span class="badge" id="p1-drive-state" style="background: #21262d;">대기 중</span>
         </div>
-        <div class="video-viewport" style="height: 360px; background: #000; display: flex; align-items: center; justify-content: center;">
-          <img id="r1-main-stream-img" src="/robot_camera_feed?id=pinky1" alt="Robot 1 Camera Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/robot_camera_feed?id=pinky1')">
-        </div>
-        <div class="stream-footer">
-          <span>소스: /pinky1/camera/image_raw (Raspberry Pi CSI Camera)</span>
-          <span>원격 저지연 MJPEG 실시간 스트림</span>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 0.8rem;">
+          <div><span style="color: var(--text-muted);">배정 경로:</span> <strong id="p1-leg">BL → TR</strong></div>
+          <div><span style="color: var(--text-muted);">위치(Odom):</span> <strong id="p1-pos">—</strong></div>
+          <div><span style="color: var(--text-muted);">관제 위치 융합:</span> <strong id="p1-fix-status" style="color:#7ee787;">—</strong></div>
+          <div><span style="color: var(--text-muted);">관제 ↔ 오돔 오차:</span> <strong id="p1-delta">—</strong></div>
         </div>
       </div>
 
-      <!-- Gazebo 3D 시뮬레이션 탑뷰 -->
-      <div class="stream-card">
-        <div class="stream-header">
-          <h2><span>🏭</span> Gazebo 3D 시뮬레이션 실시간 탑뷰</h2>
-          <div style="display: flex; gap: 6px; align-items: center;">
-            <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectStream('gz-main-stream-img', '/gazebo_feed')">🔄 새로고침</button>
-            <span class="badge green">DIGITAL TWIN</span>
+      <!-- Pinky 2 -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong style="color: #a371f7; font-size: 1rem;">🤖 Pinky 2 (Sub)</strong>
+            <span class="badge ok" id="p2-runtime-badge" style="font-size: 0.72rem; background: #238636; color: #fff;">🤖 실물</span>
           </div>
+          <span class="badge" id="p2-drive-state" style="background: #21262d;">대기 중</span>
         </div>
-        <div class="video-viewport" style="height: 360px; background: #000; display: flex; align-items: center; justify-content: center;">
-          <img id="gz-main-stream-img" src="/gazebo_feed" alt="Gazebo Real-time 3D Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/gazebo_feed')">
-        </div>
-        <div class="stream-footer">
-          <span>소스: /camera (Gazebo Harmonic 3D Digital Twin)</span>
-          <span>로봇 1호기 실시간 물리 위치 1:1 연동</span>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 0.8rem;">
+          <div><span style="color: var(--text-muted);">배정 경로:</span> <strong id="p2-leg">BR → BL</strong></div>
+          <div><span style="color: var(--text-muted);">위치(Odom):</span> <strong id="p2-pos">—</strong></div>
+          <div><span style="color: var(--text-muted);">관제 위치 융합:</span> <strong id="p2-fix-status" style="color:#7ee787;">—</strong></div>
+          <div><span style="color: var(--text-muted);">관제 ↔ 오돔 오차:</span> <strong id="p2-delta">—</strong></div>
         </div>
       </div>
     </div>
+  </div> <!-- end of pane-main-dash -->
 
-    <!-- 1-2. 각 장비별 실시간 네트워크 전달 속도 모니터링 카드 -->
+  <!-- ===================================================================== -->
+  <!-- [탭 2] 다중 영상 모니터 (4분할 쿼드뷰) -->
+  <!-- ===================================================================== -->
+  <div id=pane-multi-cams class=global-tab-pane>
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 1.1rem;">📹</span>
+        <strong style="font-size: 0.95rem; color: #f0f6fc;">다중 시점 4분할 동시 모니터링 (Quad Live View)</strong>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <span class="badge green">4-CH STREAM ACTIVE</span>
+        <button class="badge cyan" style="cursor: pointer; border: none;" onclick="refreshQuadCams()">🔄 전체 새로고침</button>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+      <!-- 1. Gazebo 3D 시뮬레이션 탑뷰 -->
+      <div class="stream-card" style="margin-bottom: 0;">
+        <div class="stream-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong style="color: #3fb950; font-size: 0.92rem;">🏭 Gazebo 3D 가상 공간 (디지털 트윈)</strong>
+            <span class="badge green">LIVE /camera</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">30 FPS</span>
+        </div>
+        <div class="video-viewport" style="height: 280px; background: #000; display: flex; align-items: center; justify-content: center;">
+          <img id="quad-cam-gazebo" src="/gazebo_feed" alt="Gazebo 3D View" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/gazebo_feed')">
+        </div>
+        <div class="stream-footer">
+          <span>가상 물리 시뮬레이션 탑뷰 (오프라인 시 디지털 트윈 캡처 표출)</span>
+          <span style="color: #7ee787;">● 동기화 중</span>
+        </div>
+      </div>
+
+      <!-- 2. 상부 실물 관제 카메라 -->
+      <div class="stream-card" style="margin-bottom: 0;">
+        <div class="stream-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong style="color: #58a6ff; font-size: 0.92rem;">📱 상부 실물 관제 카메라 (Overhead)</strong>
+            <span class="badge cyan">OVERHEAD LIVE</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">30 FPS</span>
+        </div>
+        <div class="video-viewport" style="height: 280px; background: #000; display: flex; align-items: center; justify-content: center;">
+          <img id="quad-cam-phone" src="/video_feed?src=phone" alt="Overhead Camera" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/video_feed?src=phone')">
+        </div>
+        <div class="stream-footer">
+          <span>천장 거치 광각 카메라 / ArUco 마커 기반 글로벌 위치 추적</span>
+          <span style="color: #58a6ff;">● 광역 시점</span>
+        </div>
+      </div>
+
+      <!-- 3. Pinky 1 온보드 카메라 -->
+      <div class="stream-card" style="margin-bottom: 0;">
+        <div class="stream-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong style="color: #ff9900; font-size: 0.92rem;">🤖 Pinky #1 온보드 카메라 (Main)</strong>
+            <span class="badge green">ONBOARD LIVE</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">15 FPS</span>
+        </div>
+        <div class="video-viewport" style="height: 280px; background: #000; display: flex; align-items: center; justify-content: center;">
+          <img id="quad-cam-p1" src="/robot_camera_feed?id=pinky1" alt="Pinky 1 Camera" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/robot_camera_feed?id=pinky1')">
+        </div>
+        <div class="stream-footer">
+          <span>토픽: /pinky1/camera/image_raw (CSI Camera)</span>
+          <span style="color: #ff9900;">● 로봇 시점</span>
+        </div>
+      </div>
+
+      <!-- 4. Pinky 2 온보드 카메라 -->
+      <div class="stream-card" style="margin-bottom: 0;">
+        <div class="stream-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong style="color: #a371f7; font-size: 0.92rem;">🤖 Pinky #2 온보드 카메라 (Sub)</strong>
+            <span class="badge purple">ONBOARD LIVE</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">15 FPS</span>
+        </div>
+        <div class="video-viewport" style="height: 280px; background: #000; display: flex; align-items: center; justify-content: center;">
+          <img id="quad-cam-p2" src="/robot_camera_feed?id=pinky2" alt="Pinky 2 Camera" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/robot_camera_feed?id=pinky2')">
+        </div>
+        <div class="stream-footer">
+          <span>토픽: /pinky2/camera/image_raw (CSI Camera)</span>
+          <span style="color: #a371f7;">● 로봇 시점</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- [탭 3] 진단 및 설정 (시스템 모니터, 네트워크, 텔레메트리, 백업 도구) -->
+  <!-- ===================================================================== -->
+  <div id="pane-diagnostics-config" class="global-tab-pane">
+    <div style="padding: 12px 16px; margin-bottom: 16px; background: rgba(56, 139, 253, 0.1); border: 1px solid #388bfd; border-radius: 8px; font-size: 0.82rem; color: #c9d1d9; line-height: 1.5;">
+      🛠️ <strong>진단 및 인프라 설정 센터:</strong><br>
+      실시간 네트워크 지연(RTT), Fast DDS 토폴로지, 인프라 SSH 접속 가이드, 심층 텔레메트리 분석 및 비상용 좌표계 수동 정착 도구가 모여 있습니다.
+    </div>
+
+    <!-- 3-1. 각 장비별 실시간 네트워크 전달 속도 모니터링 카드 -->
     <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 16px; padding: 16px 20px;">
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 12px;">
         <div style="display: flex; align-items: center; gap: 8px;">
@@ -490,9 +589,6 @@
           <div style="font-size: 0.7rem; color: var(--text-muted);" id="ip-pinky2">주소 확인 중</div>
         </div>
 
-        <!-- ⭐ 태블릿 지연 카드를 뺐다. 들고 다니는 기기라 주소가 사이트마다
-             바뀌는데, 여기 박아 두면 낡은 주소로 TIMEOUT 을 보고한다.
-             도달 여부는 소스 자신이 말한다(후보를 시도해 실제 붙은 주소를 안다). -->
         <!-- 외부 인터넷 -->
         <div class="latency-item" id="node-internet">
           <div class="latency-header">
@@ -505,18 +601,16 @@
       </div>
     </div>
 
-    
-    <!-- 1-2-B. 🛰️ 로봇 간 통신 상태 및 DDS 상호작용 토폴로지 (Inter-Robot Fleet Communication) -->
-    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
+    <!-- 3-2. 로봇 간 통신 상태 및 DDS 상호작용 토폴로지 -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;">
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 1.1rem;">🔗</span>
           <strong style="font-size: 0.95rem; color: #f0f6fc;">로봇 간 통신 상태 및 DDS 상호작용 토폴로지 (Fleet Communication Matrix)</strong>
         </div>
         <div style="display: flex; gap: 6px;">
-          <span class="badge orange" id="fleet-mode-badge">ROBOT #1 SOLO MODE</span>
-          <span class="badge green" id="fleet-guard-badge">주행 간섭 0% 차단됨</span>
-          <span class="badge purple">FastDDS 격리망</span>
+          <span class="badge green" id="fleet-guard-badge">통합 관리망</span>
+          <span class="badge purple">FastDDS ROS_DOMAIN_ID=8</span>
         </div>
       </div>
 
@@ -524,220 +618,89 @@
         <!-- Robot 1 Node Link -->
         <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <strong style="font-size: 0.85rem; color: #f0883e;">🤖 Robot #1 (Main Pinky)</strong>
+            <strong style="font-size: 0.85rem; color: #ff9900;">🤖 Robot #1 (Main Pinky)</strong>
             <span class="badge green" id="fleet-r1-badge">ONLINE</span>
           </div>
           <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.6;">
-            <div>• IP / Port: <span style="color:#f0f6fc;">198.51.100.5 (:2205)</span></div>
-            <div>• DDS 채널: <span style="color:#58a6ff;">ROS_DOMAIN_ID=<span class="ros-domain-live">확인 중</span></span></div>
+            <div>• IP / Port: <span style="color:#f0f6fc;">192.168.0.5 (:22)</span></div>
+            <div>• DDS 채널: <span style="color:#58a6ff;">ROS_DOMAIN_ID=8</span></div>
             <div>• 지연(RTT): <span id="fleet-r1-rtt" style="color:#7ee787;">-- ms</span></div>
-            <div>• 주행: <span style="color:#f2cc60;">lane_agent_node — 허가·정지는 플릿 코디네이터(V2 화면)</span></div>
           </div>
         </div>
 
         <!-- Robot 2 Node Link -->
         <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <strong style="font-size: 0.85rem; color: #58a6ff;">🤖 Robot #2 (Sub Pinky)</strong>
-            <span class="badge gold" id="fleet-r2-badge">STANDBY</span>
+            <strong style="font-size: 0.85rem; color: #a371f7;">🤖 Robot #2 (Sub Pinky)</strong>
+            <span class="badge green" id="fleet-r2-badge">ONLINE</span>
           </div>
           <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.6;">
-            <div>• IP / Port: <span style="color:#f0f6fc;">198.51.100.6 (:2206)</span></div>
-            <!-- ⭐ 이건 **설계값**이지 실측이 아니다. 게이트웨이는 자기 도메인만 읽을 수
-                 있고 로봇2의 도메인은 못 읽는다. 못 재는 것을 실측처럼 적지 않는다. -->
-            <div>• DDS 채널: <span style="color:#a371f7;">설계값 11 (격리) — 게이트웨이가 못 읽는 값</span></div>
+            <div>• IP / Port: <span style="color:#f0f6fc;">192.168.0.6 (:22)</span></div>
+            <div>• DDS 채널: <span style="color:#a371f7;">ROS_DOMAIN_ID=8</span></div>
             <div>• 지연(RTT): <span id="fleet-r2-rtt" style="color:#7ee787;">-- ms</span></div>
-            <div>• 상태: <span style="color:#8b949e;">상호작용 전 물리 대기중</span></div>
           </div>
         </div>
 
         <!-- Inter-Robot P2P Link -->
         <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <strong style="font-size: 0.85rem; color: #7ee787;">🔄 로봇 간 P2P 상호 링크</strong>
+            <strong style="font-size: 0.85rem; color: #7ee787;">🔄 로봇 간 상호 링크</strong>
             <span class="badge green" id="fleet-p2p-badge">SECURED</span>
           </div>
           <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.6;">
-            <div>• LAN 링크: <span id="fleet-lan-link" style="color:var(--text-muted);">측정 전</span></div>
-            <div>• 토픽 간섭 방지: <span style="color:#3fb950;">100% 분리 (충돌 0건)</span></div>
-            <div>• 가제보 물리 간섭: <span style="color:#3fb950;">pinky_sub 제거 완료</span></div>
-            <div>• 차후 상호작용: <span style="color:#8b949e;">DDS 브릿지 준비 완료</span></div>
+            <div>• LAN 링크: <span id="fleet-lan-link" style="color:#7ee787;">192.168.0.x 통합</span></div>
+            <div>• 위치 융합: <span style="color:#3fb950;">overhead_pose 5Hz 브로드캐스트</span></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 1-3. 팀원 공지: 인프라 현황, 로봇 접속 & Wi-Fi 세팅 통합 가이드 -->
-    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px 20px;">
+    <!-- 3-3. 팀원 공지: 인프라 현황, 로봇 접속 & Wi-Fi 세팅 통합 가이드 -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;">
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 1.1rem;">🛰️</span>
           <strong style="font-size: 0.95rem; color: #f0f6fc;">팀원 공지: 인프라 현황 및 로봇 접속 가이드</strong>
         </div>
         <div style="display: flex; gap: 6px;">
-          <span class="badge green">SSH TUNNEL ACTIVE</span>
+          <span class="badge green">DDS DOMAIN=8</span>
           <span class="badge cyan">DUAL DIGITAL TWIN</span>
-          <span class="badge purple">ROS_DOMAIN_ID=<span class="ros-domain-live">확인 중</span></span>
         </div>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-        <!-- 1-3-1. 네트워크별 웹 관제 접속 URL -->
+        <!-- 네트워크별 웹 관제 접속 URL -->
         <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
           <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
             <span class="badge cyan" style="font-size: 0.72rem;">🌐 네트워크별 관제 웹 접속 URL</span>
           </div>
           <div style="font-size: 0.8rem; line-height: 1.7; font-family: monospace;">
-            <div style="color: #7ee787;">• 이 화면: <a id="gw-self-url" href="/" style="color: #58a6ff; text-decoration: underline;">(지금 연 주소)</a>
-              <span style="color:#8b949e; font-size:0.72rem;">— 중계 PC 의 주소가 곧 관제 주소다. 사이트마다 다르므로 여기 박아 두지 않는다.</span></div>
-            <div style="color: #8b949e;">• 원격 보기 경로(<code>:18081</code>)는 <b>보기 전용</b>이다 — 움직이는 조작은 중계 PC 의 <code>:8889</code> 에서만.</div>
+            <div style="color: #7ee787;">• 현재 관제 주소: <a id="gw-self-url" href="/" style="color: #58a6ff; text-decoration: underline;">(지금 연 주소)</a></div>
+            <div style="color: #8b949e;">• 포트: <code>:8889</code> (통합 게이트웨이 웹 서버)</div>
           </div>
           <script>(function(){var a=document.getElementById('gw-self-url');if(a&&location.host){a.href=location.origin+'/';a.textContent=location.origin+'/';}})();</script>
         </div>
 
-        <!-- 1-3-2. 핑키 SSH 접근 명령어 -->
+        <!-- 핑키 SSH 접근 명령어 -->
         <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
             <span class="badge green" style="font-size: 0.72rem;">🤖 핑키 로봇 SSH 접근</span>
             <span style="font-size: 0.72rem; color: #7ee787;">user: pinky</span>
           </div>
           <div style="font-size: 0.8rem; line-height: 1.6; font-family: monospace;">
-            <div style="color: #c9d1d9;">[교육장 공유기망 — 2026-09-10 기준 기록, 현황 아님]</div>
-            <div style="color: #f0883e;">• Robot #1: <code style="color:#f0883e;">ssh pinky@198.51.100.5</code></div>
-            <div style="color: #58a6ff;">• Robot #2: <code style="color:#58a6ff;">ssh pinky@198.51.100.6</code></div>
-            <div style="color: #c9d1d9; margin-top: 4px;">[외부망 / 원격 사이트 (Tailscale socat 터널)]</div>
-            <div style="color: #f0883e;">• Robot #1: <code style="color:#f0883e;">ssh -p 2205 pinky@100.64.0.81</code></div>
-            <div style="color: #58a6ff;">• Robot #2: <code style="color:#58a6ff;">ssh -p 2206 pinky@100.64.0.81</code></div>
+            <div style="color: #c9d1d9;">[현장 공유기망]</div>
+            <div style="color: #ff9900;">• Robot #1: <code style="color:#ff9900;">ssh pinky@192.168.0.5</code></div>
+            <div style="color: #a371f7;">• Robot #2: <code style="color:#a371f7;">ssh pinky@192.168.0.6</code></div>
           </div>
         </div>
-      </div>
-
-      <!-- 2행: 사설망 IP 규칙표 & 핑키 Wi-Fi 재설정 가이드 -->
-      <div style="margin-top: 14px; display: grid; grid-template-columns: 1fr 1.3fr; gap: 16px;">
-        <!-- 사설망 IP 할당 규칙표 -->
-        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
-          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-            <span class="badge gold" style="font-size: 0.72rem;">📋 사설망(198.51.100.x) IP 규칙표</span>
-            <span style="font-size: 0.72rem; color: var(--text-muted);">본 프로젝트 운영 대상: Robot #1 · Robot #2</span>
-          </div>
-          <div style="font-size: 0.78rem; line-height: 1.6; font-family: monospace; color: #8b949e;">
-            • 198.51.100.1 : iptime 공유기 (SSID: <strong style="color:#7ee787;">iptime</strong> / 무암호)<br/>
-            • 198.51.100.3 : 💻 중계 노트북 (관제 웹 :8889)<br/>
-            • <strong style="color:#f0883e;">198.51.100.5</strong> : 🤖 Robot #1 (Pinky Main - 고정 IP)<br/>
-            • <strong style="color:#58a6ff;">198.51.100.6</strong> : 🤖 Robot #2 (Pinky Sub - 고정 IP)<br/>
-            • 198.51.100.10~50: 👥 팀원 4명 노트북 (DHCP 자동할당 구역)
-          </div>
-        </div>
-
-        <!-- 핑키 내부 Wi-Fi 재설정 가이드 (nmcli) -->
-        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 14px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span class="badge gold" style="font-size: 0.72rem;">🔧 핑키 Wi-Fi 재설정</span>
-              <span style="font-size: 0.75rem; color: #f0f6fc; font-weight: 600;">공유기 변경/재연결 시</span>
-            </div>
-            <span style="font-size: 0.7rem; color: var(--text-muted);">nmcli</span>
-          </div>
-          <div style="background: #161b22; border-radius: 4px; padding: 10px 12px; font-family: monospace; font-size: 0.74rem; line-height: 1.5;">
-            <span style="color:#8b949e;"># 1. 기존 연결 삭제 (필요시) & iptime 검색 연결</span><br/>
-            <code style="color:#f85149;">sudo nmcli connection delete "iptime"</code><br/>
-            <code style="color:#7ee787;">sudo nmcli device wifi connect "iptime"</code><br/>
-            <span style="color:#8b949e;"># 2. 고정 IP 할당 (Robot 1은 .5 / Robot 2는 .6)</span><br/>
-            <code style="color:#e3b341;">sudo nmcli connection modify "iptime" ipv4.addresses 198.51.100.5/24 ipv4.gateway 198.51.100.1 ipv4.dns "8.8.8.8 198.51.100.1" ipv4.method manual</code><br/>
-            <code style="color:#7ee787;">sudo nmcli connection up "iptime"</code>
-          </div>
-        </div>
-      </div>
-
-      <!-- 하단 상태 요약 -->
-      <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed #30363d; display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.75rem; color: var(--text-muted);">
-        <div>🟢 <strong>로봇 연동:</strong> Robot #1 & #2 오도메트리 및 온보드 카메라(15fps) 중계 완료</div>
-        <div>🏭 <strong>가제보 연동:</strong> 듀얼 로봇 실시간 물리/포즈 동기화(Digital Twin) 가동 중</div>
-        <div>🔑 <strong>기본 계정:</strong> user: <code>pinky</code> (SSH 키 인증 등록 완료)</div>
       </div>
     </div>
-  </div>
 
-  <!-- ===================================================================== -->
-  <!-- [탭 2] 맵 & 위치 관제 (2D SLAM 맵 / Gazebo 3D 탑뷰 + 로봇 텔레메트리) -->
-  <!-- ===================================================================== -->
-  <div id="pane-map-view" class="global-tab-pane">
-    <!-- 뷰 모드 탭 & 액션 바 -->
+    <!-- 3-4. 심층 텔레메트리 & Localization 상태 요약 -->
     <div class="stream-card" style="margin-bottom: 16px;">
-      <div class="stream-header" style="padding: 10px 16px; flex-wrap: wrap; gap: 8px;">
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button class="tab-btn active" onclick="switchMapTab('dual', this)">🔲 듀얼 분할 관제 (2D 맵 + Gazebo 3D)</button>
-          <button class="tab-btn" onclick="switchMapTab('interactive', this)">🗺️ 2D 브라우저 관제 맵 집중 뷰</button>
-          <button class="tab-btn" onclick="switchMapTab('gazebo', this)">🏭 Gazebo 3D 탑뷰 전용</button>
-        </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <span class="badge green" id="nav-mode-badge">🔒 읽기 전용 · 브라우저 좌표 관제</span>
-          <span class="badge cyan" id="map-badge">DUAL LIVE (30 FPS)</span>
-        </div>
-      </div>
-
-      <!-- 메인 뷰포트 영역: 듀얼 그리드 또는 단일 뷰포트 -->
-      <div id="map-viewport-container" style="padding: 12px; background: #0b0f17;">
-        
-        <!-- 듀얼 뷰 / 인터랙티브 뷰 그리드 -->
-        <div id="view-dual-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start;">
-          
-          <!-- 좌측: 2D 인터랙티브 캔버스 맵 -->
-          <div id="col-interactive-map" style="background: #161b22; border-radius: 10px; border: 1px solid #30363d; padding: 12px; position: relative;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-weight: 600; font-size: 0.95rem; color: #58a6ff;">🗺️ 2D 브라우저 관제 맵 (Robot #1 · #2 + Vision)</span>
-              <span style="font-size: 0.75rem; color: #8b949e;">🖱️ 마우스 오버: 좌표 확인 · 웹 주행 명령 없음</span>
-            </div>
-            
-            <div style="position: relative; width: 100%; display: flex; justify-content: center; background: #0d1117; border-radius: 8px; overflow: hidden; border: 1px solid #21262d;">
-              <canvas id="navCanvas" width="540" height="250" style="cursor: crosshair; touch-action: none; max-width: 100%; height: auto; display: block;"></canvas>
-              <div id="nav-tooltip" style="position: absolute; display: none; pointer-events: none; background: rgba(13,17,23,0.92); border: 1px solid #58a6ff; border-radius: 4px; padding: 4px 8px; font-size: 0.75rem; color: #f0f6fc; font-family: monospace; white-space: nowrap; z-index: 10;"></div>
-            </div>
-
-            <div style="display: justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.75rem; color: #8b949e;">
-              <div>범례: <span style="color:#ff9900; font-weight:600;">● Robot #1 Odom</span> · <span style="color:#a371f7; font-weight:600;">● Robot #2 Odom</span> · <span style="color:#3fb950; font-weight:600;">◎ Vision #1</span> · <span style="color:#39d0d8; font-weight:600;">◎ Vision #2</span></div>
-              <div id="nav-live-hover" style="font-family: monospace; color: #58a6ff;">지도 위 마우스 오버 시 좌표 확인</div>
-            </div>
-          </div>
-
-          <!-- 우측: Gazebo 실시간 3D 탑뷰 스트림 -->
-          <div id="col-gazebo-live" style="background: #161b22; border-radius: 10px; border: 1px solid #30363d; padding: 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-weight: 600; font-size: 0.95rem; color: #3fb950;">🏭 Gazebo 3D 가상 공간 실시간 탑뷰 (/camera)</span>
-              <span class="badge green">30 FPS LIVE STREAM</span>
-            </div>
-            <div style="position: relative; width: 100%; height: 250px; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid #21262d; display: flex; align-items: center; justify-content: center;">
-              <img id="map-gazebo-img" src="/gazebo_feed" alt="Gazebo Real-time 3D Camera Stream" style="width:100%; height:100%; object-fit:contain; display:block;">
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.75rem; color: #8b949e;">
-              <span>Gazebo Harmonic 천장 카메라 동기화</span>
-              <span>물리 엔진 100% 실시간 연동</span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- 하단 자율주행 관제 & 안전 모니터링 바 (원격 읽기 전용) -->
-      <div style="padding: 12px 16px; background: #161b22; border-top: 1px solid #30363d; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
-        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-          <span class="badge gold" style="font-size: 0.82rem; padding: 4px 10px; font-weight: 700;">🔒 원격 읽기 전용 관제 모드</span>
-          <span style="font-size: 0.8rem; color: #8b949e;">⚠️ 안전 정책상 목표 지정 및 미션 명령은 <strong>현장 중계 노트북 콘솔</strong>에서만 가능합니다. (웹은 실시간 위치 및 오차 모니터링 전용)</span>
-        </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <button class="tab-btn" style="background:#da3633; color:#fff; border-color:#f85149; font-weight:700; padding: 6px 16px; font-size: 0.85rem;" onclick="stopNavigation()">🛑 원격 비상 정지 (EMERGENCY STOP)</button>
-        </div>
-      </div>
-      <div id="nav-action-msg" style="padding: 6px 16px; background: #0d1117; font-size: 0.75rem; color: #58a6ff; border-top: 1px solid #21262d;">
-        ℹ️ 마우스 오버 시 실시간 좌표 확인 가능 · 제어 입력은 중계 노트북 화면의 [로봇 제어 콘솔] 창을 이용하세요.
-      </div>
-    </div>
-
-    <!-- Localization / Drive 상태 요약 — 값이 없으면 0으로 만들지 않는다 -->
-    <div class="stream-card" style="margin-bottom: 20px;">
       <div class="stream-header" style="padding: 10px 16px;">
-        <h2><span>🧭</span> Localization / Drive 상태 (Robot #1 · #2)</h2>
-        <span class="badge" id="drive-ready-state" style="background:#21262d;">⚪ DRIVE 상태 미측정</span>
+        <h2><span>🧭</span> Localization / Drive 심층 텔레메트리 (Robot #1 · #2)</h2>
+        <span class="badge" id="drive-ready-state-diag" style="background:#21262d;">⚪ 상태 동기화 중</span>
       </div>
       <div style="padding: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
         <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #3fb950;">
@@ -756,23 +719,20 @@
           <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">🔗 Vision 하류 경로</div>
           <div id="vision-r1-path" style="font-size:0.9rem; font-weight:600; color:#f0f6fc;">Robot #1: 미측정</div>
           <div id="vision-r2-path" style="font-size:0.9rem; font-weight:600; color:#f0f6fc; margin-top:4px;">Robot #2: 미측정</div>
-          <div style="font-size:0.72rem; color:#8b949e; margin-top:6px;">Domain 8의 receiver 수와 Robot Domain consumer는 같은 사실이 아님</div>
         </div>
         <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
           <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">🚦 Drive Stack Readiness</div>
           <div id="drive-ready-detail" style="font-size:0.95rem; font-weight:700; color:#8b949e;">미측정 — Drive Stack 통합 상태 API 미연결</div>
-          <div id="drive-ready-reason" style="font-size:0.75rem; color:#8b949e; margin-top:5px;">프로세스 실행 여부를 DRIVE_READY로 추정하지 않음</div>
         </div>
         <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
           <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">📏 Localization Error Meter</div>
           <div id="residual-summary" style="font-size:0.95rem; font-weight:700; color:#8b949e;">미측정 — residual 필드 미연결</div>
-          <div id="residual-floor" style="font-size:0.75rem; color:#8b949e; margin-top:5px;">E1/E2/E3 값이 없으면 정상값으로 채우지 않음</div>
         </div>
       </div>
     </div>
 
-    <!-- 실측 오차 비교 및 정량 검증 HUD (가제보 ↔ 실물 로봇) -->
-    <div class="stream-card" style="margin-bottom: 20px;">
+    <!-- 실측 오차 비교 및 정량 검증 HUD -->
+    <div class="stream-card" style="margin-bottom: 16px;">
       <div class="stream-header" style="padding: 10px 16px;">
         <h2><span>📊</span> 가제보 3D 시뮬레이션 ↔ 실물 로봇 실측 오차 정량 검증 (Discrepancy Analysis)</h2>
         <span class="badge gold" id="discrepancy-grade-badge">실시간 오차 분석 중</span>
@@ -786,8 +746,8 @@
       </div>
     </div>
 
-    <!-- 로봇 좌표 텔레메트리 블록 -->
-    <div class="tab-card">
+    <!-- 로봇 상세 좌표 블록 (r1-x, r2-x 유지) -->
+    <div class="tab-card" style="margin-bottom: 16px;">
       <div class="tab-header">
         <button class="tab-btn active" onclick="switchTelemetryTab('tab-pinky1', this)">🤖 Robot #1 (Pinky Main)</button>
         <button class="tab-btn" style="opacity: 0.55;" onclick="switchTelemetryTab('tab-pinky2', this)">🤖 Robot #2 (Pinky Sub)</button>
@@ -811,20 +771,12 @@
           <span class="metric-label">Heading (Yaw)</span>
           <span class="metric-value" id="r1-yaw">0.0°</span>
         </div>
-        <div class="metric-row">
-          <span class="metric-label">토픽 소스</span>
-          <span class="metric-value">/pinky1/odom, /pinky1/pose</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">동작 모드</span>
-          <span class="metric-value" style="color: #3fb950;">Robot #1 운영 범위</span>
-        </div>
       </div>
 
       <!-- 탭 2: 로봇 2 좌표 -->
       <div id="tab-pinky2" class="tab-content">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <strong style="color: #00d2ff; font-size: 1rem;">Pinky #2 (Sub Robot)</strong>
+          <strong style="color: #a371f7; font-size: 1rem;">Pinky #2 (Sub Robot)</strong>
           <span class="badge" id="r2-observed-badge" style="background:#21262d;">관측 상태 확인 중</span>
         </div>
         <div class="metric-row">
@@ -837,74 +789,16 @@
         </div>
         <div class="metric-row">
           <span class="metric-label">Heading (Yaw)</span>
-          <span class="metric-value" id="r2-yaw">90.0°</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">토픽 소스</span>
-          <span class="metric-value">/pinky2/odom, /pinky2/pose</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">동작 모드</span>
-          <span class="metric-value" style="color: #8b949e;">Robot #2 운영 범위</span>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- [탭 3] 로봇 온보드 카메라 (Pinky #1 & Pinky #2 나란히 2열 뷰어) -->
-  <!-- ===================================================================== -->
-  <div id="pane-robot-cams" class="global-tab-pane">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-      <!-- Pinky #1 온보드 카메라 -->
-      <div class="stream-card">
-        <div class="stream-header">
-          <h2><span>🤖</span> Pinky #1 (Main) 온보드 카메라</h2>
-          <span class="badge green" id="r1-cam-badge">ONBOARD LIVE (15 FPS)</span>
-        </div>
-        <div class="video-viewport" style="height: 380px;">
-          <img src="/robot_camera_feed?id=pinky1" alt="Robot 1 Camera Stream" style="width:100%; height:100%; object-fit:contain;">
-        </div>
-        <div class="stream-footer">
-          <span>토픽: /pinky1/camera/image_raw</span>
-          <span>CSI Camera · 15.0 FPS</span>
-        </div>
-      </div>
-
-      <!-- Pinky #2 온보드 카메라 -->
-      <div class="stream-card">
-        <div class="stream-header">
-          <h2><span>🤖</span> Pinky #2 (Sub) 온보드 카메라</h2>
-          <span class="badge cyan" id="r2-cam-badge">ONBOARD LIVE (15 FPS)</span>
-        </div>
-        <div class="video-viewport" style="height: 380px;">
-          <img src="/robot_camera_feed?id=pinky2" alt="Robot 2 Camera Stream" style="width:100%; height:100%; object-fit:contain;">
-        </div>
-        <div class="stream-footer">
-          <span>토픽: /pinky2/camera/image_raw</span>
-          <span>CSI Camera · 15.0 FPS</span>
+          <span class="metric-value" id="r2-yaw">0.0°</span>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- ===================================================================== -->
-  <!-- [탭 4] 좌표계 수동 정착 및 캘리브레이션 (ArUco 미검출 시 비상/백업용) -->
-  <!-- ===================================================================== -->
-  <div id="pane-calibration-backup" class="global-tab-pane">
-    <div style="padding: 12px 16px; margin-bottom: 16px; background: rgba(56, 139, 253, 0.1); border: 1px solid #388bfd; border-radius: 8px; font-size: 0.82rem; color: #c9d1d9; line-height: 1.5;">
-      ℹ️ <strong>비상용 수동 캘리브레이션 도구 안내:</strong><br>
-      현재 팀11 정본 시스템은 상부 카메라/태블릿의 <strong>ArUco 마커(40~43번)를 통해 좌표계를 자동 계산</strong>하므로 일상 주행 시에는 수동 정착이 불필요합니다.<br>
-      조명 반사, 마커 훼손 등으로 자동 인식이 불가능한 비상 상황에만 아래 도구를 통해 아레나 네 모서리를 수동으로 지정하고 정착(SETTLE)하십시오.
-    </div>
-
-    <!-- ===== MCV-2A-UI 좌표계 정착 =====
-     화면 픽셀 -> 아레나 cm. 네 모서리로 풀고, **풀이에 안 쓴 검증점**으로 잰다.
-     네 점의 재투영 오차는 구조상 0 이라 정확도가 아니다. -->
+    <!-- 3-5. 비상용 수동 좌표계 정착 및 캘리브레이션 (ArUco 미검출 시 비상/백업용) -->
     <div class="stream-card" style="margin-bottom: 16px;" id="cal-card">
       <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
         <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:1.05rem;">📐 좌표계 정착 (수동 캘리브레이션)</span>
+          <span style="font-size:1.05rem;">📐 좌표계 정착 (비상용 수동 캘리브레이션)</span>
           <span class="badge" id="cal-state" style="background:#21262d;">-</span>
           <span class="badge" id="cal-acc" style="background:#21262d;">정확도 미측정</span>
           <span class="badge" id="cal-drift" style="background:#21262d;">흔들림 미감시</span>
@@ -947,8 +841,7 @@
         </div>
         <div id="cal-msg" style="font-size:0.75rem; margin-top:8px; color:var(--text-muted); white-space:pre-wrap;"></div>
 
-        <!-- 화각 점검 (MCV-2G). 거치할 때 보는 것이다 - 나중에 조용히 망가지는
-             세 가지를 그 자리에서 말한다. -->
+        <!-- 화각 점검 -->
         <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
           <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
             <span style="font-size:0.75rem; color:var(--text-muted);">화각 점검</span>
@@ -960,12 +853,10 @@
           <div id="cal-framing-note" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted); white-space:pre-wrap;"></div>
         </div>
 
-        <!-- 관측 제외 영역. 검열 상자와 **주인이 다르다** - 저건 가공 단이 선언하고
-             이건 운영자가 선언한다. 같은 건 결과뿐이다: 둘 다 "안 본 자리". -->
+        <!-- 관측 제외 영역 -->
         <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
           <div style="font-size:0.75rem; color:var(--text-muted);">
             가릴 영역 - 삼각대·모니터 베젤·책상 케이블처럼 <b>아레나 바닥이 아닌</b> 것.
-            가린 자리는 <b>모른다</b>로 남는다 (비었다가 아니다 - 로봇이 거기로 안 들어간다).
           </div>
           <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
             <input id="cal-mask-why" placeholder="무엇을 가리나 (예: 삼각대 다리)" maxlength="40"
@@ -975,17 +866,15 @@
           <div id="cal-mask-list" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted);"></div>
         </div>
 
-        <!-- 흔들림. 무효 3종(아레나·크기·세션)이 **못 잡는** 자리다 -
-             삼각대를 치면 프레임 크기도 세션도 그대로인데 좌표만 조용히 틀린다. -->
+        <!-- 흔들림 감시 -->
         <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
           <div style="font-size:0.75rem; color:var(--text-muted);">
             흔들림 감시 - 정착할 때 <b>네 핀 주변 조각</b>을 떠 두고 지금 프레임에서 다시 찾는다.
-            화면 전체를 비교하지 <b>않는다</b> (로봇이 지나가기만 해도 떨어지니까).
           </div>
           <div id="cal-drift-note" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
         </div>
 
-        <!-- 영상 -> 월드. 라이다 맵의 파생물이 아니라서 라이다를 검증할 수 있다. -->
+        <!-- 영상 -> 월드 -->
         <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
           <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
             <button class="badge" id="cal-vision-btn" style="cursor:pointer;border:none;background:#1f6feb;color:#fff;" onclick="calVisionBuild()">🗺 영상 → 평면도 만들기</button>
@@ -1000,7 +889,6 @@
       </div>
     </div>
   </div>
-
   <!-- ===================================================================== -->
       <!-- U-7. CI/CD 배포 화면을 여기서 뺐다(사용자 지시 2026-09-12). 지운 게 아니라 static/ops-deploy.html 로 옮겼다. ⚠️ /api/jenkins/build 는 그대로 열려 있다 — 화면만 뺀 것이지 보안 수정이 아니다. -->
 
@@ -1970,82 +1858,87 @@
     }
 
     // --- 관제 카메라 다중 소스 및 AR 워터마크/동적 강조 관리 ---
-    let currentCamSource = 'phone';       // 'phone', 'relay-cam', 'gazebo'
+    let currentCamSource = 'gazebo';      // 기본값 Gazebo ('gazebo', 'phone', 'pinky1', 'pinky2')
     let boostEnabled = false;             // 동적 영역 채도/명도 진하게 강조
     let watermarkEnabled = false;         // 가제보 청사진 워터마크
     let watermarkStyle = 'blueprint';     // 'blueprint', 'ghost', 'hybrid'
 
+    function handleStreamError(img, fallbackUrl) {
+      if (!img) return;
+      setTimeout(() => {
+        if (img && img.src) {
+          const sep = fallbackUrl.includes('?') ? '&' : '?';
+          img.src = `${fallbackUrl}${sep}_retry=${Date.now()}`;
+        }
+      }, 3000);
+    }
+
     function updateMainStreamUrl() {
       const img = document.getElementById('tablet-stream-img');
       if (!img) return;
-      let url = `/video_feed?src=${encodeURIComponent(currentCamSource)}`;
-      if (boostEnabled) url += '&boost=1';
-      if (watermarkEnabled) {
-        url += `&watermark=1&style=${watermarkStyle}`;
+
+      let url = '';
+      if (currentCamSource === 'gazebo') {
+        url = `/gazebo_feed?t=${Date.now()}`;
+      } else if (currentCamSource === 'pinky1') {
+        url = `/robot_camera_feed?id=pinky1&t=${Date.now()}`;
+      } else if (currentCamSource === 'pinky2') {
+        url = `/robot_camera_feed?id=pinky2&t=${Date.now()}`;
+      } else {
+        url = `/video_feed?src=${encodeURIComponent(currentCamSource)}`;
+        if (boostEnabled) url += '&boost=1';
+        url += `&t=${Date.now()}`;
       }
-      url += `&t=${Date.now()}`;
       img.src = url;
 
       // 버튼 시각 상태 갱신
       const bBoost = document.getElementById('btn-toggle-boost');
       if (bBoost) {
-        bBoost.innerText = boostEnabled ? '✨ 동적 강조: ON (진하게)' : '✨ 동적 강조: OFF';
+        bBoost.innerText = boostEnabled ? '✨ 동적 강조: ON' : '✨ 채도강조';
         bBoost.style.background = boostEnabled ? '#9e6a03' : '#21262d';
         bBoost.style.color = boostEnabled ? '#fff' : '#f2cc60';
       }
-      const bWm = document.getElementById('btn-toggle-watermark');
-      if (bWm) {
-        bWm.innerText = watermarkEnabled ? '📐 가제보 워터마크: ON' : '📐 가제보 워터마크: OFF';
-        bWm.style.background = watermarkEnabled ? '#1f6feb' : '#21262d';
-        bWm.style.color = watermarkEnabled ? '#fff' : '#58a6ff';
-      }
-      const bStyle = document.getElementById('btn-toggle-style');
-      if (bStyle) {
-        bStyle.style.display = watermarkEnabled ? 'inline-block' : 'none';
-        bStyle.innerText = watermarkStyle === 'blueprint' ? '스타일: 청사진 엣지' : (watermarkStyle === 'ghost' ? '스타일: 반투명 고스트' : '스타일: 하이브리드');
-      }
+
+      // 소스 선택 버튼 활성화 갱신
+      const btnMap = {
+        'gazebo': 'btn-src-gazebo',
+        'phone': 'btn-src-phone',
+        'pinky1': 'btn-src-pinky1',
+        'pinky2': 'btn-src-pinky2'
+      };
+      Object.keys(btnMap).forEach(key => {
+        const b = document.getElementById(btnMap[key]);
+        if (b) {
+          if (key === currentCamSource) {
+            b.classList.add('cyan');
+          } else {
+            b.classList.remove('cyan');
+          }
+        }
+      });
 
       // 레이블 안내 갱신
       const labelSrc = document.getElementById('active-source-label');
       if (labelSrc) {
-        labelSrc.innerText = currentCamSource === 'relay-cam' ? '💻 노트북 웹캠 (LG Camera)' : (currentCamSource === 'gazebo' ? '🏭 가제보 3D 가상 카메라' : '📱 스마트폰 카메라 (phone)');
-      }
-      const labelFx = document.getElementById('active-fx-label');
-      if (labelFx) {
-        let fx = [];
-        if (boostEnabled) fx.push('동적 채도 강조 (Vivid)');
-        if (watermarkEnabled) fx.push(`가제보 워터마크 (${watermarkStyle})`);
-        labelFx.innerText = fx.length > 0 ? fx.join(' + ') : '원본 스트림';
+        if (currentCamSource === 'gazebo') {
+          labelSrc.innerHTML = '🏭 <span style="color:#3fb950; font-weight:700;">Gazebo 3D 가상 카메라 (디지털 트윈)</span>';
+        } else if (currentCamSource === 'phone') {
+          labelSrc.innerHTML = '📱 <span style="color:#58a6ff; font-weight:700;">상부 실물 카메라 (Overhead)</span>';
+        } else if (currentCamSource === 'pinky1') {
+          labelSrc.innerHTML = '🤖 <span style="color:#ff9900; font-weight:700;">Pinky 1 온보드 카메라 (/pinky1/camera)</span>';
+        } else if (currentCamSource === 'pinky2') {
+          labelSrc.innerHTML = '🤖 <span style="color:#a371f7; font-weight:700;">Pinky 2 온보드 카메라 (/pinky2/camera)</span>';
+        }
       }
     }
 
     function selectCameraSource(src) {
       currentCamSource = src;
-      ['btn-src-phone', 'btn-src-relay', 'btn-src-gazebo'].forEach(id => {
-        const btn = document.getElementById(id);
-        if (btn) btn.classList.remove('cyan');
-      });
-      if (src === 'phone') document.getElementById('btn-src-phone')?.classList.add('cyan');
-      if (src === 'relay-cam') document.getElementById('btn-src-relay')?.classList.add('cyan');
-      if (src === 'gazebo') document.getElementById('btn-src-gazebo')?.classList.add('cyan');
-
       updateMainStreamUrl();
     }
 
     function toggleDynamicBoost() {
       boostEnabled = !boostEnabled;
-      updateMainStreamUrl();
-    }
-
-    function toggleGazeboWatermark() {
-      watermarkEnabled = !watermarkEnabled;
-      updateMainStreamUrl();
-    }
-
-    function toggleWatermarkStyle() {
-      if (watermarkStyle === 'blueprint') watermarkStyle = 'ghost';
-      else if (watermarkStyle === 'ghost') watermarkStyle = 'hybrid';
-      else watermarkStyle = 'blueprint';
       updateMainStreamUrl();
     }
 
@@ -2055,6 +1948,42 @@
 
     function reconnectTabletStream() {
       updateMainStreamUrl();
+    }
+
+    function refreshQuadCams() {
+      const now = Date.now();
+      const gz = document.getElementById('quad-cam-gazebo');
+      if (gz) gz.src = `/gazebo_feed?t=${now}`;
+      const ph = document.getElementById('quad-cam-phone');
+      if (ph) ph.src = `/video_feed?src=phone&t=${now}`;
+      const p1 = document.getElementById('quad-cam-p1');
+      if (p1) p1.src = `/robot_camera_feed?id=pinky1&t=${now}`;
+      const p2 = document.getElementById('quad-cam-p2');
+      if (p2) p2.src = `/robot_camera_feed?id=pinky2&t=${now}`;
+    }
+
+    // 관제 위치 차단 / 복구 테스트 토글 (Fault Injection)
+    let faultPoseFixBlocked = false;
+    async function toggleFaultPoseFix() {
+      try {
+        const res = await fetch('/api/fault/toggle_pose_fix', { method: 'POST' });
+        const data = await res.json();
+        faultPoseFixBlocked = !!data.blocked;
+        const btn = document.getElementById('btn-fault-toggle');
+        if (btn) {
+          if (faultPoseFixBlocked) {
+            btn.style.background = '#da3633';
+            btn.style.color = '#fff';
+            btn.textContent = '🚨 관제 위치 차단 중 (데드맨 대기)';
+          } else {
+            btn.style.background = '#9e6a03';
+            btn.style.color = '#fff';
+            btn.textContent = '⚠️ 관제 위치 차단 테스트';
+          }
+        }
+      } catch (e) {
+        console.error('toggleFaultPoseFix error:', e);
+      }
     }
 
     // 휴대폰/태블릿 카메라 URL 동적 변경

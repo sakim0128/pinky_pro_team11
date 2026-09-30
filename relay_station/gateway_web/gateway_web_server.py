@@ -431,6 +431,21 @@ class GazeboCameraManager:
         self._connected = False
 
     def _make_placeholder(self):
+        ref_path = os.path.join(STATIC_DIR, "gazebo_live_capture.png")
+        if os.path.exists(ref_path):
+            img = cv2.imread(ref_path)
+            if img is not None:
+                img = cv2.resize(img, (640, 480))
+                overlay = img.copy()
+                cv2.rectangle(overlay, (0, 0), (640, 40), (15, 20, 30), -1)
+                cv2.addWeighted(overlay, 0.75, img, 0.25, 0, img)
+                cv2.putText(img, "GAZEBO 3D DIGITAL TWIN (STANDBY)", (16, 26),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 255), 2, cv2.LINE_AA)
+                cv2.putText(img, "Simulation Arena Map", (440, 26),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 180, 200), 1, cv2.LINE_AA)
+                _, jpeg = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                return jpeg.tobytes()
+
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         img[:] = (25, 30, 40)
         cv2.putText(img, "GAZEBO LIVE CAMERA", (140, 220),
