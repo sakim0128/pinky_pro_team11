@@ -121,6 +121,8 @@ ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:
 
 실물 없이 도커로 돌려 보기(시나리오 폐루프 · 태블릿 가상 카메라 · 게이트웨이 `--vision`): [`docs/integration/mock_test.md`](docs/integration/mock_test.md).
 
+로봇 둘(핑키1 팀 방식 · 핑키2 Nav2)을 도커로 두고 실제 중계 · 태블릿에 녹화 영상을 먹이는 시험 시나리오: [`docs/integration/mixed_fleet_test.md`](docs/integration/mixed_fleet_test.md).
+
 현장 조정 순서: 로봇 1대로 경로마다 교차로 동작 값 재기(`vision_mission.yaml` 고치고 게이트웨이만 재시작) → 시나리오 2 → 시나리오 1.
 인식 확인은 `python3 tools/view_image.py /pinky1/lane_debug/compressed` (상단 글자 `red=` `stop=`, 흰 정지선은 분홍 상자).
 
