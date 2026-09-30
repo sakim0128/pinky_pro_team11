@@ -107,12 +107,12 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 | s2 (순차 출발) | pinky1 · pinky2 | 1 → 2 · 1 → 3 | 0 s · 10 s |
 
 ```
-로봇  차선 주행(카메라) → 빨간 테이프(YOLO red_line) 앞 JUNCTION_STOP 1 s
+로봇  차선 주행(카메라) → 빨간 테이프(색 검출, 화면 하단 0.80·H) 앞 JUNCTION_STOP 1 s
 관제  시나리오 로봇 2대: 교차로 통행권 하나 — 먼저 정지를 보고한 로봇 먼저, 0.5 s 안이면 domain_id 작은 쪽(pinky1=10)
       시나리오 로봇 1대: 통행권 없음 — 1 s 정지 뒤 바로 출발 (JunctionPlan.skip_clearance)
 로봇  허가 → 고정 동작(odom, 장애물에 끊기면 남은 양만 이어서) → 차선 쌍이 보이면 주행, 안 보이면 방금 돈 쪽으로 탐색 회전
 관제  통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아간 순간 반납 → 다음 로봇 허가
-로봇  도착: 목적지 앞 벽의 ArUco 마커(1→id 40, 2→41, 3→42)까지 15 cm 이하면 정지. 마커 35 cm 안에서는 감속
+로봇  도착: 목적지 앞 벽의 ArUco 마커(1→id 40, 2→41, 3→42)까지 15 cm 이하면 정지 (교차로 통과 여부와 무관, 다른 id 는 무시). 마커 35 cm 안에서는 감속
       같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤에서 장애물로 선 순간이 도착 (JunctionPlan.arrive_on_obstacle)
 로봇  교차로를 지난 뒤 빨간 선(출구)도 RED_LINE_STOP 1 s 정지 후 출발. 고정 동작 중에 본 선은 동작이 끝나자마자 선다
 공통  장애물: 초음파 10 cm 에서 정지, 치워지면 1 s 뒤 재출발 (lane_only 는 라이다 판정 끔 — use_lidar:=False)
@@ -120,6 +120,11 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
       시나리오 없이 테스트 주행(lane_only): 빨간 선을 볼 때마다 RED_LINE_STOP 1 s 정지 후 출발 (허가 불필요)
 ```
 
+- 빨간 테이프 인식: 모델(lane_26n.pt)에 빨간 선 클래스가 없어 색(HSV)으로 찾는다 (`pinky_lane_station/red_line_detector.py`).
+  화면 아래 45 % 에서 빨강(H ≤ 10 또는 ≥ 170, S ≥ 100, V ≥ 60) 덩어리 → `red_line` 박스(보라색, `lane_debug`). 폭 ≥ 0.25·W,
+  하단 ≥ 0.80·H 가 2 프레임 이어지면 정지. 안 잡히면 `ros2 topic echo /pinky1/scene_state --field red_line_raw` 를 보며
+  `detector_yolo.yaml` `red_line_color.s_min`(80 까지)·`v_min` 을 낮추고, 카펫이 잡히면 올린다. 관제 시작 로그에 모델 클래스 이름과
+  class_map 에서 빠진 항목 경고가 찍힌다.
 - 빨간 선 판정: 검출이 꺼졌다 켜지는 순간(상승 에지)마다 한 번 선다. 서 있는 동안 같은 선이 계속 보여도 다시 서지 않고,
   정지 뒤 `red_line_min_gap`(5 cm) 을 달린 다음의 선만 새 선으로 본다. 입구·출구 선이 가까워도 둘 다 선다.
   설정 `lane_agent.yaml` `fsm.red_line_stop` · `fsm.red_line_stop_seconds` · `red_line_min_gap`.
@@ -130,7 +135,7 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 
 - 설정: 경로·방향·동작·시나리오·도착 방식 `pinky_lane_station/config/vision_mission.yaml`(관제, `arrival:` `directions:` `routes:`),
   웹에서 저장한 시나리오는 옆 파일 `vision_mission_user.yaml`(게이트웨이가 쓴다, `PINKY_VISION_USER_SCENARIOS` 로 바꿀 수 있다),
-  마커 인식 `detector_yolo.yaml` 의 `aruco:`(DICT_4X4_50, 한 변 4 cm, id 40·41·42, `focal_px`), 빨간 테이프는 모델 클래스 이름 `red_line`,
+  마커 인식 `detector_yolo.yaml` 의 `aruco:`(DICT_4X4_50, 한 변 4 cm, id 40·41·42, `focal_px`), 빨간 테이프는 모델이 아니라 색 검출 `red_line_color:`(HSV),
   로봇 튜닝 `lane_agent.yaml`(`maneuver:` · `guard.us_stop` · `arrive_distance` · `marker_slow_distance`).
 - 현장 준비: 1·2·3번 도착 지점 앞 벽에 ANCHOR A1(id 40)·A2(id 41)·A3(id 42) (DICT_4X4_50, 40 mm)를 차선 정면에 붙인다.
   지점↔id 는 `vision_mission.yaml` 의 `arrival.markers` 와 `detector_yolo.yaml` 의 `aruco.ids` 두 곳을 같이 고친다. 로봇은 각 출발 지점에 차선 방향으로.
