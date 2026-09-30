@@ -107,8 +107,18 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 로봇  허가(CLEARANCE 1) → 고정 동작(odom, 장애물에 끊기면 남은 양만 이어서) → 차선 쌍이 보이면 주행, 안 보이면 방금 돈 쪽으로 탐색 회전
 관제  통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아간 순간 반납 → 다음 로봇 허가
 로봇  교차로 뒤 흰 정지선(영상 처리)을 N 번째 만나면 그 앞에서 도착. 출발 지점 정지선은 교차로 전이라 세지 않는다
+로봇  교차로를 지난 뒤 빨간 선(출구)도 RED_LINE_STOP 1 s 정지 후 출발. 고정 동작 중에 본 선은 동작이 끝나자마자 선다
 공통  장애물(라이다 상자 0.18 m = 앞면 8 cm + 10 cm, 초음파 0.10 m) 에서 정지, 치워지면 1 s 뒤 재출발
+      시나리오 없이 테스트 주행(lane_only): 빨간 선을 볼 때마다 RED_LINE_STOP 1 s 정지 후 출발 (허가 불필요)
 ```
+
+- 빨간 선 판정: 검출이 꺼졌다 켜지는 순간(상승 에지)마다 한 번 선다. 서 있는 동안 같은 선이 계속 보여도 다시 서지 않고,
+  정지 뒤 `red_line_min_gap`(5 cm) 을 달린 다음의 선만 새 선으로 본다. 입구·출구 선이 가까워도 둘 다 선다.
+  설정 `lane_agent.yaml` `fsm.red_line_stop` · `fsm.red_line_stop_seconds` · `red_line_min_gap`.
+- 차선 조향: D 항은 새 LanePath 가 올 때만 측정 간격으로 계산하고, error 는 새 측정마다 저역통과(`control.error_alpha` 0.5)한다.
+  제어 20 Hz · 인식 ≤ 10 Hz 차이 때문에 프레임마다 조향이 튀던 것을 없앤다.
+- 인식 주기 확인: 로봇 `ros2 topic hz /pinky1/lane_path` (설계 10 Hz), 관제 `ros2 topic echo /pinky1/scene_state --field infer_ms`,
+  로봇 `ros2 topic echo /pinky1/lane_status --field path_age` (이미지 촬영 → 로봇 수신 지연).
 
 - 설정: 교차로 동작·시나리오 `pinky_lane_station/config/vision_mission.yaml`(관제), 흰 정지선 임계값 `detector_yolo.yaml` 의 `stop_line:`,
   빨간 테이프는 모델 클래스 이름 `red_line`(`class_map`), 로봇 튜닝 `lane_agent.yaml`(`maneuver:` · `guard.us_stop` · `stop_line_min_gap`).

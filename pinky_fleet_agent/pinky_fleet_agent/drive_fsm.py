@@ -5,7 +5,11 @@ reason) 을 돌려준다. speed_factor 0 이면 정지, 1 이면 정상, 0.5 면
 
 우선순위 (위가 이긴다):
     ESTOP > LINK_LOST > OBSTACLE_WAIT > BARRICADE_WAIT > WAIT_CLEARANCE > CROSSWALK_STOP
-          > CROSSWALK_CLEAR > JUNCTION_STOP > JUNCTION_PASS > ARRIVED > LANE_SEARCH > LANE_LOST > CRUISE > IDLE
+          > CROSSWALK_CLEAR > RED_LINE_STOP > JUNCTION_STOP > JUNCTION_PASS > ARRIVED > LANE_SEARCH > LANE_LOST > CRUISE > IDLE
+
+RED_LINE_STOP (2026-09-30 실차 피드백): 빨간 선(교차로 입구·출구)을 볼 때마다 한 번 선다. 드라이버가 빨간 선 검출의
+상승 에지를 red_line_event(한 번만 참) 로 넣으면 red_line_stop_seconds 정지 후 CRUISE. 서 있는 동안 같은 선이 계속 보여도
+에지가 아니므로 다시 걸리지 않는다. 비전 미션 입구 선은 기존 JUNCTION_STOP(허가 → 고정 동작) 이 맡는다.
 
 JUNCTION_STOP / JUNCTION_PASS (D14 작업 3 + 2026-09-29 교차로 규칙): 트리거는 둘 — 항공뷰 위치가 그래프 분기 노드
 반경(junction_zone) 에 들어오거나, 카메라가 **빨간 선**(LanePath.red_line_detected) 을 봤을 때(드라이버가 합친다).
@@ -33,7 +37,7 @@ from dataclasses import dataclass, field
 
 IDLE, CRUISE, WAIT_CLEARANCE, CROSSWALK_STOP, CROSSWALK_CLEAR, OBSTACLE_WAIT, \
     LANE_LOST, ARRIVED, ESTOP, LINK_LOST, BARRICADE_WAIT, LANE_SEARCH, \
-    JUNCTION_STOP, JUNCTION_PASS = range(14)
+    JUNCTION_STOP, JUNCTION_PASS, RED_LINE_STOP = range(15)
 
 STATE_NAMES = {
     IDLE: 'IDLE', CRUISE: 'CRUISE', WAIT_CLEARANCE: 'WAIT_CLEARANCE',
@@ -41,6 +45,7 @@ STATE_NAMES = {
     OBSTACLE_WAIT: 'OBSTACLE_WAIT', LANE_LOST: 'LANE_LOST', ARRIVED: 'ARRIVED',
     ESTOP: 'ESTOP', LINK_LOST: 'LINK_LOST', BARRICADE_WAIT: 'BARRICADE_WAIT',
     LANE_SEARCH: 'LANE_SEARCH', JUNCTION_STOP: 'JUNCTION_STOP', JUNCTION_PASS: 'JUNCTION_PASS',
+    RED_LINE_STOP: 'RED_LINE_STOP',
 }
 
 
@@ -60,6 +65,8 @@ class FsmParams:
     junction_speed_factor: float = 0.4           # 통과 속도 = v_max × 이 값
     junction_exit_confirm: float = 0.3           # 반경 밖에서 차선 쌍이 이만큼(s) 보이면 CRUISE
     junction_relatch_distance: float = 0.60      # STOP 진입 후 이만큼 가기 전엔 재트리거 무시 (> 2·junction_zone)
+    red_line_stop: bool = True                   # 빨간 선을 볼 때마다 정지 후 출발 (RED_LINE_STOP)
+    red_line_stop_seconds: float = 1.0
 
 
 @dataclass
@@ -76,6 +83,7 @@ class Inputs:
     barricade: bool = False         # 디바운스 통과한 바리게이트 (관제가 해제할 때까지 True)
     junction_trigger: bool = False  # 분기 노드 반경 안(경로 모드) 또는 빨간 선 검출 — 드라이버가 합친다
     junction_clear: bool = True     # 관제 허가로 분기 노드를 지나도 됨 (clear_until > 분기 idx). lane_only 는 항상 True
+    red_line_event: bool = False    # 빨간 선 검출 상승 에지 (한 틱만 참) → RED_LINE_STOP
     maneuver_active: bool = False   # 비전 미션: 드라이버가 교차로 고정 동작을 수행 중 (남은 단계가 있다)
     maneuver_finished: bool = False # 비전 미션: 이번 틱에 고정 동작이 끝났다 (한 번만 참)
     maneuver_reason: str = ''
@@ -156,6 +164,16 @@ class DriveFsm:
         if relatch_blocked:
             self.reason = f'횡단보도 통과 {self.travelled_since_entry(d):.2f}/{p.crosswalk_relatch_distance:.2f} m'
             return self.state, 1.0, self.reason
+
+        # 빨간 선: 볼 때마다 한 번 정지 후 출발
+        if self.state == RED_LINE_STOP:
+            if self.since_entry(t) < p.red_line_stop_seconds:
+                self.reason = f'빨간 선 정지 {self.since_entry(t):.1f}/{p.red_line_stop_seconds:.0f}s'
+                return self.state, 0.0, self.reason
+            self._enter(CRUISE, t, d, '빨간 선 통과 — 주행')
+        if p.red_line_stop and inp.red_line_event and not inp.maneuver_active:
+            self._enter(RED_LINE_STOP, t, d, '빨간 선 정지 0.0/%.0fs' % p.red_line_stop_seconds)
+            return self.state, 0.0, self.reason
 
         # 비전 미션 교차로 고정 동작 — 허가 뒤 드라이버가 동작을 쥐고 있는 동안은 통과 상태. 끊겨도 여기로 돌아온다
         if inp.maneuver_active:
