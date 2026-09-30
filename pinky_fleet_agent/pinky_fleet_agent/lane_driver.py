@@ -48,6 +48,7 @@ class DriverParams:
     search_omega: float = 0.4             # LANE_SEARCH 제자리 회전 각속도 (rad/s)
     odom_timeout: float = 0.5             # 비전 미션 고정 동작: odom 이 이만큼 끊기면 멈춰 기다린다
     stop_line_min_gap: float = 0.15       # 비전 미션: 흰 정지선을 연달아 셀 때 최소 주행거리 (m) — 한 선을 두 번 세지 않게
+    red_line_min_gap: float = 0.05        # lane_only: 빨간 선 정지 뒤 이만큼(m) 달린 다음의 새 선만 다시 세운다
 
 
 @dataclass
@@ -103,6 +104,10 @@ class LaneDriver:
         self._arrived = False
         self._pending_search_dir = 0.0
         self._odom = None                  # (x, y, yaw) odom frame
+        # 빨간 선 (lane_only): 검출 상승 에지 → RED_LINE_STOP
+        self._red_prev = False
+        self._red_pending = False
+        self._red_stop_travel = None
         self._odom_time = None
         self._search_dir = 0.0
         self._last_valid_error = None      # 마지막 BOTH/SINGLE 의 error_x (LOST 탐색 방향용)
@@ -167,6 +172,8 @@ class LaneDriver:
             self._last_count_travel = None
             self._arrived = False
             self._pending_search_dir = 0.0
+            self._red_pending = False
+            self._red_stop_travel = None
             self.fsm = DriveFsm(self.p.fsm)
         self._plan = {'seq': seq, 'steps': list(steps), 'stop_line_count': int(stop_line_count),
                       'linear': float(linear_speed), 'angular': float(angular_speed)}
@@ -372,7 +379,8 @@ class LaneDriver:
         omega_route, turn_in_place = f.steer(x, y, yaw, v_prev, limit_idx=limit_idx,
                                              omega_max=p.control.omega_max)
         out.v, out.omega = self.controller.command(
-            omega_route, error_x, quality, dt, dist_to_limit, speed_factor, turn_in_place)
+            omega_route, error_x, quality, dt, dist_to_limit, speed_factor, turn_in_place,
+            error_stamp=self._lane['stamp'])
         return out
 
     # ------------------------------------------------ 차선만 (테스트 모드)
@@ -416,6 +424,28 @@ class LaneDriver:
         self._travelled += abs(v) * dt
         return out
 
+    def _red_line_event(self, plan, maneuver_active, maneuver_finished):
+        """빨간 선 검출의 상승 에지 → RED_LINE_STOP 이벤트 (lane_only).
+
+        계획 없음: 모든 빨간 선. 계획 있음: 입구 선은 JUNCTION_STOP 이 맡으므로 교차로를 지난 뒤(또는 고정 동작 중) 선만.
+        고정 동작 중 에지는 보류했다가 동작이 끝난 다음 틱에 낸다. 직전 정지 뒤 red_line_min_gap 을 달려야 새 선으로 본다.
+        """
+        seen = bool(self._lane['red_line'])
+        edge = seen and not self._red_prev
+        self._red_prev = seen
+        counts = plan is None or self._junction_passed or maneuver_active
+        if edge and counts:
+            self._red_pending = True
+        if not self._red_pending or maneuver_active or maneuver_finished:
+            return False
+        if (self._red_stop_travel is not None
+                and self._travelled - self._red_stop_travel < self.p.red_line_min_gap):
+            self._red_pending = False              # 방금 선 그 선의 재검출 — 무시
+            return False
+        self._red_pending = False
+        self._red_stop_travel = self._travelled
+        return True
+
     def _tick_lane_only(self, now, dt, out, blocked, obstacle_reason, quality, error_x,
                         lane_visible, lane_both):
         """경로·위치 없이 카메라 error_x 만으로 중앙 주행. 횡단보도·바리게이트·장애물·링크 감시는 그대로.
@@ -432,8 +462,10 @@ class LaneDriver:
             junction_clear = self.clear_until >= 1
             maneuver_active = self._maneuver is not None and not self._maneuver.done
         else:
-            junction_trigger, junction_clear, maneuver_active = bool(self._lane['red_line']), True, False
+            # 계획 없음(테스트 주행): 빨간 선은 교차로 절차 없이 RED_LINE_STOP 으로만 선다
+            junction_trigger, junction_clear, maneuver_active = False, True, False
         finished, self._maneuver_finished_pending = self._maneuver_finished_pending, False
+        red_line_event = self._red_line_event(plan, maneuver_active, finished)
         inp = Inputs(
             started=self.started, estop=self.estop,
             link_ok=self.station_link.alive(now), path_ok=self.path_link.alive(now),
@@ -442,6 +474,7 @@ class LaneDriver:
             barricade=self._lane['barricade'],
             # 빨간 선 → 교차로 정지. 계획이 없으면 허가 없이 정지 시간만 채우고 차선으로 통과한다
             junction_trigger=junction_trigger, junction_clear=junction_clear,
+            red_line_event=red_line_event,
             maneuver_active=maneuver_active, maneuver_finished=finished,
             maneuver_reason=self._maneuver.describe() if maneuver_active else '',
             lane_visible=lane_visible, lane_both=lane_both, arrived=self._arrived, travelled=self._travelled,
@@ -477,7 +510,8 @@ class LaneDriver:
                 out.reason = '차선 없음 — 정지'
             return out
         self._lost_since = None
-        out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False)
+        out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False,
+                                                   error_stamp=self._lane['stamp'])
         self._last_cmd = (out.v, out.omega)
         # 위치가 없으니 주행거리는 명령 속도로 추측한다 (횡단보도 재래치 거리 판정용)
         self._travelled += abs(out.v) * dt
