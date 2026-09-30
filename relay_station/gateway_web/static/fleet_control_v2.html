@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/fleet_control_v2.css">
 </head>
 <body>
+  <div id="inst-banner" style="display:none;background:#b45309;color:#fff;padding:8px 16px;font-size:0.85rem;font-weight:700;letter-spacing:.02em;text-align:center;"></div>
   <div class="app-shell">
     <header class="topbar">
       <div>
@@ -15,6 +16,7 @@
         <h1>Pinky Fleet Control</h1>
       </div>
       <div class="top-status">
+        <span class="status-pill neutral" id="runtime-instance-pill">환경 확인 중</span>
         <!-- U-1: 원격 보기 경로(:18081 · ?view=1)에서는 움직이는 조작이 숨는다 — 서버(OPS-1)도 거절한다 -->
         <span class="status-pill neutral" id="view-only-pill" hidden>보기 전용 — 제어는 현장 노트북 :8889</span>
         <!-- 관제 2026-09-28 제어권: 허용된 노트북은 한 번에 한 사람만 움직이는 명령을 낸다. 남이 쥐면 버튼이 잠긴다(숨지 않는다). -->
@@ -60,6 +62,7 @@
             <button class="btn" data-command="stop">일시정지</button>
             <button class="btn" data-command="resume" data-moving="1">재시작</button>
             <button class="btn danger" data-command="estop">비상정지</button>
+            <button class="btn warn" id="btn-fault-pose-block" style="margin-left:auto;" title="관제 위치(overhead_pose) 전송을 차단하여 로봇이 3초 뒤 데드맨으로 정지하는지 검증">⚠️ 관제 위치 전송 차단 (고장 주입 테스트)</button>
           </div>
           <!-- 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼 · 교차로 통행권. 비전 모드가 아니면 숨는다 -->
           <div class="vision-panel" id="vision-panel" hidden>
@@ -106,8 +109,8 @@
             <!-- U-5: 스트림이 없으면 JS(initMedia)가 img 요소를 "영상 없음" 문구로 바꾼다 — 검은 상자를 남기지 않는다 -->
             <!-- relay-cam 은 중계 노트북의 USB 웹캠(중앙 탑뷰)이지 태블릿 항공뷰가 아니다(검토 P2) — 없을 때의 이유도 소스별로 -->
             <div class="camera-main">
-              <img src="/video_feed?src=relay-cam" alt="Relay top-view camera" data-media="중계 탑뷰(USB 웹캠)" data-missing-why="중계 웹캠 신호 없음(--no-camera 또는 미연결)">
-              <span class="media-label">Relay top-view (USB webcam)</span>
+              <img src="/video_feed?src=phone" alt="Aerial view camera" data-media="항공뷰 (폰 카메라)" data-missing-why="항공뷰 폰 앱 신호 없음">
+              <span class="media-label">Aerial View (Phone)</span>
             </div>
             <div class="camera-mini-grid">
               <div class="camera-mini">
@@ -173,7 +176,7 @@
         <div class="camera-diagnostic-grid">
           <article class="card">
             <div class="card-head"><div><h3>Overhead / External</h3><p>ArUco · Homography · PoseFix</p></div></div>
-            <div class="diagnostic-feed"><img src="/video_feed?src=relay-cam" alt="Relay top-view camera" data-media="중계 탑뷰(USB 웹캠)" data-missing-why="중계 웹캠 신호 없음 · 태블릿 항공뷰는 T-10 전"></div>
+            <div class="diagnostic-feed"><img src="/video_feed?src=phone" alt="Aerial view camera" data-media="항공뷰 (폰 카메라)" data-missing-why="항공뷰 폰 앱 신호 없음"></div>
           </article>
           <article class="card">
             <div class="card-head"><div><h3>Scenario Cameras</h3><p>구역 = 미션 노드(출발·도착) · 프로파일별 구역은 태블릿 T-11 뒤</p></div><span class="status-pill pending">RUNTIME PENDING</span></div>

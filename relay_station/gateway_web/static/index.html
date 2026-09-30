@@ -336,6 +336,9 @@
     <button class="nav-tab" onclick="switchGlobalTab('pane-robot-cams', this)">
       <span>🎥</span> 3. 로봇 온보드 카메라
     </button>
+    <button class="nav-tab" onclick="switchGlobalTab('pane-calibration-backup', this)">
+      <span>📐</span> 4. 좌표계 수동 정착 (비상/백업용)
+    </button>
   </nav>
 
   <!-- ===================================================================== -->
@@ -359,108 +362,6 @@
     </div>
       </div>
       <div id="mv-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; padding:12px;"></div>
-    </div>
-
-    <!-- ===== MCV-2A-UI 좌표계 정착 =====
-     화면 픽셀 -> 아레나 cm. 네 모서리로 풀고, **풀이에 안 쓴 검증점**으로 잰다.
-     네 점의 재투영 오차는 구조상 0 이라 정확도가 아니다. -->
-    <div class="stream-card" style="margin-bottom: 16px;" id="cal-card">
-      <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:1.05rem;">📐 좌표계 정착</span>
-          <span class="badge" id="cal-state" style="background:#21262d;">-</span>
-          <span class="badge" id="cal-acc" style="background:#21262d;">정확도 미측정</span>
-          <span class="badge" id="cal-drift" style="background:#21262d;">흔들림 미감시</span>
-        </div>
-        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-          <select id="cal-src" style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px;"></select>
-          <button class="badge cyan" style="cursor:pointer;border:none;" onclick="calShot()">📷 정지 프레임</button>
-          <button class="badge" style="cursor:pointer;border:none;background:#21262d;" onclick="calReset()">↺ 핀 초기화</button>
-        </div>
-      </div>
-      <div style="padding:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px;">
-        <div>
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
-            아레나 <b>바깥 네 모서리</b>를 끌어다 맞춘다 · 순서 좌하→우하→우상→좌상
-          </div>
-          <canvas id="cal-canvas" style="width:100%; background:#0d1117; border:1px solid #30363d; border-radius:8px; cursor:crosshair; touch-action:none;"></canvas>
-          <div id="cal-geo" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
-        </div>
-        <div>
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
-            위에서 내려다본 그림 (왜곡 보정 <b>안 함</b> — 광각이면 가장자리가 휜다)
-          </div>
-          <img id="cal-preview" style="width:100%; background:#0d1117; border:1px solid #30363d; border-radius:8px; min-height:120px;" alt="">
-          <div id="cal-preview-note" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
-        </div>
-      </div>
-      <div style="padding:0 12px 12px 12px;">
-        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
-          검증점 — <b>풀이에 안 쓰는</b> 점이다. 이게 있어야 오차를 말할 수 있다.
-        </div>
-        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-          <select id="cal-lm" style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px;"></select>
-          <button class="badge" id="cal-lm-btn" style="cursor:pointer;border:none;background:#21262d;" onclick="calArmVerify()">＋ 화면에서 찍기</button>
-          <span id="cal-lm-list" style="font-size:0.72rem; color:var(--text-muted);"></span>
-        </div>
-        <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
-          <button class="badge cyan" style="cursor:pointer;border:none;" onclick="calSave()">💾 점 저장</button>
-          <button class="badge" id="cal-settle-btn" style="cursor:pointer;border:none;background:#238636;color:#fff;" onclick="calSettle()">📌 좌표계 정착 (SETTLE)</button>
-          <button class="badge" style="cursor:pointer;border:none;background:#21262d;" onclick="calClear()">🗑 정착 해제</button>
-        </div>
-        <div id="cal-msg" style="font-size:0.75rem; margin-top:8px; color:var(--text-muted); white-space:pre-wrap;"></div>
-
-        <!-- 화각 점검 (MCV-2G). 거치할 때 보는 것이다 - 나중에 조용히 망가지는
-             세 가지를 그 자리에서 말한다. -->
-        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
-          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-            <span style="font-size:0.75rem; color:var(--text-muted);">화각 점검</span>
-            <span class="badge" id="cal-framing-badge" style="background:#21262d;">-</span>
-            <label style="font-size:0.72rem; color:var(--text-muted); cursor:pointer;">
-              <input type="checkbox" id="cal-guide-on" checked onchange="calDraw()"> 가이드 상자 보이기
-            </label>
-          </div>
-          <div id="cal-framing-note" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted); white-space:pre-wrap;"></div>
-        </div>
-
-        <!-- 관측 제외 영역. 검열 상자와 **주인이 다르다** - 저건 가공 단이 선언하고
-             이건 운영자가 선언한다. 같은 건 결과뿐이다: 둘 다 "안 본 자리". -->
-        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
-          <div style="font-size:0.75rem; color:var(--text-muted);">
-            가릴 영역 - 삼각대·모니터 베젤·책상 케이블처럼 <b>아레나 바닥이 아닌</b> 것.
-            가린 자리는 <b>모른다</b>로 남는다 (비었다가 아니다 - 로봇이 거기로 안 들어간다).
-          </div>
-          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
-            <input id="cal-mask-why" placeholder="무엇을 가리나 (예: 삼각대 다리)" maxlength="40"
-                   style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px; min-width:200px;">
-            <button class="badge" id="cal-mask-btn" style="cursor:pointer;border:none;background:#21262d;" onclick="calMaskArm()">＋ 화면에서 끌어 가리기</button>
-          </div>
-          <div id="cal-mask-list" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted);"></div>
-        </div>
-
-        <!-- 흔들림. 무효 3종(아레나·크기·세션)이 **못 잡는** 자리다 -
-             삼각대를 치면 프레임 크기도 세션도 그대로인데 좌표만 조용히 틀린다. -->
-        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
-          <div style="font-size:0.75rem; color:var(--text-muted);">
-            흔들림 감시 - 정착할 때 <b>네 핀 주변 조각</b>을 떠 두고 지금 프레임에서 다시 찾는다.
-            화면 전체를 비교하지 <b>않는다</b> (로봇이 지나가기만 해도 떨어지니까).
-          </div>
-          <div id="cal-drift-note" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
-        </div>
-
-        <!-- 영상 -> 월드. 라이다 맵의 파생물이 아니라서 라이다를 검증할 수 있다. -->
-        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
-          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-            <button class="badge" id="cal-vision-btn" style="cursor:pointer;border:none;background:#1f6feb;color:#fff;" onclick="calVisionBuild()">🗺 영상 → 평면도 만들기</button>
-            <span style="font-size:0.72rem; color:var(--text-muted);">
-              정착된 정합으로 바닥을 내려다본 격자를 만든다. <b>라이다를 안 쓴다.</b>
-            </span>
-          </div>
-          <div id="cal-vision-note" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted); white-space:pre-wrap;"></div>
-        </div>
-
-        <div id="cal-receipts" style="font-size:0.72rem; margin-top:8px; color:var(--text-muted);"></div>
-      </div>
     </div>
 
     <div class="stream-card" style="margin-bottom: 16px;">
@@ -988,6 +889,119 @@
   </div>
 
   <!-- ===================================================================== -->
+  <!-- [탭 4] 좌표계 수동 정착 및 캘리브레이션 (ArUco 미검출 시 비상/백업용) -->
+  <!-- ===================================================================== -->
+  <div id="pane-calibration-backup" class="global-tab-pane">
+    <div style="padding: 12px 16px; margin-bottom: 16px; background: rgba(56, 139, 253, 0.1); border: 1px solid #388bfd; border-radius: 8px; font-size: 0.82rem; color: #c9d1d9; line-height: 1.5;">
+      ℹ️ <strong>비상용 수동 캘리브레이션 도구 안내:</strong><br>
+      현재 팀11 정본 시스템은 상부 카메라/태블릿의 <strong>ArUco 마커(40~43번)를 통해 좌표계를 자동 계산</strong>하므로 일상 주행 시에는 수동 정착이 불필요합니다.<br>
+      조명 반사, 마커 훼손 등으로 자동 인식이 불가능한 비상 상황에만 아래 도구를 통해 아레나 네 모서리를 수동으로 지정하고 정착(SETTLE)하십시오.
+    </div>
+
+    <!-- ===== MCV-2A-UI 좌표계 정착 =====
+     화면 픽셀 -> 아레나 cm. 네 모서리로 풀고, **풀이에 안 쓴 검증점**으로 잰다.
+     네 점의 재투영 오차는 구조상 0 이라 정확도가 아니다. -->
+    <div class="stream-card" style="margin-bottom: 16px;" id="cal-card">
+      <div class="stream-header" style="flex-wrap: wrap; gap: 8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.05rem;">📐 좌표계 정착 (수동 캘리브레이션)</span>
+          <span class="badge" id="cal-state" style="background:#21262d;">-</span>
+          <span class="badge" id="cal-acc" style="background:#21262d;">정확도 미측정</span>
+          <span class="badge" id="cal-drift" style="background:#21262d;">흔들림 미감시</span>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <select id="cal-src" style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px;"></select>
+          <button class="badge cyan" style="cursor:pointer;border:none;" onclick="calShot()">📷 정지 프레임</button>
+          <button class="badge" style="cursor:pointer;border:none;background:#21262d;" onclick="calReset()">↺ 핀 초기화</button>
+        </div>
+      </div>
+      <div style="padding:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px;">
+        <div>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
+            아레나 <b>바깥 네 모서리</b>를 끌어다 맞춘다 · 순서 좌하→우하→우상→좌상
+          </div>
+          <canvas id="cal-canvas" style="width:100%; background:#0d1117; border:1px solid #30363d; border-radius:8px; cursor:crosshair; touch-action:none;"></canvas>
+          <div id="cal-geo" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
+        </div>
+        <div>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
+            위에서 내려다본 그림 (왜곡 보정 <b>안 함</b> — 광각이면 가장자리가 휜다)
+          </div>
+          <img id="cal-preview" style="width:100%; background:#0d1117; border:1px solid #30363d; border-radius:8px; min-height:120px;" alt="">
+          <div id="cal-preview-note" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
+        </div>
+      </div>
+      <div style="padding:0 12px 12px 12px;">
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
+          검증점 — <b>풀이에 안 쓰는</b> 점이다. 이게 있어야 오차를 말할 수 있다.
+        </div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <select id="cal-lm" style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px;"></select>
+          <button class="badge" id="cal-lm-btn" style="cursor:pointer;border:none;background:#21262d;" onclick="calArmVerify()">＋ 화면에서 찍기</button>
+          <span id="cal-lm-list" style="font-size:0.72rem; color:var(--text-muted);"></span>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
+          <button class="badge cyan" style="cursor:pointer;border:none;" onclick="calSave()">💾 점 저장</button>
+          <button class="badge" id="cal-settle-btn" style="cursor:pointer;border:none;background:#238636;color:#fff;" onclick="calSettle()">📌 좌표계 정착 (SETTLE)</button>
+          <button class="badge" style="cursor:pointer;border:none;background:#21262d;" onclick="calClear()">🗑 정착 해제</button>
+        </div>
+        <div id="cal-msg" style="font-size:0.75rem; margin-top:8px; color:var(--text-muted); white-space:pre-wrap;"></div>
+
+        <!-- 화각 점검 (MCV-2G). 거치할 때 보는 것이다 - 나중에 조용히 망가지는
+             세 가지를 그 자리에서 말한다. -->
+        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <span style="font-size:0.75rem; color:var(--text-muted);">화각 점검</span>
+            <span class="badge" id="cal-framing-badge" style="background:#21262d;">-</span>
+            <label style="font-size:0.72rem; color:var(--text-muted); cursor:pointer;">
+              <input type="checkbox" id="cal-guide-on" checked onchange="calDraw()"> 가이드 상자 보이기
+            </label>
+          </div>
+          <div id="cal-framing-note" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted); white-space:pre-wrap;"></div>
+        </div>
+
+        <!-- 관측 제외 영역. 검열 상자와 **주인이 다르다** - 저건 가공 단이 선언하고
+             이건 운영자가 선언한다. 같은 건 결과뿐이다: 둘 다 "안 본 자리". -->
+        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
+          <div style="font-size:0.75rem; color:var(--text-muted);">
+            가릴 영역 - 삼각대·모니터 베젤·책상 케이블처럼 <b>아레나 바닥이 아닌</b> 것.
+            가린 자리는 <b>모른다</b>로 남는다 (비었다가 아니다 - 로봇이 거기로 안 들어간다).
+          </div>
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
+            <input id="cal-mask-why" placeholder="무엇을 가리나 (예: 삼각대 다리)" maxlength="40"
+                   style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:3px 6px; min-width:200px;">
+            <button class="badge" id="cal-mask-btn" style="cursor:pointer;border:none;background:#21262d;" onclick="calMaskArm()">＋ 화면에서 끌어 가리기</button>
+          </div>
+          <div id="cal-mask-list" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted);"></div>
+        </div>
+
+        <!-- 흔들림. 무효 3종(아레나·크기·세션)이 **못 잡는** 자리다 -
+             삼각대를 치면 프레임 크기도 세션도 그대로인데 좌표만 조용히 틀린다. -->
+        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
+          <div style="font-size:0.75rem; color:var(--text-muted);">
+            흔들림 감시 - 정착할 때 <b>네 핀 주변 조각</b>을 떠 두고 지금 프레임에서 다시 찾는다.
+            화면 전체를 비교하지 <b>않는다</b> (로봇이 지나가기만 해도 떨어지니까).
+          </div>
+          <div id="cal-drift-note" style="font-size:0.72rem; margin-top:4px; color:var(--text-muted);"></div>
+        </div>
+
+        <!-- 영상 -> 월드. 라이다 맵의 파생물이 아니라서 라이다를 검증할 수 있다. -->
+        <div style="margin-top:10px; border-top:1px solid #21262d; padding-top:8px;">
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <button class="badge" id="cal-vision-btn" style="cursor:pointer;border:none;background:#1f6feb;color:#fff;" onclick="calVisionBuild()">🗺 영상 → 평면도 만들기</button>
+            <span style="font-size:0.72rem; color:var(--text-muted);">
+              정착된 정합으로 바닥을 내려다본 격자를 만든다. <b>라이다를 안 쓴다.</b>
+            </span>
+          </div>
+          <div id="cal-vision-note" style="font-size:0.72rem; margin-top:6px; color:var(--text-muted); white-space:pre-wrap;"></div>
+        </div>
+
+        <div id="cal-receipts" style="font-size:0.72rem; margin-top:8px; color:var(--text-muted);"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
       <!-- U-7. CI/CD 배포 화면을 여기서 뺐다(사용자 지시 2026-09-12). 지운 게 아니라 static/ops-deploy.html 로 옮겼다. ⚠️ /api/jenkins/build 는 그대로 열려 있다 — 화면만 뺀 것이지 보안 수정이 아니다. -->
 
   <script>
@@ -999,12 +1013,15 @@
     setInterval(updateClock, 1000);
     updateClock();
 
-    // 최상단 글로벌 탭 전환 (메인 대시보드 / 맵&위치 / 로봇 카메라)
+    // 최상단 글로벌 탭 전환 (메인 대시보드 / 맵&위치 / 로봇 카메라 / 수동 정착 백업)
     function switchGlobalTab(paneId, btn) {
       document.querySelectorAll('.global-tab-pane').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
       document.getElementById(paneId).classList.add('active');
       btn.classList.add('active');
+      if (paneId === 'pane-calibration-backup' && typeof calDraw === 'function') {
+        setTimeout(calDraw, 50);
+      }
     }
 
     // ===== MCV-1D 멀티뷰 =====

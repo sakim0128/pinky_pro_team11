@@ -137,6 +137,14 @@
     $("event-filter")?.addEventListener("change", renderEvents);
     $("control-acquire")?.addEventListener("click", () => controlAction("acquire"));
     $("control-release")?.addEventListener("click", () => controlAction("release"));
+    $("btn-fault-pose-block")?.addEventListener("click", async () => {
+      try {
+        await postJson("/api/fault/toggle_pose_fix", {});
+        await refresh();
+      } catch (e) {
+        alert("관제 위치 차단/복구 제어 실패: " + e.message);
+      }
+    });
   }
 
   function robotName(key) {
@@ -165,16 +173,48 @@
     return m[robotKey(index)] || null;
   }
 
+  function deltaText(r) {
+    const vx = r.extVision?.x ?? r.vision?.x;
+    const vy = r.extVision?.y ?? r.vision?.y;
+    if (typeof r.x === "number" && typeof r.y === "number" && typeof vx === "number" && typeof vy === "number") {
+      const d = Math.hypot(r.x - vx, r.y - vy);
+      return `|Δ| ${(d * 100).toFixed(1)} cm (실시간 융합)`;
+    }
+    return "—";
+  }
+
   function deriveRobot(index) {
+    const key = robotKey(index);
     const f = fleetRobot(index) || {};
     const n = navRobot(index) || {};
     const s = f.state || {};
     const ls = f.lane_status || {};
+    const gRobot = (state.gateway?.robots || {})[key] || {};
+    const gComm = ((state.gateway?.fleet_comm || {})[key]) || {};
+    const runtime = gRobot.runtime || gComm.runtime || "OFFLINE";
+    const poseFuser = gRobot.pose_fuser || (diagRobot(index) || {}).detail?.fix_status || null;
+    const fixWord = gRobot.fix_status_word || (diagRobot(index) || {}).pose_fuser || "미수신";
+    const extVision = (state.gateway?.visionPose || {})[key] || n.external_vision || null;
+
+    let runtimeBadge = "";
+    if (runtime === "PHYSICAL") {
+      runtimeBadge = `<span class="status-pill ok" style="font-size:0.72rem;padding:2px 6px;margin-left:6px;" title="실물 로봇 온보드 하드웨어 직결">🤖 실물</span>`;
+    } else if (runtime === "DOCKER") {
+      runtimeBadge = `<span class="status-pill warn" style="font-size:0.72rem;padding:2px 6px;margin-left:6px;" title="도커 가상 로봇 팜(HIL) 컨테이너">🐳 도커 가상</span>`;
+    } else {
+      runtimeBadge = `<span class="status-pill neutral" style="font-size:0.72rem;padding:2px 6px;margin-left:6px;" title="통신 대기 중">미연결</span>`;
+    }
+
     return {
       index,
       known: Boolean(fleetRobot(index)),
+      runtime,
+      runtimeBadge,
+      poseFuser,
+      fixWord,
+      extVision,
       poseSource: (diagRobot(index) || {}).pose_source || null,
-      name: robotName(robotKey(index)),
+      name: robotName(key),
       localized: s.localized ?? !f.is_unlocalized,
       x: s.x,
       y: s.y,
@@ -191,7 +231,7 @@
       stale: Boolean(f.is_stale),
       linkDown: fleetLink() === "down",       // 통합 검토 OPS-2: 게이트웨이에서 못 받는다 — 카드 값은 옛 값이다
       arrival: f.arrival_status || "NOT_ARRIVED",
-      vision: n.external_vision || null,
+      vision: extVision,
       held: Boolean(f.held),                  // 로봇별 정지 — 운영자·재시작 뒤 ESTOP·링크유실 래치(REVIEW_20260926 G)
       heldReason: f.held_reason || null,
       startNode: f.start_node || null,        // U-2: 한 문장에 "BL→TC" 로 쓴다
@@ -199,8 +239,6 @@
       startAck: Boolean(f.start?.acknowledged),
       startGaveUp: Boolean(f.start?.gave_up),
       stallSec: typeof f.stall_sec === "number" ? f.stall_sec : null,
-      // 검토 P1: 코디네이터는 설정된 로봇을 언제나 목록에 싣는다(known 은 늘 참) — "신선한 보고가 있는가" 는 따로 본다.
-      // is_stale(state_timeout 지남)·lane_status 없음(한 번도 못 들음)이면 fresh 가 아니다 → 요약·신호등에서 초록 금지
       fresh: Boolean(fleetRobot(index)) && !f.is_stale && f.lane_status != null,
       lastHeard: typeof f.last_heard_sec === "number" ? f.last_heard_sec : null,
       routeIdx: typeof ls.route_idx === "number" ? ls.route_idx : null
@@ -245,19 +283,20 @@
       // U-3: 영문 상태 상수는 첫 화면에 안 쓴다 — 원문은 title 툴팁(마우스를 올리면 보인다)과 진단 탭에
       data.innerHTML = `
           <div class="robot-head">
-            <div class="robot-title"><span class="robot-index r${i}">${i}</span><div><strong>${r.name}</strong><p>${leg}</p></div></div>
+            <div class="robot-title"><span class="robot-index r${i}">${i}</span><div><strong>${r.name}</strong> ${r.runtimeBadge}<p>${leg}</p></div></div>
             <span class="status-pill ${toneForRobot(r)}" title="${esc(r.reason || r.driveState)}">${r.linkDown ? "끊김 · 옛 값: " : ""}${esc(driveText(r))}</span>
           </div>
           <div class="robot-kpis">
             <div class="kpi"><span>이동</span><strong title="${esc(r.navStatus)}">${esc(ko("nav", r.navStatus))}</strong></div>
-            <div class="kpi"><span>경로 진행</span><strong>${progress}</strong></div>
-            <div class="kpi"><span>다음 구간</span><strong title="허가 지점 ${r.clearUntil ?? "—"} · 진행 ${r.routeIdx ?? "—"}">${esc(clearanceText(r, state.fleet?.mission_state))}</strong></div>
+            <div class="kpi"><span>관제 수락 / 거부</span><strong style="color:var(--green);">${r.poseFuser ? `${r.poseFuser.accepted ?? 0}회 / ${r.poseFuser.rejected ?? 0}` : "—"}</strong></div>
+            <div class="kpi"><span>수신 신선도</span><strong class="${r.poseFuser && typeof r.poseFuser.fix_age_s === "number" && r.poseFuser.fix_age_s <= 1.0 ? "ok" : "bad"}">${r.poseFuser && typeof r.poseFuser.fix_age_s === "number" ? r.poseFuser.fix_age_s.toFixed(1) + "s" : "—"}</strong></div>
             <div class="kpi"><span>도착</span><strong title="${esc(r.arrival)}">${esc(ko("arrival", r.arrival))}</strong></div>
           </div>
           <div class="robot-detail-grid">
             <div class="data-row"><span>운영 위치</span><strong>${r.localized === false ? "위치 모름(미정위)" : pos}</strong></div>
-            <div class="data-row"><span>위치 출처</span><strong>${esc(ko("pose", r.poseSource || "미수신"))}</strong></div>
-            <div class="data-row"><span>외부 위치 측정</span><strong>${esc(r.vision?.state ? ko("vision", r.vision.state) : "미수신")}</strong></div>
+            <div class="data-row"><span>관제 위치 융합</span><strong>${esc(r.fixWord)}</strong></div>
+            <div class="data-row"><span>관제 ↔ 오돔 오차</span><strong>${deltaText(r)}</strong></div>
+            <div class="data-row"><span>경로 진행</span><strong>${progress}</strong></div>
             <div class="data-row"><span>경로 이탈</span><strong>${typeof r.cte === "number" ? Math.round(r.cte*100)+" cm" : "—"}</strong></div>
             <div class="data-row"><span>대기 사유</span><strong>${r.waitingFor ? esc(r.waitingFor) + (r.blockedBy ? ` (${esc(r.blockedBy)} 통과 중)` : "") : "없음"}</strong></div>
             <div class="data-row"><span>로봇별 정지</span><strong>${r.held ? `<span class="status-pill warn">세움</span> ${esc(r.heldReason || "")}` : "없음"}</strong></div>
@@ -770,13 +809,41 @@
         ctx.strokeStyle=i===1?"rgba(230,59,80,.45)":"rgba(37,99,235,.45)";ctx.lineWidth=3;ctx.setLineDash([8,5]);ctx.stroke();ctx.setLineDash([]);
       }
       if(state.layers.robot && typeof fleet.x==="number" && typeof fleet.y==="number"){
-        const x=sx(fleet.x),y=sy(fleet.y);ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);ctx.fillStyle=i===1?"#e63b50":"#2563eb";ctx.fill();
+        const x=sx(fleet.x),y=sy(fleet.y);
+        // 위치 융합 신선(<0.6s) 리플 펄스 링
+        const fixAge = fleet.poseFuser?.fix_age_s;
+        if (typeof fixAge === "number" && fixAge < 0.6) {
+          ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2);
+          ctx.strokeStyle = i === 1 ? "rgba(230,59,80,.35)" : "rgba(37,99,235,.35)";
+          ctx.lineWidth = 2.5; ctx.stroke();
+        }
+        ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);ctx.fillStyle=i===1?"#e63b50":"#2563eb";ctx.fill();
         ctx.fillStyle="#14213d";ctx.font="700 11px sans-serif";ctx.fillText("P"+i,x+12,y+4);
         if(typeof fleet.yaw==="number"){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+20*Math.cos(-fleet.yaw),y+20*Math.sin(-fleet.yaw));ctx.strokeStyle=i===1?"#e63b50":"#2563eb";ctx.lineWidth=2;ctx.stroke();}
       }
-      const v=nav.external_vision;
+      const v = fleet.extVision || nav.external_vision;
       if(state.layers.vision && v && typeof v.x==="number" && typeof v.y==="number"){
-        ctx.beginPath();ctx.arc(sx(v.x),sy(v.y),14,0,Math.PI*2);ctx.strokeStyle="#d89a00";ctx.lineWidth=2;ctx.setLineDash([3,3]);ctx.stroke();ctx.setLineDash([]);
+        const vx=sx(v.x), vy=sy(v.y);
+        // Golden Crosshair ⌖
+        ctx.strokeStyle="#d97706"; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(vx, vy, 11, 0, Math.PI*2); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(vx - 15, vy); ctx.lineTo(vx + 15, vy);
+        ctx.moveTo(vx, vy - 15); ctx.lineTo(vx, vy + 15);
+        ctx.stroke();
+        ctx.fillStyle="#b45309"; ctx.font="bold 10px monospace";
+        ctx.fillText(`⌖ P${i} 관제Fix`, vx + 14, vy - 4);
+
+        // 관제 위치와 로봇 위치 간 초록 점선 오차 벡터 & 거리 표시
+        if(state.layers.robot && typeof fleet.x==="number" && typeof fleet.y==="number"){
+          const rx=sx(fleet.x), ry=sy(fleet.y);
+          ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(vx, vy);
+          ctx.strokeStyle="#16a34a"; ctx.lineWidth=1.6; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+          const distCm = (Math.hypot(fleet.x - v.x, fleet.y - v.y) * 100).toFixed(1);
+          const mx = (rx + vx) / 2, my = (ry + vy) / 2;
+          ctx.fillStyle="#15803d"; ctx.font="bold 9px sans-serif";
+          ctx.fillText(`Δ ${distCm}cm`, mx + 4, my - 4);
+        }
       }
     });
     const hasPath=data.robots.some(r=>Array.isArray(r.nav.global_path||r.nav.route) && (r.nav.global_path||r.nav.route).length);
@@ -861,6 +928,44 @@
       applyViewOnly();
       renderSubtitle();
       renderSummaryBand();
+
+      // 인스턴스 런타임 배너 및 상단 상태 알약 (도커 vs 베어메탈 현장)
+      const inst = state.gateway?.instance || {};
+      const instBanner = $("inst-banner");
+      if (instBanner) {
+        if (inst.is_docker || (inst.label && !inst.label.includes("baremetal"))) {
+          instBanner.style.display = "block";
+          instBanner.textContent = `🐳 Docker Replica Container (${inst.label || "가상 HIL 환경"}) · ROS_DOMAIN_ID: ${inst.rosDomainId ?? 8} · Host: ${inst.host || "container"}`;
+        } else {
+          instBanner.style.display = "none";
+        }
+      }
+      const instPill = $("runtime-instance-pill");
+      if (instPill) {
+        const domId = inst.rosDomainId ?? 8;
+        if (inst.is_docker) {
+          setPill(instPill, `🐳 Docker Replicas (D${domId})`, "warn");
+          instPill.title = `도커 가상 컨테이너 인스턴스 (Host: ${inst.host || "docker"})`;
+        } else {
+          setPill(instPill, `🖥️ 현장 베어메탈 (D${domId})`, "ok");
+          instPill.title = `현장 베어메탈 릴레이 PC (Host: ${inst.host || "baremetal"})`;
+        }
+      }
+
+      // 관제 위치 전송 차단 (고장 주입 테스트) 버튼 상태
+      const faultBlocked = Boolean(state.gateway?.fault_injection?.pose_fix_blocked);
+      const btnFault = $("btn-fault-pose-block");
+      if (btnFault) {
+        if (faultBlocked) {
+          btnFault.className = "btn bad";
+          btnFault.textContent = "🚨 관제 위치 차단 중 (클릭 시 복구)";
+          btnFault.title = "현재 관제 위치(PoseFix) 전송이 차단되어 로봇이 3초 후 데드맨 정지합니다. 클릭하면 전송을 복구합니다.";
+        } else {
+          btnFault.className = "btn warn";
+          btnFault.textContent = "⚠️ 관제 위치 전송 차단 (주행 정지 증명)";
+          btnFault.title = "관제 위치(overhead_pose) 전송을 인위적으로 차단하여 로봇이 3초 뒤 데드맨으로 정지하는지 검증합니다.";
+        }
+      }
     } catch (e) {
       console.error("summary/view-only render failed", e);
     }

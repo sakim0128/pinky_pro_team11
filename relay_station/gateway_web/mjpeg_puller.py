@@ -755,7 +755,9 @@ class MjpegPuller:
 
 DEFAULT_CONFIG_PATH = os.environ.get(
     "VIDEO_SOURCES_CONFIG",
-    os.path.expanduser("~/pinky_pro/src/pinky_pro_team11/configs/video_sources.json"),
+    os.path.join(os.path.dirname(__file__), "..", "configs", "video_sources.json")
+    if os.path.isfile(os.path.join(os.path.dirname(__file__), "..", "configs", "video_sources.json"))
+    else os.path.expanduser("~/pinky_pro/src/pinky_pro_team11/configs/video_sources.json"),
 )
 
 _ALLOWED_TRUST = ("trusted", "untrusted")

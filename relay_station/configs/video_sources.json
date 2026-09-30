@@ -154,30 +154,19 @@
     {
       "id": "phone",
       "urlCandidates": [
-        "http://203.0.113.22:18086/processed"
+        "http://192.168.0.2:18086/processed",
+        "http://100.108.170.35:18086/processed"
       ],
-      "label": "폰 노트10 시청 중계",
+      "label": "항공뷰 폰 카메라 (App :18086)",
       "trust": "trusted",
       "staleAfterSec": 3.0,
       "enabled": true,
-      "_why": [
-        "2026-09-17 21:53 실측(operator): 203.0.113.22:18086/status -> 200 (0.39s).",
-        "앱 0.2.6 vc14 · 실제 1088x1088(요청 640x480, HAL 대체) · fps 1.741 · encodeMs 33.2.",
-        "끝단 8초 읽기 1.88 fps 로 자기보고와 일치.",
-        "",
-        "가공 단 포트 후보 둘(198.51.100.7 · 100.64.0.7)을 지웠다 — 앱은 그 포트(Termux/proot 가공 단)를 **가진 적이 없다**",
-        "(proot/Termux 가공 단이고 내려갔다). 닿지 않는 재접속은 진짜 실패를 가린다.",
-        "",
-        "⭐ 이 기기의 tailnet 주소는 100.64.0.7 이다 — 2026-09-17 21:54 실측:",
-        "  `tailscale ping 100.64.0.7` -> pong **via 203.0.113.22**. 레포에 정체 기록이 없던 주소다.",
-        "  다만 그 주소의 :18086 은 **timeout** 이라 후보로 넣지 않는다(R-28 규칙)."
-      ],
       "discover": {
-        "tailnetIp": "100.64.0.7",
+        "tailnetIp": "100.108.170.35",
         "port": 18086,
         "path": "/processed"
       },
-      "_discover_note": "노트10 — tailnet 주소는 사이트가 바뀌어도 안 변한다"
+      "_discover_note": "항공뷰 폰 — tailnet 100.108.170.35, LAN 192.168.0.2:18086"
     },
     {
       "id": "tablet-relay",

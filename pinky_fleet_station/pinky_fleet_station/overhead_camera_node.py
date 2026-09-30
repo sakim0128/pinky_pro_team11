@@ -125,8 +125,13 @@ class OverheadCameraNode(Node):
         msg.header.frame_id = self._frame_id
         msg.format = 'jpeg'
         msg.data = data
-        self._pub.publish(msg)
-        self._n_published += 1
+        if not rclpy.ok():
+            return
+        try:
+            self._pub.publish(msg)
+            self._n_published += 1
+        except Exception:
+            pass
 
     def destroy_node(self):
         self._release()
