@@ -278,6 +278,27 @@ def robot_latch_report(ctx):
     return reason if reason.startswith(RELEASE_HOLD_PREFIX) else None
 
 
+def latched_robots(coord):
+    """지금 지도 교체(SET_MAP)를 보내면 에이전트가 거부할 로봇 — [(이름, 이유)] (통합 검토 OPS-3).
+
+    코디네이터가 링크유실·ESTOP 래치로 세워 둔 로봇, 또는 스스로 ESTOP·링크유실 래치를 **지금**(LATCH_REPORT_FRESH_SEC 안)
+    보고하는 로봇. 에이전트는 체인 래치(ESTOP·링크유실) 중 SET_MAP 을 REFUSED 한다 — 로봇 재개(LaneCommand RESUME)만 그
+    래치를 푼다.
+    """
+    out = []
+    with getattr(coord, '_coord_lock', None) or threading.RLock():
+        for name, ctx in coord.robots.items():
+            if ctx.held and ctx.held_reason in (HELD_LINK_LOST, HELD_ESTOP_RESTORED):
+                out.append((name, ctx.held_reason))
+                continue
+            ls = getattr(ctx, 'lane_status', None)
+            what = LATCHED_DRIVE_STATES.get(ls.drive_state) if ls is not None else None
+            age = latch_report_age(coord, ctx) if what else None
+            if what and age is not None and age <= LATCH_REPORT_FRESH_SEC:
+                out.append((name, '%s 보고 %.1f s 전' % (what, age)))
+    return out
+
+
 # R-5: 진단을 받는 로봇 (브리지 업링크 /pinkyN/diag 가 있는 로봇 — pinky1/2 한정)
 OPS_ROBOTS = FLEET_ROBOT_NAMES
 
@@ -1627,6 +1648,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 return
 
             published, subs = GLOBAL_ROBOT_SUB_NODE.publish_pose_fix(norm)
+            try:    # 추가 경로가 실패해도 기존 PoseFix 응답은 그대로 간다
+                ov_published, ov_subs = GLOBAL_ROBOT_SUB_NODE.publish_overhead_pose(norm)
+            except Exception as e:
+                app_log(f"⚠️ overhead_pose 발행 실패: {e}")
+                ov_published, ov_subs = False, None
             if not published:
                 self._send_json(json.dumps({
                     'accepted': False,
@@ -1642,6 +1668,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 'robot_name': norm['robot_name'],
                 'topic': f"/{norm['robot_name']}/pose_fix",
                 'subscribers': subs,
+                'overhead_topic': f"/{norm['robot_name']}/overhead_pose" if ov_published else None,
+                'overhead_subscribers': ov_subs,
                 'seq': norm['seq']
             }, ensure_ascii=False).encode('utf-8'), code=200)
             return
@@ -2528,6 +2556,16 @@ class RobotDataSubscriberNode(Node):
                 'pinky2': self.create_publisher(RosPoseFix, '/pinky2/pose_fix', pose_fix_qos),
             }
 
+        # 2026-09-29 태블릿 좌표 → 팀11 로봇: 같은 좌표를 /pinkyN/overhead_pose(PoseStamped, map)로도 낸다.
+        # 팀11 로봇의 pose_fuser_node 는 PoseFix 를 받지 않고 이것만 받는다(overhead_tracker_node 와 같은 이름·QoS).
+        # 상부 추적기를 같은 로봇에 같이 띄워 두 출처가 한 토픽에 섞일 때만 그때만 RELAY_POSE_FIX_TO_OVERHEAD=0.
+        self.pub_overhead_pose = {}
+        if vision_ingest.pose_fix_to_overhead_enabled():
+            self.pub_overhead_pose = {
+                name: self.create_publisher(PoseStamped, f'/{name}/overhead_pose', 10)
+                for name in ('pinky1', 'pinky2')
+            }
+
         # Gazebo 디지털 트윈 실시간 위치 동기화 워커 (메인 & 서브 2대)
         self._target_gz_r1 = None
         self._target_gz_r2 = None
@@ -2721,6 +2759,32 @@ class RobotDataSubscriberNode(Node):
         msg.n_markers = int(norm.get('n_markers', 0))
         msg.pipeline_latency = float(norm.get('pipeline_latency', 0.0))
 
+        pub.publish(msg)
+        try:
+            subs = int(pub.get_subscription_count())
+        except Exception:
+            subs = None
+        return True, subs
+
+    def publish_overhead_pose(self, norm: dict):
+        """검증된 태블릿 좌표를 /<robot>/overhead_pose (geometry_msgs/PoseStamped, frame map) 로 낸다.
+
+        stamp 는 **중계가 받은 시각**(중계 시계)이다 — 팀11 overhead_tracker_node 와 같은 규약이고, 받는 쪽
+        pose_fuser_node 는 stamp 를 믿지 않고 수신 시각 뒤 station_latency 로 odom 에 붙인다. 태블릿 시계는
+        어긋날 수 있어(vision_ingest 머리말 82 시간 실측) 여기 싣지 않는다. 그 stamp 는 PoseFix 쪽에 그대로 있다.
+        반환값: (published: bool, subscribers: Optional[int]). 꺼져 있으면 (False, None).
+        """
+        pub = self.pub_overhead_pose.get(norm.get('robot_name', ''))
+        if pub is None:
+            return False, None
+        msg = PoseStamped()
+        msg.header.frame_id = 'map'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.position.x = float(norm['x'])
+        msg.pose.position.y = float(norm['y'])
+        qz, qw = vision_ingest.yaw_to_quat_zw(float(norm["yaw"]))
+        msg.pose.orientation.z = qz
+        msg.pose.orientation.w = qw
         pub.publish(msg)
         try:
             subs = int(pub.get_subscription_count())

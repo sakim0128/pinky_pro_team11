@@ -17,3 +17,10 @@ profiles:
     mission: team11_map5/lane_mission.yaml
     map: ../../../../pinky_fleet_station/config/map5.yaml      # 정본 — pinky_fleet_station/config/maps/map5.pgm
     robot_map_name: map5
+
+  team11_map5_mixed:
+    label: "혼합 시험 map5 — pinky1 팀 방식(lane) BL→TR · pinky2 Nav2(hybrid) BR→BL"
+    frame: team11_map5
+    mission: team11_map5_mixed/lane_mission.yaml
+    map: ../../../../pinky_fleet_station/config/map5.yaml
+    robot_map_name: map5

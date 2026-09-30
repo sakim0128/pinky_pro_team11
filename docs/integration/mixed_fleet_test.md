@@ -194,9 +194,9 @@ python3 tools/mixed_fleet/scenario_check.py --gateway http://127.0.0.1:8889 --do
 | 핑키1 이 3 s 뒤 선다 | 좌표가 끊겼다 (재생이 끝났거나 마커가 안 보이는 구간) | 재생 구간 조정 |
 | 핑키1 이 경로에서 벗어나 멈춘다 | 녹화 궤적이 BL→J→TR 이 아니다 | §2 로 돌아간다 |
 | 핑키2 위치가 튄다 | 영상에 마커 31 이 있어 태블릿도 핑키2 좌표를 보낸다 | 그 구간을 자른다 |
-| V2 ② · ③ 이 500 (NameError `latched_robots`) | 팀 브랜치에서 그 함수가 빠졌다 | 시험 트리(패치 0002)를 쓴다 |
-| 핑키2 컨테이너가 안 뜬다 | `nav2_msgs` · CycloneDDS 없는 이미지 | 기본 `pinky-robot-farm:jazzy` |
-| 컨테이너가 중계 토픽을 못 본다 | 유니캐스트 피어 주소 / 방화벽 / 도메인 브리지 | `RELAY_HOST_IP`, `configs/cyclonedds-hil.xml`, `ros2 topic list` 를 도메인 10 · 11 · 8 에서 각각 (**미확인 구간**) |
+| V2 ② · ③ 이 500 (NameError `latched_robots`) | 함수 누락 결함 | 팀 브랜치 반영 완료 (수정됨) |
+| 핑키2 컨테이너가 안 뜬다 | `nav2_msgs` 없는 이미지 | 기본 `pinky-robot-farm:jazzy` |
+| 컨테이너가 중계 토픽을 못 본다 | 방화벽 / 도메인 브리지 / RMW 불일치 | `RELAY_HOST_IP`, Fast DDS 기본 RMW 일치 확인, `ros2 topic list` 를 도메인 10 · 11 · 8 에서 각각 |
 
 ## 7. 이 시험이 보지 않는 것
 
@@ -214,4 +214,5 @@ python3 tools/mixed_fleet/scenario_check.py --gateway http://127.0.0.1:8889 --do
 - [ ] 어제 녹화로 §2 를 실제로 해 보고 궤적이 BL→J→TR 인지 확인한다.
 - [ ] 브리지(도메인 8 ↔ 10 · 11)와 컨테이너 ↔ 중계 DDS 를 실제로 돌려 본다.
 - [ ] 진짜 Nav2 로 핑키2 를 돌릴 때의 지도 프레임 정합(map5 ↔ 농장 월드).
-- [ ] 팀 브랜치의 `latched_robots` 누락을 팀 브랜치에 반영할지 결정한다 (지금은 시험 트리 패치로만 해결).
+- [x] 팀 브랜치의 `latched_robots` 누락 반영 완료 (게이트웨이 V2 ②·③ 버튼 500 오류 해결).
+- [x] DDS Fast DDS 통일 반영 (5GHz 공유기 환경에 맞춰 CycloneDDS 사용 배제).

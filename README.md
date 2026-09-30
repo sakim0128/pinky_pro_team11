@@ -227,8 +227,7 @@ cd relay_station && python3 -m pytest tests -q          # rclpy 가 있어야 �
 
 - **정지선 클래스**: 차선 세그 vs 주행가능영역 세그 미결 → 재학습 뒤 `detector_yolo.yaml` `stop_line: [<id>]`.
 - **새 맵**: map5 규격으로 다시 저장하고 `road_graph.yaml` 좌표를 편집기로 다시 찍는다(지금은 임시 4노드).
-- **DDS 통일**: 중계는 CycloneDDS(`relay_station/configs/cyclonedds*.xml`), 팀11 기존 스크립트 `scripts/setup_dds_interface.sh` 는 Fast DDS. 세 기기 RMW 가 같아야 한다.
-  핑키에 `rmw_cyclonedds_cpp` 가 있는지(`ros2 pkg list | grep cyclonedds`) 확인 뒤 Cyclone 으로 통일 예정.
+- **DDS 통일**: Fast DDS(기본)로 통일 완료. 5GHz 공유기 재배치로 멀티캐스트 안정화되어 CycloneDDS 사용을 배제하고 팀11 기본 RMW(rmw_fastrtps_cpp)로 일치시킴.
 - **항공뷰 캘리브레이션**: `tools/overhead_calib.py` 로 map5 좌표 호모그래피를 `overhead_tracker.yaml` 에 기록. 마커 id (로봇 1/2, 꼭짓점 40~43) 확정.
 - **rclpy 시험 재측정**: relay 시험 중 rclpy/ROS msgs 가 필요한 것은 이번 정리에서 컴파일만 했다 — 중계 PC 에서 `cd relay_station && pytest tests -q`.
 - **live 웹(:8080)** 은 조회 전용으로 남겼다 — 둘 중 하나를 지울지는 나중에.

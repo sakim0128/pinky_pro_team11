@@ -41,7 +41,7 @@ RES = _reservation_module()
 
 def _profile_mission():
     man = yaml.safe_load(open(os.path.join(PROFILES, 'profiles.yaml'), encoding='utf-8'))
-    assert man['default'] == 'team11_map5' and list(man['profiles']) == ['team11_map5']
+    assert man['default'] == 'team11_map5' and 'team11_map5' in man['profiles']
     spec = man['profiles']['team11_map5']
     mission_path = os.path.normpath(os.path.join(PROFILES, spec['mission']))
     mission = yaml.safe_load(open(mission_path, encoding='utf-8'))
