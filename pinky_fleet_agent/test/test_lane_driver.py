@@ -757,7 +757,7 @@ def test_driver_junction_wait_clearance_can_be_disabled():
 
 
 def test_lane_only_red_line_stops_once_then_continues_without_station():
-    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, JUNCTION_STOP
+    from pinky_fleet_agent.drive_fsm import RED_LINE_STOP
     s = LaneOnlySim()
 
     def run(seconds, red_line):
@@ -772,10 +772,128 @@ def test_lane_only_red_line_stops_once_then_continues_without_station():
 
     assert run(2.0, False).v > 0.0
     out = run(0.5, True)
-    assert out.state == JUNCTION_STOP and out.v == 0.0
-    run(1.0, True)
-    assert s.log[-1][1].state == JUNCTION_PASS                         # 관제가 없으니 허가 없이 통과
+    assert out.state == RED_LINE_STOP and out.v == 0.0
+    out = run(1.0, True)                                               # 선이 계속 보여도 다시 서지 않는다
+    assert s.log[-1][1].state == CRUISE and out.v > 0.0                # 관제가 없으니 허가 없이 출발
     out = run(3.0, False)
     assert out.v > 0.0
-    runs = sum(1 for i in range(1, len(s.log)) if s.log[i][1].state == JUNCTION_STOP != s.log[i - 1][1].state)
+    runs = sum(1 for i in range(1, len(s.log)) if s.log[i][1].state == RED_LINE_STOP != s.log[i - 1][1].state)
     assert runs == 1
+
+
+# ------------------------------------------------------------ 차선 하나: 회전하지 않고 따라간다 (search_on_single false)
+
+def test_lane_only_single_lane_keeps_driving_without_rotation():
+    s = LaneOnlySim(y0=0.0)
+    s.d.p.fsm.search_on_single = False
+    s.d.p.control.single_weight = 0.8
+    s.run(2.0)
+    s.quality = QUALITY_SINGLE
+    s.seen = (True, False)
+    x0 = s.x
+    s.run(3.0)
+    states = {o.state for _, o in s.log[-60:]}
+    assert LANE_SEARCH not in states and states == {CRUISE}
+    assert s.x > x0 + 0.2                              # 계속 전진
+    assert all(o.v > 0.0 for _, o in s.log[-40:])
+    s.quality = QUALITY_LOST                           # 아예 안 보이면 그때만 탐색
+    s.seen = (False, False)
+    assert s.run(1.5).state == LANE_SEARCH
+
+
+def test_single_weight_scales_camera_correction():
+    from pinky_fleet_agent.lane_control import ControlParams, LaneController
+    lo = LaneController(ControlParams(single_weight=0.5))
+    hi = LaneController(ControlParams(single_weight=0.8))
+    _, w_lo = lo.command(0.0, 0.3, QUALITY_SINGLE, 0.05, None)
+    _, w_hi = hi.command(0.0, 0.3, QUALITY_SINGLE, 0.05, None)
+    assert w_lo < 0.0 and w_hi < w_lo                  # 같은 오차에 더 세게 (우회전)
+    _, w_both = hi.command(0.0, 0.3, QUALITY_BOTH, 0.05, None)
+    assert abs(w_both) > abs(w_hi)
+
+
+def test_agent_yaml_single_lane_rule():
+    import yaml
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, 'params', 'lane_agent.yaml'), encoding='utf-8') as fh:
+        prm = yaml.safe_load(fh)['pinky_lane_agent']['ros__parameters']
+    assert prm['fsm']['search_on_single'] is False and prm['fsm']['lane_search'] is True
+    assert prm['control']['single_weight'] == 0.8
+
+
+# ------------------------------------------------------------ 2026-09-30 실차 피드백: D 항 킥 · error 필터 · 빨간 선 매번 정지
+
+def _omega_trace(ctrl, use_stamp, meas):
+    """20 Hz 틱, 10 Hz 측정 (meas: 측정 시각별 error). 틱마다 ω."""
+    out, t, e, stamp = [], 0.0, 0.0, None
+    for k in range(40):
+        t = k * 0.05
+        if k % 2 == 0:
+            e, stamp = meas(t), t
+        _, w = ctrl.command(0.0, e, QUALITY_BOTH, 0.05, None, error_stamp=stamp if use_stamp else None)
+        out.append(w)
+    return out
+
+
+def test_derivative_uses_measurement_interval_not_control_tick():
+    meas = lambda t: 0.02 * (t / 0.1)                     # 0.1 s 마다 0.02 씩 오르는 오차 (de = 0.2 /s)
+    old = _omega_trace(LaneController(ControlParams(kp=0.0, kd=1.0)), False, meas)
+    new = _omega_trace(LaneController(ControlParams(kp=0.0, kd=1.0)), True, meas)
+    # 예전: 새 측정 틱마다 de = 0.02/0.05 = 0.4, 다음 틱 0 → ω 가 0 과 −0.4 사이를 오간다
+    assert max(abs(w) for w in old[4:]) == pytest.approx(0.4, abs=1e-6) and min(abs(w) for w in old[4:]) < 1e-9
+    # 새: 측정 간격으로 나눈 기울기 0.2 를 다음 측정까지 유지 → 튀지 않는다
+    assert all(w == pytest.approx(-0.2, abs=1e-6) for w in new[4:])
+
+
+def test_error_alpha_filters_step_change():
+    c = LaneController(ControlParams(kp=1.0, kd=0.0, error_alpha=0.5))
+    c.command(0.0, 0.0, QUALITY_BOTH, 0.05, None, error_stamp=0.0)
+    _, w1 = c.command(0.0, 0.2, QUALITY_BOTH, 0.05, None, error_stamp=0.1)
+    _, w1b = c.command(0.0, 0.2, QUALITY_BOTH, 0.05, None, error_stamp=0.1)   # 같은 측정 — 필터 한 번만
+    _, w2 = c.command(0.0, 0.2, QUALITY_BOTH, 0.05, None, error_stamp=0.2)
+    assert w1 == pytest.approx(-0.1) and w1b == pytest.approx(-0.1) and w2 == pytest.approx(-0.15)
+    raw = LaneController(ControlParams(kp=1.0, kd=0.0))                        # 기본 1.0 = 필터 없음
+    raw.command(0.0, 0.0, QUALITY_BOTH, 0.05, None, error_stamp=0.0)
+    assert raw.command(0.0, 0.2, QUALITY_BOTH, 0.05, None, error_stamp=0.1)[1] == pytest.approx(-0.2)
+
+
+def test_filter_resets_when_camera_weight_is_zero():
+    c = LaneController(ControlParams(kp=1.0, kd=0.0, error_alpha=0.5))
+    c.command(0.0, 0.4, QUALITY_BOTH, 0.05, None, error_stamp=0.0)
+    c.command(0.0, 0.4, QUALITY_LOST, 0.05, None, error_stamp=0.1)            # 끊김 → 필터 초기화
+    assert c.command(0.0, -0.2, QUALITY_BOTH, 0.05, None, error_stamp=0.2)[1] == pytest.approx(0.2)
+
+
+def test_fsm_red_line_event_stops_then_cruises_and_priorities():
+    from pinky_fleet_agent.drive_fsm import JUNCTION_PASS, RED_LINE_STOP
+    fsm = DriveFsm(FsmParams(red_line_stop_seconds=1.0))
+    assert fsm.step(0.0, Inputs(started=True, red_line_event=True))[0] == RED_LINE_STOP
+    assert fsm.step(0.5, Inputs(started=True))[:2] == (RED_LINE_STOP, 0.0)
+    assert fsm.step(1.05, Inputs(started=True))[:2] == (CRUISE, 1.0)
+    assert fsm.step(1.1, Inputs(started=True, red_line_event=True, obstacle=True))[0] == OBSTACLE_WAIT
+    fsm2 = DriveFsm(FsmParams(junction_stop_seconds=0.0))
+    fsm2.step(0.0, Inputs(started=True, junction_trigger=True))
+    assert fsm2.step(0.1, Inputs(started=True, junction_trigger=True))[0] == JUNCTION_PASS
+    assert fsm2.step(0.2, Inputs(started=True, red_line_event=True))[0] == RED_LINE_STOP   # 통과 중 출구 선에서도 선다
+    fsm3 = DriveFsm()
+    assert fsm3.step(0.0, Inputs(started=True, red_line_event=True, maneuver_active=True))[0] == JUNCTION_PASS
+    assert DriveFsm(FsmParams(red_line_stop=False)).step(0.0, Inputs(started=True, red_line_event=True))[0] == CRUISE
+
+
+def test_lane_only_stops_at_every_red_line_even_when_close():
+    """교차로 입구·출구 선이 0.3 m 간격 → 둘 다 선다 (예전엔 재래치 0.6 m 때문에 두 번째를 놓쳤다)."""
+    from pinky_fleet_agent.drive_fsm import RED_LINE_STOP
+    s = LaneOnlySim(y0=0.0)
+    lines = (0.5, 0.8)                                      # 각 선이 카메라 정지 행에 보이는 x 구간 [a, a+0.04)
+    for _ in range(int(14.0 / DT)):
+        s.t += DT
+        if int(s.t / DT) % 2 == 0:
+            red = any(a <= s.x < a + 0.04 for a in lines)
+            s.d.set_lane_path(s.t, s.t, QUALITY_BOTH, 0.0, False, red_line=red)
+        out = s.d.tick(s.t, 0.0, 0.0, 0.0)
+        s.x += out.v * DT
+        s.log.append((s.t, out))
+    states = [o.state for _, o in s.log]
+    starts = [s.log[i][0] for i in range(1, len(states)) if states[i] == RED_LINE_STOP != states[i - 1]]
+    assert len(starts) == 2
+    assert s.x > 1.0 and states[-1] == CRUISE

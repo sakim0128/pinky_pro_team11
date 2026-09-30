@@ -17,6 +17,7 @@ pinky_lane_agent:
     crosswalk_zone: 0.45
     junction_zone: 0.25
     red_line_zone: 0.60         # 빨간 선(카메라) 트리거는 경로상 다음 분기 노드가 이 거리 안일 때만
+    red_line_min_gap: 0.05      # lane_only: 빨간 선 정지 뒤 이만큼(m) 달린 다음의 새 선만 다시 세운다
     junction_wait_clearance: true # JUNCTION_STOP 에서 관제 허가(clear_until 이 분기 노드를 넘음) 를 기다린다
     lane_only: false             # true: 경로·위치 없이 카메라 차선 중앙만 (lane_only.launch.xml 이 덮는다)
     lane_lost_coast: 0.6
@@ -37,13 +38,15 @@ pinky_lane_agent:
       cam_sign: 1.0              # 실차에서 확정: 로봇을 차선 왼쪽에 두면 우회전(ω<0) 이어야 한다. 아니면 -1.0
       v_min_moving: 0.04
       stale_max_age: 0.9
+      single_weight: 0.8           # 차선 하나일 때 카메라 보정 가중치 (BOTH 1.0). 경로 없이 카메라로만 달릴 때 조향이 약하지 않게
+      error_alpha: 0.5            # 새 LanePath 마다 error 저역통과 (1.0 = 끔). 차선 하나↔둘 전환 때 목표점 점프 완화
     fsm:
       crosswalk_stop_seconds: 3.0
       crosswalk_relatch_distance: 0.60   # > crosswalk_zone
       lane_lost_speed_factor: 0.5
       blind_warn_distance: 0.60
       lane_search: true                  # 차선 쌍이 안 보이면 제자리 회전 탐색 (D14 작업 2)
-      search_on_single: true             # 한쪽만 보여도 탐색. false 면 아예 안 보일 때만
+      search_on_single: false            # 한쪽만 보이면 회전하지 않고 보이는 선에서 6 cm 안쪽을 따라간다 (아예 안 보일 때만 탐색)
       search_after: 0.5                  # 쌍이 이만큼(s) 안 보여야 탐색 시작
       search_confirm_seconds: 0.3        # 탐색 중 쌍이 이만큼 이어지면 주행 복귀
       search_max_seconds: 8.0            # 초과하면 실패 → 정지 (사람이 개입)
@@ -52,6 +55,8 @@ pinky_lane_agent:
       junction_speed_factor: 0.4         # 통과 속도 = v_max × 0.4 (0.15 → 0.06)
       junction_exit_confirm: 0.3         # 반경 밖에서 차선 쌍이 이만큼 보이면 주행 복귀
       junction_relatch_distance: 0.60    # > 2 × junction_zone
+      red_line_stop: true                # 빨간 선(교차로 입구·출구)을 볼 때마다 정지 후 출발 (lane_only)
+      red_line_stop_seconds: 1.0
     guard:
       sector_deg: 35.0
       box_x: 0.18
