@@ -19,6 +19,7 @@ from dataclasses import replace
 from .drive_fsm import IDLE, JUNCTION_PASS, LANE_SEARCH, STATE_NAMES, DriveFsm, FsmParams, Inputs
 from .lane_control import (QUALITY_BOTH, QUALITY_JUNCTION, QUALITY_LOST, QUALITY_SINGLE,
                            QUALITY_STALE, ControlParams, LaneController)
+from .lane_memory import GroundView, LaneMemory, MemoryParams, OdomBuffer, ViewParams
 from .link_watch import LinkWatch
 from .maneuver import ManeuverExecutor, ManeuverParams
 from .obstacle_guard import GuardParams, ObstacleGuard
@@ -33,6 +34,8 @@ class DriverParams:
     fsm: FsmParams = field(default_factory=FsmParams)
     guard: GuardParams = field(default_factory=GuardParams)
     maneuver: ManeuverParams = field(default_factory=ManeuverParams)
+    view: ViewParams = field(default_factory=ViewParams)
+    memory: MemoryParams = field(default_factory=MemoryParams)
     lookahead: float = 0.25
     arrive_tolerance: float = 0.10
     clearance_tolerance: float = 0.05     # clear_until 에 이 거리 안이면 "닿았다"
@@ -53,6 +56,8 @@ class DriverParams:
     marker_slow_factor: float = 0.5
     marker_obstacle_distance: float = 0.35  # 목적지 마커가 이 거리 안에 보이는데 장애물 정지면 도착으로 친다 (벽·앞 물체)
     red_line_min_gap: float = 0.05        # lane_only: 빨간 선 정지 뒤 이만큼(m) 달린 다음의 새 선만 다시 세운다
+    follow_memory: bool = True            # lane_only: 본 차선 중앙을 odom 에 기억했다가 그 자리에서 따라간다 (카메라 사각지대 보정).
+                                          # False = 예전 방식(가장 최근 error_x 로 바로 조향)
 
 
 @dataclass
@@ -121,6 +126,9 @@ class LaneDriver:
         self._last_tick = None
         self._last_cmd = (0.0, 0.0)
         self._lost_since = None
+        self.view = GroundView(self.p.view)
+        self.memory = LaneMemory(self.p.memory)
+        self.odom_buf = OdomBuffer()
 
     # ------------------------------------------------ 입력
 
@@ -145,6 +153,8 @@ class LaneDriver:
                 self.clear_until = int(clear_until or 0)
         elif cmd == CMD_START:
             if self.station_link.accepts_motion_command(now):
+                if not self.started:
+                    self.memory.clear()
                 self.started = True
         elif cmd == CMD_STOP:
             self.started = False
@@ -187,6 +197,7 @@ class LaneDriver:
             self._pending_search_dir = 0.0
             self._red_pending = False
             self._red_stop_travel = None
+            self.memory.clear()
             self.fsm = DriveFsm(self.p.fsm)
         self._plan = {'seq': seq, 'steps': list(steps), 'stop_line_count': int(stop_line_count),
                       'linear': float(linear_speed), 'angular': float(angular_speed),
@@ -195,9 +206,11 @@ class LaneDriver:
                       else self.p.arrive_distance,
                       'skip_clearance': bool(skip_clearance), 'arrive_on_obstacle': bool(arrive_on_obstacle)}
 
-    def update_odom(self, now, x, y, yaw):
+    def update_odom(self, now, x, y, yaw, stamp=None):
+        """stamp: odom 메시지 header.stamp (로봇 시계). 사진 stamp 의 자세를 보간하는 데 쓴다. 없으면 now."""
         self._odom = (float(x), float(y), float(yaw))
         self._odom_time = float(now)
+        self.odom_buf.add(now if stamp is None else stamp, x, y, yaw)
 
     @property
     def mission_stage(self):
@@ -214,9 +227,10 @@ class LaneDriver:
 
     def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False,
                       barricade=False, left_seen=None, right_seen=None, red_line=False, stop_line=False,
-                      markers=None, red_obs=None):
+                      markers=None, red_obs=None, target=None):
         """markers: {ArUco id: 카메라~마커 거리 m} (LanePath.marker_ids / marker_distances).
-        red_obs: 빨간 덩어리 [(x_norm, width_frac, bottom_frac), ...] — 교차로 seek 동작용 (LanePath.red_line_xs/ys/widths)."""
+        red_obs: 빨간 덩어리 [(x_norm, width_frac, bottom_frac), ...] — 교차로 seek 동작용 (LanePath.red_line_xs/ys/widths).
+        target: (target_x, target_y, image_width, image_height, half_lane_px) — 차선 중앙 기억(follow_memory)용."""
         self.path_link.on_command(now, heartbeat=True)
         q = int(quality)
         if left_seen is None:            # 옛 호출자: quality 로 추정
@@ -233,6 +247,25 @@ class LaneDriver:
                       'red_stamp': float(source_stamp) if q != QUALITY_STALE else None}
         if q in (QUALITY_BOTH, QUALITY_SINGLE) and error_x is not None:
             self._last_valid_error = float(error_x)
+            self._remember(source_stamp, target)
+
+    def _remember(self, source_stamp, target):
+        """차선 중앙점을 사진을 찍은 순간의 odom 자세로 기억한다 (교차로 동작 중에는 안 쌓는다)."""
+        if not (self.p.lane_only and self.p.follow_memory) or target is None:
+            return
+        if self._maneuver is not None and not self._maneuver.done:
+            return
+        pt = self.view.to_robot(*target)
+        pose = self.odom_buf.at(source_stamp) if pt is not None else None
+        if pose is not None:
+            self.memory.add(pt, pose)
+
+    def _memory_curvature(self, now):
+        """기억한 차선 중앙을 따라갈 곡률. 끔·odom 끊김·따라갈 점 없음이면 None."""
+        p = self.p
+        if not p.follow_memory or self._odom_time is None or now - self._odom_time > p.odom_timeout:
+            return None
+        return self.memory.curvature(self._odom)
 
     def update_scan(self, ranges, angle_min, angle_increment, range_min=0.05, range_max=12.0):
         self.guard.update_scan(ranges, angle_min, angle_increment, range_min, range_max)
@@ -296,6 +329,7 @@ class LaneDriver:
         if out.state != LANE_SEARCH:
             self._search_dir = 0.0
             return False
+        self.memory.clear()                       # 제자리 회전 — 이전 방향으로 본 점은 버린다
         self.controller.reset()
         self._last_cmd = (0.0, 0.0)
         self._lost_since = None
@@ -460,6 +494,7 @@ class LaneDriver:
     def _run_maneuver(self, now, dt, out):
         """허가 뒤 고정 동작 한 틱. 끝나면 다음 틱에 FSM 이 차선 주행(또는 탐색)으로 넘긴다."""
         p = self.p
+        self.memory.clear()                       # 교차로 동작 중·직후엔 다른 가지의 점을 따라가지 않게
         if self._maneuver is None:
             mp = replace(p.maneuver)
             if self._plan['linear'] > 0:
@@ -524,6 +559,8 @@ class LaneDriver:
             junction_trigger, junction_clear, maneuver_active = False, True, False
         finished, self._maneuver_finished_pending = self._maneuver_finished_pending, False
         red_line_event = self._red_line_event(plan, maneuver_active, finished)
+        # 카메라 사각지대 보정: 본 차선 중앙을 기억해 두었다면, 지금 차선이 안 보여도 그 점까지는 간다
+        kappa = self._memory_curvature(now)
         inp = Inputs(
             started=self.started, estop=self.estop,
             link_ok=self.station_link.alive(now), path_ok=self.path_link.alive(now),
@@ -535,7 +572,7 @@ class LaneDriver:
             red_line_event=red_line_event,
             maneuver_active=maneuver_active, maneuver_finished=finished,
             maneuver_reason=self._maneuver.describe() if maneuver_active else '',
-            lane_visible=lane_visible, lane_both=lane_both, arrived=self._arrived,
+            lane_visible=lane_visible or kappa is not None, lane_both=lane_both, arrived=self._arrived,
             arrived_reason=self._arrived_reason, travelled=self._travelled,
         )
         state, speed_factor, reason = self.fsm.step(now, inp)
@@ -554,7 +591,7 @@ class LaneDriver:
             self._lost_since = None
             out.v, out.omega = 0.0, 0.0
             return out
-        if not lane_visible:
+        if not lane_visible and kappa is None:
             # 맵이 없으니 서행 계속은 불가 — 잠깐 직전 명령을 유지하고 선다
             if self._lost_since is None:
                 self._lost_since = now
@@ -573,8 +610,13 @@ class LaneDriver:
         if goal_dist is not None and goal_dist <= p.marker_slow_distance:
             speed_factor *= p.marker_slow_factor
             out.reason = f"{reason} — 벽 마커 {plan['goal_marker_id']} {goal_dist:.2f} m"
-        out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False,
-                                                   error_stamp=self._lane['stamp'])
+        if kappa is not None:
+            out.v, out.omega = self.controller.follow_curvature(kappa, dt, speed_factor)
+            if not lane_visible:
+                out.reason = f'{reason} — 차선 안 보임, 기억한 중앙 따라감'
+        else:
+            out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False,
+                                                       error_stamp=self._lane['stamp'])
         self._last_cmd = (out.v, out.omega)
         # 위치가 없으니 주행거리는 명령 속도로 추측한다 (횡단보도 재래치 거리 판정용)
         self._travelled += abs(out.v) * dt

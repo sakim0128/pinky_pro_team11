@@ -308,6 +308,8 @@ def _loop(coord, bots, seconds, dt=0.05):
             if i % 2 == 0:
                 rs = fm.RobotState()
                 rs.localized = False
+                rs.header.frame_id = 'odom'                          # lane_only 는 odom 자세를 보낸다 (위치 표시)
+                rs.x, rs.y, rs.yaw = b.x, b.y, b.yaw
                 coord._cb_robot_state(b.name, rs)
         if coord.mission_state == 'DONE':
             return t
@@ -415,3 +417,27 @@ def test_vision_coordinator_save_and_delete_user_scenarios(vision_coordinator_cl
     coord2.stop_fleet()
     assert coord2.delete_user_scenario('run_3to2')[0] is True
     assert coord2.delete_user_scenario('s1')[0] is False
+
+
+def test_vision_coordinator_shows_estimated_positions(vision_coordinator_cls):
+    """천장 카메라 없이 odom + 코스로 추정한 위치 — 시나리오 시작 때 출발 지점, 달리면 코스 위를 나아간다, /api/fleet/poses 용."""
+    coord = vision_coordinator_cls()
+    assert coord.vision_course is not None and coord.vision_course_image.endswith('docs/map5.png')
+    assert coord.vision_poses()['robots'] == {}
+    bots = {'pinky1': Bot('pinky1', 0.6)}
+    assert _scenario(coord, 'custom', {'robots': {'pinky1': {'start': '2', 'goal': '1'}}})['ok'] is True
+    p0 = coord.vision_poses()['robots']['pinky1']
+    start = coord.vision_course.px_to_map(92, 100)
+    assert abs(p0['x'] - start[0]) < 0.02 and abs(p0['y'] - start[1]) < 0.02 and p0['fix'].startswith('출발')
+    _loop(coord, bots, 8)
+    p1 = coord.vision_poses()['robots']['pinky1']
+    assert p1['s'] > 0.3 and p1['age'] is not None and p1['age'] < 1.0
+    status = coord.get_fleet_status_dict()['vision']
+    assert status['map']['image_url'] == '/api/fleet/vision_map.png' and len(status['map']['lines']) == 6
+    json.dumps(coord.vision_poses())
+
+
+def test_v2_vision_map_card_polls_poses():
+    assert 'id="vision-map-card"' in HTML and 'id="vision-map"' in HTML
+    assert 'setInterval(refreshPoses, 200)' in JS and '"/api/fleet/poses"' in JS
+    assert "elif parsed.path == '/api/fleet/poses':" in GW and "elif parsed.path == '/api/fleet/vision_map.png':" in GW
