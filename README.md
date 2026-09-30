@@ -114,9 +114,19 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 관제  통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아간 순간 반납 → 다음 로봇 허가
 로봇  도착: 목적지 앞 벽의 ArUco 마커(1→id 40, 2→41, 3→42)까지 15 cm 이하면 정지. 마커 35 cm 안에서는 감속
       같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤에서 장애물로 선 순간이 도착 (JunctionPlan.arrive_on_obstacle)
+로봇  교차로를 지난 뒤 빨간 선(출구)도 RED_LINE_STOP 1 s 정지 후 출발. 고정 동작 중에 본 선은 동작이 끝나자마자 선다
 공통  장애물: 초음파 10 cm 에서 정지, 치워지면 1 s 뒤 재출발 (lane_only 는 라이다 판정 끔 — use_lidar:=False)
       횡단보도 3 s 정지
+      시나리오 없이 테스트 주행(lane_only): 빨간 선을 볼 때마다 RED_LINE_STOP 1 s 정지 후 출발 (허가 불필요)
 ```
+
+- 빨간 선 판정: 검출이 꺼졌다 켜지는 순간(상승 에지)마다 한 번 선다. 서 있는 동안 같은 선이 계속 보여도 다시 서지 않고,
+  정지 뒤 `red_line_min_gap`(5 cm) 을 달린 다음의 선만 새 선으로 본다. 입구·출구 선이 가까워도 둘 다 선다.
+  설정 `lane_agent.yaml` `fsm.red_line_stop` · `fsm.red_line_stop_seconds` · `red_line_min_gap`.
+- 차선 조향: D 항은 새 LanePath 가 올 때만 측정 간격으로 계산하고, error 는 새 측정마다 저역통과(`control.error_alpha` 0.5)한다.
+  제어 20 Hz · 인식 ≤ 10 Hz 차이 때문에 프레임마다 조향이 튀던 것을 없앤다.
+- 인식 주기 확인: 로봇 `ros2 topic hz /pinky1/lane_path` (설계 10 Hz), 관제 `ros2 topic echo /pinky1/scene_state --field infer_ms`,
+  로봇 `ros2 topic echo /pinky1/lane_status --field path_age` (이미지 촬영 → 로봇 수신 지연).
 
 - 설정: 경로·방향·동작·시나리오·도착 방식 `pinky_lane_station/config/vision_mission.yaml`(관제, `arrival:` `directions:` `routes:`),
   웹에서 저장한 시나리오는 옆 파일 `vision_mission_user.yaml`(게이트웨이가 쓴다, `PINKY_VISION_USER_SCENARIOS` 로 바꿀 수 있다),

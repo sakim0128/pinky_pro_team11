@@ -204,7 +204,9 @@ def test_same_seq_updates_count_new_seq_resets_mission():
     assert not s.d._junction_passed and not s.d._arrived and s.d.clear_until == 0 and s.d.route_seq == s.seq + 1
 
 
-def test_without_plan_lane_only_keeps_old_behaviour():
+def test_without_plan_lane_only_stops_at_red_line_then_drives():
+    """계획 없음(테스트 주행): 빨간 선은 교차로 절차 없이 RED_LINE_STOP 1 s 후 차선 주행 (2026-09-30)."""
+    from pinky_fleet_agent.drive_fsm import RED_LINE_STOP
     p = DriverParams()
     p.lane_only = True
     d = LaneDriver(p)
@@ -215,7 +217,7 @@ def test_without_plan_lane_only_keeps_old_behaviour():
         t += DT
         d.set_lane_path(t, t, QUALITY_BOTH, 0.0, False, red_line=20 <= i < 30)
         states.append(d.tick(t, 0.0, 0.0, 0.0).state)
-    assert JUNCTION_STOP in states and JUNCTION_PASS in states and states[-1] == CRUISE
+    assert RED_LINE_STOP in states and JUNCTION_STOP not in states and states[-1] == CRUISE
     assert d.mission_stage == 'lane_only'
 
 
@@ -337,3 +339,65 @@ def test_lane_only_launch_uses_ultrasonic_only():
     xml = open(os.path.join(here, 'launch', 'lane_only.launch.xml'), encoding='utf-8').read()
     assert '<arg name="use_lidar" default="False"' in xml
     assert '<param name="guard.use_lidar" value="$(var use_lidar)"/>' in xml
+
+
+class ExitLineSim(VisionSim):
+    """입구 선(x ≥ red_x, 통과 전)에 더해, red_fn(sim) 이 참이면 빨간 선이 보인다 (출구 선)."""
+
+    def __init__(self, red_fn, **kw):
+        super().__init__(**kw)
+        self.red_fn = red_fn
+
+    def run(self, seconds, until=None):
+        for _ in range(int(round(seconds / DT))):
+            self.t += DT
+            if int(round(self.t / DT)) % 2 == 0:
+                self.d.set_command(CMD_CLEARANCE, self.t, route_seq=self.seq, clear_until=self.clear)
+            if int(round(self.t / DT)) % 3 == 0:
+                red = (self.x >= self.red_x and not self.d._junction_passed and self.d._maneuver is None) \
+                    or self.red_fn(self)
+                self.d.set_lane_path(self.t, self.t, self.quality, 0.0, False, red_line=red)
+            self.d.update_us(self.us)
+            self.d.update_odom(self.t, self.x, self.y, self.yaw)
+            out = self.d.tick(self.t, 0.0, 0.0, 0.0)
+            self.x += out.v * math.cos(self.yaw) * DT
+            self.y += out.v * math.sin(self.yaw) * DT
+            self.yaw += out.omega * DT
+            self.log.append((self.t, out))
+            if until is not None and until(out):
+                return out
+        return self.log[-1][1]
+
+
+def test_plan_exit_line_after_junction_stops_once():
+    from pinky_fleet_agent.drive_fsm import RED_LINE_STOP
+    after = {'x0': None}
+
+    def exit_line(sim):                                   # 교차로를 지난 뒤 0.2 m 달렸을 때 출구 선
+        if not sim.d._junction_passed:
+            return False
+        if after['x0'] is None:
+            after['x0'] = (sim.x, sim.y)
+        return 0.20 <= math.hypot(sim.x - after['x0'][0], sim.y - after['x0'][1]) < 0.24
+
+    s = ExitLineSim(exit_line)
+    s.run(12)
+    assert s.log[-1][1].state == JUNCTION_STOP                      # 입구 선: 기존 절차 (허가 대기)
+    s.clear = 1
+    s.run(20)
+    states = s.states()
+    assert states.count(JUNCTION_STOP) > 0 and RED_LINE_STOP in states
+    runs = sum(1 for i in range(1, len(states)) if states[i] == RED_LINE_STOP != states[i - 1])
+    assert runs == 1 and states[-1] == CRUISE
+
+
+def test_plan_exit_line_seen_during_maneuver_stops_after_maneuver():
+    from pinky_fleet_agent.drive_fsm import RED_LINE_STOP
+    s = ExitLineSim(lambda sim: sim.d._maneuver is not None and not sim.d._maneuver.done and sim.x > 1.12)
+    s.run(12)
+    s.clear = 1
+    s.run(20)
+    states = s.states()
+    i_pass = max(i for i, st in enumerate(states) if st == JUNCTION_PASS)
+    assert RED_LINE_STOP in states[i_pass + 1:i_pass + 3]           # 동작이 끝난 바로 다음 틱에 선다
+    assert JUNCTION_PASS not in states[i_pass + 1:] and states[-1] == CRUISE
