@@ -426,7 +426,11 @@ class LaneDriver:
         return self._lane['markers'].get(self._plan['goal_marker_id'])
 
     def _check_arrival(self, blocked, quality):
-        """비전 미션 도착 판정 (교차로를 지난 뒤에만 — 출발 지점·교차로 앞에서 본 것은 도착이 아니다)."""
+        """비전 미션 도착 판정.
+
+        목적지 벽 마커(goal_marker_id) 는 교차로 통과와 **무관하게** 본다 (2026-09-30 사용자 결정 — 빨간 선을 놓쳐 교차로 절차가
+        안 걸려도 목적지 앞에서는 선다). 다른 id 는 무시한다. 흰 정지선 세기와 "앞 로봇 뒤 정지 = 도착" 은 교차로를 지난 뒤에만.
+        """
         plan = self._plan
         if plan is None or self._arrived:
             return
@@ -434,7 +438,7 @@ class LaneDriver:
             self._count_stop_lines()                  # 교차로 앞에서도 불러 선의 이전 상태를 이어 둔다 (세기는 통과 뒤만)
             if self._arrived:
                 self._arrived_reason = f"도착 — 정지선 {self._stop_lines_seen}번째"
-        if not self._junction_passed or self._arrived:
+        if self._arrived:
             return
         if plan['goal_marker_id'] >= 0:
             dist = self._goal_marker_distance(quality)
@@ -444,7 +448,9 @@ class LaneDriver:
             elif blocked and dist is not None and dist <= self.p.marker_obstacle_distance:
                 self._arrived = True
                 self._arrived_reason = f"도착 — 벽 마커 {plan['goal_marker_id']} {dist:.2f} m 앞 장애물 정지"
-        if not self._arrived and blocked and plan['arrive_on_obstacle']:
+        if not self._junction_passed or self._arrived:
+            return
+        if blocked and plan['arrive_on_obstacle']:
             self._arrived = True
             self._arrived_reason = '도착 — 같은 목적지 앞 로봇 뒤 정지'
 
@@ -560,7 +566,7 @@ class LaneDriver:
                 out.reason = '차선 없음 — 정지'
             return out
         self._lost_since = None
-        goal_dist = self._goal_marker_distance(quality) if self._junction_passed else None
+        goal_dist = self._goal_marker_distance(quality)             # 교차로 통과와 무관 (도착 판정과 같은 조건)
         if goal_dist is not None and goal_dist <= p.marker_slow_distance:
             speed_factor *= p.marker_slow_factor
             out.reason = f"{reason} — 벽 마커 {plan['goal_marker_id']} {goal_dist:.2f} m"

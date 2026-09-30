@@ -90,7 +90,10 @@ def test_detector_yolo_class_map_matches_model_labels():
     assert 'lane' not in cm                                     # 좌/우 라벨을 합치지 않는다 (작업 1)
     ids = sorted(i for v in cm.values() for i in v if isinstance(i, int))
     assert ids == [0, 1, 2, 3, 4, 5], ids                     # 모든 모델 클래스가 정확히 한 번
-    assert cm['red_line'] == ['red_line']                     # 교차로 빨간 테이프 — 재학습 모델의 클래스 이름으로 매칭
+    assert 'red_line' not in cm                               # 빨간 선은 모델 클래스가 아니라 색 검출 (red_line_color:)
+    from pinky_lane_station.red_line_detector import RedLineParams
+    rc = cfg['red_line_color']
+    assert rc['enabled'] is True and set(rc) <= set(RedLineParams.__dataclass_fields__), set(rc)
     pipe = cfg['pipeline']
     assert abs(pipe['mask_top_frac'] - 0.50) < 1e-9 and pipe['mask_fill'] == 0   # 2026-09-30 운용값 50 % (학습은 30 %)
     allowed = {'max_rate', 'stale_period', 'stale_max_seconds', 'warmup',

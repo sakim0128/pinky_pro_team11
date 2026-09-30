@@ -25,6 +25,8 @@ from .detectors import create_detector
 from .lane_mission import LaneMissionError, load_lane_mission
 from .lane_target import QUALITY_STALE, LaneTargetEstimator, TargetParams
 from .pipeline_image import draw_debug, mask_top
+from .red_line_detector import RedLineColorDetector
+from .red_line_detector import params_from_dict as red_line_params
 from .stop_line_detector import WhiteStopLineDetector
 from .stop_line_detector import params_from_dict as stop_line_params
 
@@ -52,6 +54,7 @@ def load_detector_config(path):
     pipeline.update(data.get('pipeline') or {})
     pipeline['stop_line'] = stop_line_params(data.get('stop_line'))
     pipeline['aruco'] = aruco_params(data.get('aruco'))
+    pipeline['red_line_color'] = red_line_params(data.get('red_line_color'))
     return det, target, pipeline
 
 
@@ -86,12 +89,21 @@ class LanePipeline(Node):
 
         self._stop_row_frac = float(target_params.crosswalk_stop_row_frac)
         self._mask_frac = float(pipe['mask_top_frac'])          # 모델 학습과 같은 상위 마스킹
+        self.red_line = RedLineColorDetector(pipe['red_line_color'])   # 상태 없음 — 로봇끼리 공유
         self._mask_fill = int(pipe['mask_fill'])
         self._debug_polygons = bool(pipe['debug_polygons'])
         self.detector = create_detector(det_cfg)
         if pipe.get('warmup', True):
             self.detector.warmup()
         self._det_name = f'lane={self.detector.name}'
+        names = getattr(self.detector, 'names', None)
+        if names:
+            self.get_logger().info(f'모델 클래스: {names} → 우리 클래스: {getattr(self.detector, "class_map", {})}')
+        for cls in getattr(self.detector, 'unmatched', []):
+            self.get_logger().warn(f"class_map 의 '{cls}' 가 모델 클래스와 맞지 않아 검출되지 않는다")
+        rc = pipe['red_line_color']
+        self.get_logger().info(f"빨간 선: 색 검출 {'켬' if rc.enabled else '끔'} (H≤{rc.h_low_max}|≥{rc.h_high_min}, "
+                               f"S≥{rc.s_min}, V≥{rc.v_min}, ROI {rc.roi_top_frac:.2f}·H~)")
 
         self._robots = {}
         self._path_pubs = {}
@@ -138,6 +150,8 @@ class LanePipeline(Node):
         # 추론 입력만 마스킹한다. 오버레이·저장은 원본(img) 그대로
         masked = mask_top(img, self._mask_frac, self._mask_fill) if self._mask_frac > 0 else img
         instances, infer_ms = self.detector.infer_timed(masked)
+        # 교차로 빨간 테이프 — 모델 클래스가 아니라 색(HSV)으로, 원본 영상에서. lane_target 이 폭·하단 행·확정 프레임을 본다
+        instances = list(instances) + self.red_line.detect(img)
         r = rl.est.update(instances, W, H)
         sl = rl.stop_line.update(img)            # 목적지 흰 정지선 — 원본(마스킹 전) 영상에서
         mk = rl.aruco.update(img)                # 도착 지점 벽 ArUco — 원본 영상에서 (마스킹된 위쪽에 있다)

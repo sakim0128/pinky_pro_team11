@@ -256,9 +256,21 @@ def test_marker_arrival_at_wall_distance():
     assert s.log[-1][1].state == ARRIVED and s.log[-1][1].v == 0.0
 
 
-def test_marker_before_junction_is_not_arrival():
+def test_goal_marker_arrives_even_before_junction():
+    """2026-09-30 사용자 결정: 목적지 마커는 교차로 통과와 무관하게 도착 (빨간 선을 놓쳐도 목적지 앞에서 선다)."""
+    s = VisionSim(steps=[('straight', 0.20)], goal_marker_id=2, red_x=99.0)   # 빨간 선을 못 봄
+    wall = [None]
+    s.markers = lambda: {} if wall[0] is None else {2: wall[0] - s.x}
+    s.run(2.0)
+    wall[0] = s.x + 0.50
+    out = s.run(10, until=lambda o: o.state == ARRIVED)
+    assert out.state == ARRIVED and '벽 마커 2' in out.reason and not s.d._junction_passed
+    assert 0.10 <= wall[0] - s.x <= 0.15
+
+
+def test_other_marker_before_junction_is_not_arrival():
     s = VisionSim(steps=[('straight', 0.20)], goal_marker_id=2)
-    s.markers = lambda: {2: 0.05}                                  # 출발 지점 쪽 마커가 가깝게 보여도
+    s.markers = lambda: {1: 0.05, 3: 0.05}                         # 목적지가 아닌 id 는 가까워도 무시
     out = s.run(12)
     assert out.state == JUNCTION_STOP and not s.d._arrived
 
