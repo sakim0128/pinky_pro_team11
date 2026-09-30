@@ -235,3 +235,48 @@ def test_red_line_requires_width_and_conf_and_reset_clears_it():
     assert r.red_line_detected
     est.reset()
     assert not est.update([line(200), line(440)], W, H).red_line_detected
+
+
+# ------------------------------------------------ 차선 하나: 보이는 선에서 안쪽 6 cm (반폭 × 0.8) · 좌/우는 클래스
+
+def test_single_offset_ratio_places_target_inside_visible_line():
+    est = LaneTargetEstimator(TargetParams(single_offset_ratio=0.8, half_lane_px_init=150.0))
+    r = est.update([sided(200, 'L')], W, H)
+    assert r.quality == QUALITY_SINGLE and r.left_seen and not r.right_seen
+    assert r.target_x == 200 + 120                      # 150 × 0.8
+    r = est.update([sided(500, 'R')], W, H)
+    assert r.right_seen and r.target_x == 500 - 120
+
+
+def test_single_offset_uses_measured_half_lane():
+    est = LaneTargetEstimator(TargetParams(single_offset_ratio=0.8))
+    est.update([sided(170, 'L'), sided(470, 'R')], W, H)   # 반폭 150 px 측정
+    r = est.update([sided(170, 'L')], W, H)
+    assert r.half_lane_px == 150 and r.target_x == 170 + 120
+
+
+def test_single_side_follows_class_not_position():
+    """로봇이 틀어져 오른쪽 선이 화면 왼쪽에 보여도 클래스가 오른쪽이면 오른쪽 선으로 본다 → 목표는 그 선의 왼쪽."""
+    est = LaneTargetEstimator(TargetParams(single_offset_ratio=0.8, half_lane_px_init=150.0))
+    r = est.update([sided(250, 'R')], W, H)
+    assert r.quality == QUALITY_SINGLE and r.right_seen and not r.left_seen
+    assert r.right_x == 250 and r.target_x == 250 - 120
+    r = est.update([sided(400, 'L')], W, H)
+    assert r.left_seen and r.target_x == 400 + 120
+
+
+def test_single_side_by_position_when_no_class_or_disabled():
+    est = LaneTargetEstimator(TargetParams(half_lane_px_init=150.0))
+    r = est.update([line(250)], W, H)                   # 클래스 없음 → 화면 위치(왼쪽)
+    assert r.left_seen and r.target_x == 250 + 150      # 기본 비율 1.0 (기존 동작)
+    est2 = LaneTargetEstimator(TargetParams(half_lane_px_init=150.0, single_use_class=False))
+    r = est2.update([sided(250, 'R')], W, H)
+    assert r.left_seen and r.target_x == 400            # 클래스 무시 → 위치
+
+
+def test_detector_yolo_single_offset_is_6cm_of_15cm_lane():
+    import yaml
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, 'config', 'detector_yolo.yaml'), encoding='utf-8') as fh:
+        tgt = yaml.safe_load(fh)['target']
+    assert abs(tgt['single_offset_ratio'] * 7.5 - 6.0) < 1e-6 and tgt['single_use_class'] is True
