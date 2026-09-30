@@ -90,16 +90,18 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 
 ---
 
-## 비전 미션 모드 (2026-09-30) — 위치추정 없이 카메라로 달리고 교차로만 고정 동작
+## 비전 미션 모드 (2026-09-30) — 위치추정 없이 카메라로 달리고 교차로는 새 빨간 선 찾기
 
 항공뷰 없이 돈다. 코스: T자 교차로 하나, 1번(오른쪽 위 끝) · 2번(왼쪽 아래) · 3번(아래 가운데, 교차로 오른쪽 가지).
 시나리오 = 출발·목적 지점. 교차로 방향은 경로 표(`routes`)가 정한다.
 
-| 경로 | 교차로 방향 | 고정 동작 (임시값) |
+| 경로 | 교차로 방향 | 교차로 동작 (`directions:`, 각도·거리 값 없음) |
 |---|---|---|
-| 2 → 1 · 1 → 2 | 직진 | 직진 0.35 m |
-| 3 → 1 · 2 → 3 | 우회전 | 직진 0.18 → 우회전 90° → 직진 0.10 |
-| 1 → 3 · 3 → 2 | 좌회전 | 직진 0.18 → 좌회전 90° → 직진 0.10 |
+| 2 → 1 · 1 → 2 | 직진 | `seek: straight` — 입구 선 10 cm 지난 뒤 천천히 전진, 앞의 새 빨간 선 앞까지 |
+| 3 → 1 · 2 → 3 | 우회전 | `seek: right` — 20 cm 전진 → 제자리에서 천천히 오른쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
+| 1 → 3 · 3 → 2 | 좌회전 | `seek: left` — 20 cm 전진 → 제자리에서 천천히 왼쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
+
+예전 고정 동작(odom `straight`/`turn`)은 `vision_mission.yaml` `maneuvers:` 에 남아 있다. 되돌리려면 `routes:` 에 `maneuver:` 를 다시 넣는다.
 
 | 프리셋 | 로봇 | 경로 | 출발 |
 |---|---|---|---|
@@ -110,11 +112,12 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 로봇  차선 주행(카메라) → 빨간 테이프(색 검출, 화면 하단 0.80·H) 앞 JUNCTION_STOP 1 s
 관제  시나리오 로봇 2대: 교차로 통행권 하나 — 먼저 정지를 보고한 로봇 먼저, 0.5 s 안이면 domain_id 작은 쪽(pinky1=10)
       시나리오 로봇 1대: 통행권 없음 — 1 s 정지 뒤 바로 출발 (JunctionPlan.skip_clearance)
-로봇  허가 → 고정 동작(odom, 장애물에 끊기면 남은 양만 이어서) → 차선 쌍이 보이면 주행, 안 보이면 방금 돈 쪽으로 탐색 회전
+로봇  허가 → 교차로 동작(seek: 새 빨간 선 찾기 → 그 선 앞까지, 장애물에 끊기면 이어서) → 새 선 앞 RED_LINE_STOP 1 s
+      → 차선 쌍이 보이면 주행, 안 보이면 방금 돈 쪽으로 탐색 회전. 못 찾으면 교차로에서 멈추고 reason "새 빨간 선 못 찾음"
 관제  통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아간 순간 반납 → 다음 로봇 허가
 로봇  도착: 목적지 앞 벽의 ArUco 마커(1→id 40, 2→41, 3→42)까지 15 cm 이하면 정지 (교차로 통과 여부와 무관, 다른 id 는 무시). 마커 35 cm 안에서는 감속
       같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤에서 장애물로 선 순간이 도착 (JunctionPlan.arrive_on_obstacle)
-로봇  교차로를 지난 뒤 빨간 선(출구)도 RED_LINE_STOP 1 s 정지 후 출발. 고정 동작 중에 본 선은 동작이 끝나자마자 선다
+로봇  교차로를 지난 뒤 빨간 선(출구)도 RED_LINE_STOP 1 s 정지 후 출발. 교차로 동작 중에 본 선은 동작이 끝나자마자 선다
 공통  장애물: 초음파 10 cm 에서 정지, 치워지면 1 s 뒤 재출발 (lane_only 는 라이다 판정 끔 — use_lidar:=False)
       횡단보도 3 s 정지
       시나리오 없이 테스트 주행(lane_only): 빨간 선을 볼 때마다 RED_LINE_STOP 1 s 정지 후 출발 (허가 불필요)
@@ -125,6 +128,13 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
   하단 ≥ 0.80·H 가 2 프레임 이어지면 정지. 안 잡히면 `ros2 topic echo /pinky1/scene_state --field red_line_raw` 를 보며
   `detector_yolo.yaml` `red_line_color.s_min`(80 까지)·`v_min` 을 낮추고, 카펫이 잡히면 올린다. 관제 시작 로그에 모델 클래스 이름과
   class_map 에서 빠진 항목 경고가 찍힌다.
+- 새 빨간 선 찾기(seek, `maneuver.RedLineSeeker`): 관제가 빨간 덩어리를 전부(폭 ≥ 0.10·W) `LanePath.red_line_xs/ys/widths` 로 보낸다.
+  로봇은 **화면 가운데(± 0.25·W)** 에 있고 **아직 앞에 있는(하단 < 0.80·H)** 덩어리가 2 프레임 이어지면 새 선으로 확정한다
+  (발밑의 입구 선은 하단이 이미 0.80·H 아래라 후보가 아니다. 좌·우는 30° 돈 뒤부터 본다). 확정한 선을 프레임마다 추적해
+  선 중심으로 0.05 m/s 접근, 하단이 0.80·H 에 오면 끝. 150° 를 돌거나(좌·우) 0.80 m 를 가도(직진) 못 찾으면 멈춘다.
+  값은 `lane_agent.yaml` `maneuver.seek_*` (`seek_forward` 0.20 · `seek_omega` 0.3 · `seek_min_turn_deg` 30 · `seek_max_turn_deg` 150 ·
+  `seek_ignore_distance` 0.10 · `seek_center_frac` 0.25 · `seek_speed` 0.05 · `seek_arrive_row_frac` 0.80). 나갈 가지의 선이
+  회전 중 화면 아래 45 %(색 검출 ROI) 에 안 들어오면 `seek_forward` 를 늘리거나 `red_line_color.roi_top_frac` 을 낮춘다.
 - 빨간 선 판정: 검출이 꺼졌다 켜지는 순간(상승 에지)마다 한 번 선다. 서 있는 동안 같은 선이 계속 보여도 다시 서지 않고,
   정지 뒤 `red_line_min_gap`(5 cm) 을 달린 다음의 선만 새 선으로 본다. 입구·출구 선이 가까워도 둘 다 선다.
   설정 `lane_agent.yaml` `fsm.red_line_stop` · `fsm.red_line_stop_seconds` · `red_line_min_gap`.
@@ -136,7 +146,7 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 - 설정: 경로·방향·동작·시나리오·도착 방식 `pinky_lane_station/config/vision_mission.yaml`(관제, `arrival:` `directions:` `routes:`),
   웹에서 저장한 시나리오는 옆 파일 `vision_mission_user.yaml`(게이트웨이가 쓴다, `PINKY_VISION_USER_SCENARIOS` 로 바꿀 수 있다),
   마커 인식 `detector_yolo.yaml` 의 `aruco:`(DICT_4X4_50, 한 변 4 cm, id 40·41·42, `focal_px`), 빨간 테이프는 모델이 아니라 색 검출 `red_line_color:`(HSV),
-  로봇 튜닝 `lane_agent.yaml`(`maneuver:` · `guard.us_stop` · `arrive_distance` · `marker_slow_distance`).
+  로봇 튜닝 `lane_agent.yaml`(`maneuver:`(`seek_*`) · `guard.us_stop` · `arrive_distance` · `marker_slow_distance`).
 - 현장 준비: 1·2·3번 도착 지점 앞 벽에 ANCHOR A1(id 40)·A2(id 41)·A3(id 42) (DICT_4X4_50, 40 mm)를 차선 정면에 붙인다.
   지점↔id 는 `vision_mission.yaml` 의 `arrival.markers` 와 `detector_yolo.yaml` 의 `aruco.ids` 두 곳을 같이 고친다. 로봇은 각 출발 지점에 차선 방향으로.
 - `focal_px` 맞추기(한 번): 마커를 카메라 정면 d m 에 두고 `lane_debug` 오버레이의 `id… …px` 를 읽어 `focal_px = px × d / 0.04`.

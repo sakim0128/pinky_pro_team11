@@ -96,7 +96,7 @@ class LaneDriver:
         # 최근 LanePath
         self._lane = {'stamp': None, 'quality': QUALITY_LOST, 'error_x': None, 'crosswalk': False,
                       'barricade': False, 'red_line': False, 'stop_line': False,
-                      'left_seen': False, 'right_seen': False, 'markers': {}}
+                      'left_seen': False, 'right_seen': False, 'markers': {}, 'red_obs': []}
         # 비전 미션 (lane_only + JunctionPlan)
         self._plan = None                  # {'seq', 'steps', 'stop_line_count', 'linear', 'angular', 'goal_marker_id', ...}
         self._maneuver = None
@@ -214,8 +214,9 @@ class LaneDriver:
 
     def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False,
                       barricade=False, left_seen=None, right_seen=None, red_line=False, stop_line=False,
-                      markers=None):
-        """markers: {ArUco id: 카메라~마커 거리 m} (LanePath.marker_ids / marker_distances)."""
+                      markers=None, red_obs=None):
+        """markers: {ArUco id: 카메라~마커 거리 m} (LanePath.marker_ids / marker_distances).
+        red_obs: 빨간 덩어리 [(x_norm, width_frac, bottom_frac), ...] — 교차로 seek 동작용 (LanePath.red_line_xs/ys/widths)."""
         self.path_link.on_command(now, heartbeat=True)
         q = int(quality)
         if left_seen is None:            # 옛 호출자: quality 로 추정
@@ -227,7 +228,9 @@ class LaneDriver:
                       'crosswalk': bool(crosswalk), 'barricade': bool(barricade),
                       'red_line': bool(red_line), 'stop_line': bool(stop_line),
                       'left_seen': bool(left_seen), 'right_seen': bool(right_seen),
-                      'markers': {int(k): float(v) for k, v in dict(markers or {}).items()}}
+                      'markers': {int(k): float(v) for k, v in dict(markers or {}).items()},
+                      'red_obs': [(float(b[0]), float(b[1]), float(b[2])) for b in (red_obs or [])],
+                      'red_stamp': float(source_stamp) if q != QUALITY_STALE else None}
         if q in (QUALITY_BOTH, QUALITY_SINGLE) and error_x is not None:
             self._last_valid_error = float(error_x)
 
@@ -466,7 +469,7 @@ class LaneDriver:
             self._maneuver = ManeuverExecutor(self._plan['steps'], mp)
         odom = (self._odom if self._odom_time is not None and now - self._odom_time <= p.odom_timeout
                 else None)
-        v, w, done, why = self._maneuver.command(now, odom)
+        v, w, done, why = self._maneuver.command(now, odom, self._lane['red_obs'], self._lane.get('red_stamp'))
         if done:
             self._junction_passed = True
             self._maneuver_finished_pending = True

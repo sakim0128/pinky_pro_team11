@@ -279,9 +279,10 @@ class Bot:
                 markers = {d._plan['goal_marker_id']: self.wall - after}
         d.update_us(0.08 if blocked else 1.0)
         if i % 3 == 0:
-            d.set_lane_path(t, t, QUALITY_BOTH, 0.0, False,
-                            red_line=self.x >= self.red_x and not d._junction_passed, stop_line=stop,
-                            markers=markers)
+            from pinky_fleet_agent.sim_red_lines import junction_red_lines, red_blobs, red_line_detected
+            blobs = red_blobs((self.x, self.y, self.yaw), junction_red_lines(self.red_x))
+            d.set_lane_path(t, t, QUALITY_BOTH, 0.0, False, red_line=red_line_detected(blobs), stop_line=stop,
+                            markers=markers, red_obs=blobs)
         d.update_odom(t, self.x, self.y, self.yaw)
         self.out = d.tick(t, 0.0, 0.0, 0.0)
         self.x += self.out.v * math.cos(self.yaw) * dt
@@ -384,7 +385,7 @@ def test_vision_coordinator_custom_single_robot_skips_clearance(vision_coordinat
     last = _scenario(coord, 'custom', {'label': '2→3 한 대', 'robots': {'pinky1': {'start': '2', 'goal': '3'}}})
     assert last['ok'] is True
     plan = coord.plan_pubs['pinky1'].published[-1]
-    assert plan.skip_clearance is True and plan.goal_marker_id == 42 and list(plan.step_value)[1] == -90.0   # 2→3 우회전
+    assert plan.skip_clearance is True and plan.goal_marker_id == 42 and list(plan.step_kind) == ['seek'] and list(plan.step_value) == [-1.0]   # 2→3 우회전 = 새 빨간 선 찾기
     assert coord.vision_run.robots == ['pinky1']
     done_at = _loop(coord, bots, 60)
     assert done_at is not None

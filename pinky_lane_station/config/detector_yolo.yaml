@@ -36,6 +36,7 @@ target:                           # lane_target.TargetParams
   red_line_stop_row_frac: 0.80   # 빨간 테이프 하단이 이 행 아래로 오면 raw — 로봇이 테이프 바로 앞에 선다
   red_line_confirm: 2
   red_line_release: 5
+  red_line_seek_min_width_frac: 0.10  # 로봇 교차로 seek 동작에 보내는 빨간 선 후보(LanePath.red_line_xs) 폭 하한 — 정지 판정(0.25)보다 느슨하게
 
 red_line_color:                   # 교차로 빨간 테이프 — 색 검출 (red_line_detector.RedLineParams). 현장에서 lane_debug 의 보라 박스로 확인
   enabled: true

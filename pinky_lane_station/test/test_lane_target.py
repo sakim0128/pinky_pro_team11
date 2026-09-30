@@ -237,6 +237,18 @@ def test_red_line_requires_width_and_conf_and_reset_clears_it():
     assert not est.update([line(200), line(440)], W, H).red_line_detected
 
 
+
+def test_red_line_blobs_list_every_red_piece_for_robot_seek():
+    # 정지 판정(폭 ≥ 0.25·W)보다 느슨한 0.10·W 까지 모두 보낸다 — 로봇 seek 동작이 고른다
+    est = LaneTargetEstimator(TargetParams(red_line_confirm=1))
+    r = est.update([line(200), line(440), red_line(300, x0=40, x1=120), red_line(400, x0=300, x1=380),
+                    red_line(420, x0=500, x1=530), red_line(350, conf=0.1)], W, H)
+    assert [(x, y) for x, y, _ in r.red_line_blobs] == [(80, 300), (340, 400)]
+    assert all(abs(w - 80 / W) < 1e-9 for _, _, w in r.red_line_blobs)
+    assert not r.red_line_raw                                    # 폭 0.25·W 미만 — 정지 판정은 그대로
+    assert est.update([line(200), line(440)], W, H).red_line_blobs == []
+
+
 # ------------------------------------------------ 차선 하나: 보이는 선에서 안쪽 6 cm (반폭 × 0.8) · 좌/우는 클래스
 
 def test_single_offset_ratio_places_target_inside_visible_line():
