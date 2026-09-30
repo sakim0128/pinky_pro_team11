@@ -222,3 +222,17 @@ rclpy/ROS msgs 가 필요한 relay 시험은 이름 변경 뒤 컴파일만 했�
 - 게이트웨이 소스는 rkd1rjs2/robot_mini_project_pinky `e59d521` 에서 관리한다 — 이 브랜치 `relay_station/` 코드는 바꾸지 않았다.
 - 이 브랜치의 브리지 설정에는 필요한 다운링크가 이미 있다.
 - 확인할 사항: `road_graph.yaml` 노드 좌표는 임시값 — 바닥 마커 위치를 map5 로 재서 넣는다. 실물 확인 전이다.
+
+## 2026-09-30 — 태블릿 비전 소스 합류 · 모서리 마커 각도 실측 (rkd1rjs2 팀원, 문서만)
+
+`7c59c7c` 로 원 저장소 main 의 `tablet/vision/`(모서리 마커 40–43 으로 호모그래피를 스스로 맞춰 로봇 마커 30 · 31 의 x · y · yaw 를 중계
+`POST /api/vision/pose_fix` 로 보낸다)가 이 브랜치에 들어왔다. 태블릿 시험 43개는 이 브랜치에서 통과한다(재현함).
+안내·규칙·확인 방법: [`tablet_pose.md`](tablet_pose.md).
+
+- 태블릿 세션이 현장 녹화 프레임에서 모서리 마커 부착 각도를 실측했다(40번 91.3° · 41번 0.6° · 42번 178.4° · 43번 −179.0°).
+  yaw 를 전부 0 으로 두면 재투영 오차 20.36 px 로 송신이 막히고, 실측 각도를 넣으면 0.998 px 로 내려간다는 보고다 — 프레임 분석은 이 환경에서 재현하지 못했다.
+- 아직 실측 전이다: 모서리 마커 중심 x · y 는 꼭짓점 가정값이고 세 설정은 `FIELD_CONFIG_PENDING` 이라 `--allow-pending-config` 로만 송신된다.
+  보고된 샘플 로봇 좌표(x −0.667 · y −1.114)가 경기장 밖이라 원인 확인이 먼저다.
+- 알려진 문제: `7c59c7c` 가 다시 넣은 `relay_station/fleet/config/road_graph.yaml`(태블릿 mock 용 복사본)이 "도로망 하나" 결정과 충돌해
+  `relay_station/tests/test_assign_map5.py` 의 `..._without_copies` 시험 하나가 실패한다(직전 `9164811` 에서는 통과).
+- 게이트웨이 소스는 계속 rkd1rjs2/robot_mini_project_pinky `e59d521` 에서 관리한다.
