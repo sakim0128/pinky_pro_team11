@@ -238,3 +238,13 @@ rclpy/ROS msgs 가 필요한 relay 시험은 이름 변경 뒤 컴파일만 했�
   `pinky_lane_station/config/road_graph.yaml`(노드 BL · BR · TR · J)을 읽게 바꿨다. 태블릿 코드의 `--relay-url` 사설 주소 기본값도 없앴다(빈 값 = dry-run).
   검증(ROS 2 Jazzy 컨테이너): 태블릿 시험 43 통과 · 팀 중계 시험 875 통과 / 5 skip, 실패 0.
 - 게이트웨이 소스는 계속 rkd1rjs2/robot_mini_project_pinky `e59d521` 에서 관리한다.
+
+## 2026-09-30 — 실물 없이 돌려 보는 도커 모의 테스트 안내 (rkd1rjs2 팀원, 문서만)
+
+[`mock_test.md`](mock_test.md) 를 더했다. 로봇 · 카메라 · 태블릿 없이 노트북 도커만으로 세 단계를 돌린다.
+
+- 1단계 비전 미션 시나리오 폐루프 34 통과 — **ROS 를 불러오지 않아야 돈다**(`--entrypoint /bin/bash`). ROS 가 불러와져 있으면 폐루프 시험 둘이 건너뛰어 32 통과 / 2 skip.
+- 2단계 태블릿 가상 카메라 — 모의 프레임 실행 종료 코드 0, 태블릿 시험 43 통과. 순정 `ros:jazzy-ros-base` 에는 OpenCV 가 없다.
+- 3단계 게이트웨이 `--vision` — 시나리오 `s1` 이 `RUNNING`, 모드 `vision`. 순정 이미지에는 `cv_bridge` 가 없다. V2 화면 주소는 `/fleet_control_v2.html` (`/` 는 옛 화면).
+- 확인하지 못한 것: apt 로 OpenCV · `cv_bridge` 를 넣는 설치(확인 환경에서 apt 가 막힘), 컨테이너 포트 포워딩으로 브라우저에서 시나리오를 시작하는 것.
+

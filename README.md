@@ -119,6 +119,8 @@ ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:
 # 웹 http://<관제 PC>:8889/fleet_control_v2.html → 대시보드 "시나리오 1 시작" / "시나리오 2 시작" · 일시정지 · 재시작 · 비상정지
 ```
 
+실물 없이 도커로 돌려 보기(시나리오 폐루프 · 태블릿 가상 카메라 · 게이트웨이 `--vision`): [`docs/integration/mock_test.md`](docs/integration/mock_test.md).
+
 현장 조정 순서: 로봇 1대로 경로마다 교차로 동작 값 재기(`vision_mission.yaml` 고치고 게이트웨이만 재시작) → 시나리오 2 → 시나리오 1.
 인식 확인은 `python3 tools/view_image.py /pinky1/lane_debug/compressed` (상단 글자 `red=` `stop=`, 흰 정지선은 분홍 상자).
 
