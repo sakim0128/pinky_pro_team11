@@ -233,6 +233,8 @@ rclpy/ROS msgs 가 필요한 relay 시험은 이름 변경 뒤 컴파일만 했�
   yaw 를 전부 0 으로 두면 재투영 오차 20.36 px 로 송신이 막히고, 실측 각도를 넣으면 0.998 px 로 내려간다는 보고다 — 프레임 분석은 이 환경에서 재현하지 못했다.
 - 아직 실측 전이다: 모서리 마커 중심 x · y 는 꼭짓점 가정값이고 세 설정은 `FIELD_CONFIG_PENDING` 이라 `--allow-pending-config` 로만 송신된다.
   보고된 샘플 로봇 좌표(x −0.667 · y −1.114)가 경기장 밖이라 원인 확인이 먼저다.
-- 알려진 문제: `7c59c7c` 가 다시 넣은 `relay_station/fleet/config/road_graph.yaml`(태블릿 mock 용 복사본)이 "도로망 하나" 결정과 충돌해
-  `relay_station/tests/test_assign_map5.py` 의 `..._without_copies` 시험 하나가 실패한다(직전 `9164811` 에서는 통과).
+- 정리함: `7c59c7c` 가 다시 넣은 `relay_station/fleet/config/road_graph.yaml`(태블릿 mock 용 복사본)이 "도로망 하나" 결정과 충돌해
+  `relay_station/tests/test_assign_map5.py` 의 `..._without_copies` 시험 하나가 실패했다. 복사본을 지우고 태블릿 mock 이 팀 정본
+  `pinky_lane_station/config/road_graph.yaml`(노드 BL · BR · TR · J)을 읽게 바꿨다. 태블릿 코드의 `--relay-url` 사설 주소 기본값도 없앴다(빈 값 = dry-run).
+  검증(ROS 2 Jazzy 컨테이너): 태블릿 시험 43 통과 · 팀 중계 시험 875 통과 / 5 skip, 실패 0.
 - 게이트웨이 소스는 계속 rkd1rjs2/robot_mini_project_pinky `e59d521` 에서 관리한다.

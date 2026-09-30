@@ -47,8 +47,9 @@ Galaxy Note 10 으로 찍은 09-28 · 09-29 녹화 프레임에 `OverheadLocaliz
 
 - **재투영 오차가 작다는 것은 네 마커가 서로 맞는다는 뜻이다.** 지도 좌표가 맞다는 뜻은 아니다. 모서리 마커 x · y 는 아직 경기장 꼭짓점 가정값
   (0 / 2.34, 0 / 1.26)이고 설정 주석도 `PLACEHOLDER-COORD` 다. 각도만 실측했다.
-- **보고된 샘플 로봇 좌표가 경기장 밖이다.** `x −0.667, y −1.114, yaw −156.5°` 는 0..2.34 × 0..1.26 m 안이 아니다. 로봇이 경기장 밖에 있었던 프레임인지,
-  마커 배치(tl · tr · br · bl)가 화면 방향과 어긋난 것인지 아직 모른다.
+- **보고된 샘플 로봇 좌표가 경기장 밖이다.** `x −0.667, y −1.114, yaw −156.5°` 는 0..2.34 × 0..1.26 m 안이 아니다. 태블릿 세션의 설명은 이렇다:
+  그 프레임(`rec-20260928-220304-1` 50번)은 로봇이 경기장 좌하단 모서리(43번 마커) 바깥 대기선에 서 있던 때라, 원점이 43번 마커이므로 음수 좌표가 맞다.
+  그럴듯하지만 프레임을 이 환경에서 보지 못해 **확인하지 못했다.** 마커 배치(tl · tr · br · bl)와 화면 방향이 어긋난 경우도 같은 좌표를 낼 수 있다.
 - **"화면 비율 약 1.98" 은 일치의 근거가 아니다.** 원근이 섞인 화면 비율이고, 경기장 2.34 × 1.26 은 1.86 이다.
 - 그래서 **로봇을 도로망 노드 위(줄자로 잰 점)에 놓고 태블릿이 낸 좌표와 대조**하는 것이 다음 확인이다.
 
@@ -64,7 +65,7 @@ python3 -m tablet.vision.runtime.entrypoint --relay-url http://<중계 PC>:8889
 python3 -m tablet.vision.runtime.entrypoint --relay-url http://<중계 PC>:8889 --allow-pending-config
 ```
 
-`--relay-url` 의 코드 기본값은 예전 현장 LAN 주소다. 반드시 `--relay-url` 또는 환경 변수 `RELAY_URL` 로 현재 중계 PC 를 준다.
+`--relay-url`(또는 환경 변수 `RELAY_URL`)을 주지 않으면 송신하지 않고 dry-run 으로만 돈다. 코드에 기본 주소는 없다.
 
 ## 4. 흐름
 
@@ -160,10 +161,10 @@ ros2 topic echo /pinky1/fix_status
 - [x] 태블릿 비전 소스(`tablet/vision/`)가 이 브랜치에 있고 시험 43개가 통과한다.
 - [x] 모서리 마커 부착 각도(yaw) 실측을 `markers.yaml` 에 반영했다(태블릿 세션 보고).
 - [ ] **모서리 마커 네 개의 중심 x · y 를 줄자로 재서 `markers.yaml` 에 넣고** 세 설정을 `READY` 로 바꾼다. 지금은 꼭짓점 가정값이다.
-- [ ] **경기장 밖으로 나온 샘플 좌표(위 §2)의 원인을 확인한다.** 로봇을 줄자로 잰 점에 놓고 태블릿 좌표와 5 cm 안으로 맞는지, yaw 도 맞는지 본다.
+- [ ] **경기장 밖으로 나온 샘플 좌표(위 §2)의 설명을 확인한다.** 대기선에 있었다는 설명이 맞는지 프레임으로 보고, 경기장 안 줄자로 잰 점에서는 태블릿 좌표가 5 cm 안으로 맞는지, yaw 도 맞는지 본다.
 - [ ] 도로망 노드(`road_graph.yaml` 의 BL · BR · TR · J, 지금은 임시값)를 바닥 마커 실측 위치로 바꾼다.
-- [ ] **`relay_station/fleet/config/road_graph.yaml` 정리.** 태블릿 mock(`START_A` · `GOAL_C` 노드)이 쓰려고 `7c59c7c` 에서 다시 넣은 복사본인데,
-      도로망은 `pinky_lane_station/config/road_graph.yaml` 하나라는 팀 결정과 충돌해 `test_assign_map5.py` 의
-      `test_profile_points_at_the_single_graph_and_map5_without_copies` 가 실패한다(직전 커밋 `9164811` 에서는 통과).
+- [x] `relay_station/fleet/config/road_graph.yaml` 복사본을 지웠다. 태블릿 mock 이 팀 정본 `pinky_lane_station/config/road_graph.yaml` 을 바로 읽고
+      노드는 BL · BR · TR · J, 기본 경로는 `BL,TR` 이다. 도로망 하나 결정과 `test_assign_map5.py` 를 다시 만족한다.
+- [x] 태블릿 코드의 사설 LAN 주소 기본값을 없앴다(`--relay-url` 기본은 빈 값 = dry-run).
 - [ ] 실물 로봇 주행에서 `pose_fuser` 오차와 조향 추종을 끝까지 확인한다.
 - [ ] 열린 질문: 태블릿 한 대가 두 로봇을 한 화면에서 볼 수 있는지, 두 대가 필요한지.

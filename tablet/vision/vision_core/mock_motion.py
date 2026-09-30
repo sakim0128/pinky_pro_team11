@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Moving mock poses along the Relay road graph (T-7).
+"""Moving mock poses along the team road graph (T-7).
 
 The synthetic camera used to render robots at fixed poses (0,0,0 / 0.5,-0.2,1.57) that
 matched no arena node, so a robot driven by Nav2 was pulled back to its start every
@@ -20,14 +20,14 @@ import yaml
 
 Pose = Tuple[float, float, float]
 
-_candidate_graphs = [
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "relay_station", "fleet", "config", "road_graph.yaml")),
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "pinky_lane_station", "config", "road_graph.yaml")),
-]
-DEFAULT_ROAD_GRAPH = next((p for p in _candidate_graphs if os.path.exists(p)), _candidate_graphs[0])
+# 도로망 정본은 하나다: pinky_lane_station/config/road_graph.yaml (relay 프로파일 team11_map5 도 이 파일을 그대로 읽는다).
+# 복사본을 relay_station 아래에 두지 않는다 — relay_station/tests/test_assign_map5.py 가 막는다.
+DEFAULT_ROAD_GRAPH = os.path.abspath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "pinky_lane_station", "config", "road_graph.yaml"))
 
-# Robot -> start node, per lane_mission.yaml (pinky1 START_A, pinky2 START_B).
-DEFAULT_START_NODES = {"pinky1": "START_A", "pinky2": "START_B"}
+# Robot -> start node, per the team mission (pinky1 BL -> TR, pinky2 BR -> BL).
+DEFAULT_START_NODES = {"pinky1": "BL", "pinky2": "BR"}
+DEFAULT_MOCK_PATH = ("BL", "TR")
 
 
 class RoadGraph:
@@ -135,7 +135,7 @@ class MockPoses:
         self.moving_robot = moving_robot
         self.motion: Optional[PathMotion] = None
         if speed_m_s > 0:
-            self.motion = PathMotion(graph.path(path_nodes or ["START_A", "GOAL_C"]), speed_m_s)
+            self.motion = PathMotion(graph.path(path_nodes or DEFAULT_MOCK_PATH), speed_m_s)
 
     def poses(self, t_s: float) -> Dict[str, Pose]:
         out = dict(self.static)

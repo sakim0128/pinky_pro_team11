@@ -170,8 +170,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Y700 Tablet External Vision Compute Runner")
     parser.add_argument("--config-dir", default=os.path.join(os.path.dirname(__file__), "..", "config"),
                         help="Configuration files directory")
-    parser.add_argument("--relay-url", default=os.getenv("RELAY_URL", "http://192.168.0.3:8889"),
-                        help="Relay station gateway URL")
+    parser.add_argument("--relay-url", default=os.getenv("RELAY_URL", ""),
+                        help="Relay station gateway URL (http://<중계 PC>:8889). 비어 있으면 송신하지 않는다(dry-run)")
     parser.add_argument("--no-relay", action="store_true", help="Disable HTTP egress (dry-run)")
     parser.add_argument("--allow-pending-config", action="store_true",
                         help="Permit Relay egress even when configuration status is FIELD_CONFIG_PENDING")
@@ -183,7 +183,7 @@ def main(argv=None):
     parser.add_argument("--once", action="store_true", help="Process single frame and exit (test/CI)")
     parser.add_argument("--mock-motion", type=float, default=0.0, metavar="V_M_S",
                         help="Mock only: advance pinky1 along --mock-path at V m/s (0 = static at start nodes)")
-    parser.add_argument("--mock-path", default="START_A,GOAL_C",
+    parser.add_argument("--mock-path", default="BL,TR",
                         help="Mock only: comma-separated road-graph nodes for the moving robot")
     parser.add_argument("--road-graph", default=DEFAULT_ROAD_GRAPH,
                         help="Mock only: road_graph.yaml providing start nodes and path waypoints")

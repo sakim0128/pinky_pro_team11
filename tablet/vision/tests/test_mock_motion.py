@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""T-7 moving mock: start poses on road-graph nodes, pinky1 advances START_A -> GOAL_C.
+"""T-7 moving mock: start poses on team road-graph nodes, pinky1 advances BL -> TR.
 
 The mock only moves the *rendered* pose; these tests run the real render -> detect ->
 PoseFix path with the SoT config (tablet/vision/config) and check what comes out.
@@ -25,20 +25,20 @@ def graph():
 
 def test_default_poses_are_start_nodes(graph):
     poses = MockPoses(graph).poses(10.0)
-    assert poses["pinky1"] == (*graph.nodes["START_A"], 0.0)
-    assert poses["pinky2"] == (*graph.nodes["START_B"], 0.0)
+    assert poses["pinky1"] == (*graph.nodes["BL"], 0.0)
+    assert poses["pinky2"] == (*graph.nodes["BR"], 0.0)
 
 
-def test_path_runs_start_a_to_goal_c_through_junction(graph):
-    pts = graph.path(["START_A", "GOAL_C"])
-    assert pts[0] == graph.nodes["START_A"] and pts[-1] == graph.nodes["GOAL_C"]
-    assert graph.nodes["JUNCTION_1"] in pts
+def test_path_runs_bl_to_tr_through_junction(graph):
+    pts = graph.path(["BL", "TR"])
+    assert pts[0] == graph.nodes["BL"] and pts[-1] == graph.nodes["TR"]
+    assert graph.nodes["J"] in pts
     assert len(pts) == len(set(pts))            # shared edge endpoints are not duplicated
 
 
 def test_unknown_node_is_rejected(graph):
     with pytest.raises(KeyError):
-        graph.path(["START_A", "NOWHERE"])
+        graph.path(["BL", "NOWHERE"])
 
 
 def test_motion_is_constant_speed_and_holds_at_goal():
@@ -50,11 +50,11 @@ def test_motion_is_constant_speed_and_holds_at_goal():
 
 
 def test_zero_speed_keeps_pinky1_at_start(graph):
-    assert MockPoses(graph, speed_m_s=0.0).poses(50.0)["pinky1"][:2] == graph.nodes["START_A"]
+    assert MockPoses(graph, speed_m_s=0.0).poses(50.0)["pinky1"][:2] == graph.nodes["BL"]
 
 
 def test_moving_mock_through_real_pipeline(graph):
-    """N frames of the moving mock -> PoseFix between START_A and GOAL_C, seq increasing."""
+    """N frames of the moving mock -> PoseFix between BL and TR, seq increasing."""
     cfg, _, _, _ = load_configs(CONFIG_DIR)
     fixes = []
     svc = TabletVisionService(overhead_cfg=cfg, zone_configs=[],
@@ -72,7 +72,7 @@ def test_moving_mock_through_real_pipeline(graph):
     seqs = [f.seq for f in p1]
     assert all(b > a for a, b in zip(seqs, seqs[1:]))
 
-    (ax, ay), (gx, gy) = graph.nodes["START_A"], graph.nodes["GOAL_C"]
+    (ax, ay), (gx, gy) = graph.nodes["BL"], graph.nodes["TR"]
     for f in p1:
         assert ax - 0.05 <= f.x <= gx + 0.05 and ay - 0.05 <= f.y <= gy + 0.40
     assert p1[0].x == pytest.approx(ax, abs=0.03) and p1[0].y == pytest.approx(ay, abs=0.03)
@@ -81,4 +81,4 @@ def test_moving_mock_through_real_pipeline(graph):
     assert xs[-1] > xs[0] + 1.5                 # it actually travelled
 
     p2 = [f for f in fixes if f.robot_name == "pinky2"]
-    assert p2 and all(f.x == pytest.approx(graph.nodes["START_B"][0], abs=0.03) for f in p2)
+    assert p2 and all(f.x == pytest.approx(graph.nodes["BR"][0], abs=0.03) for f in p2)
