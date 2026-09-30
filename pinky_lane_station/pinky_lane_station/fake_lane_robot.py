@@ -192,7 +192,9 @@ class FakeLaneFleet(Node):
             return
         self._robots[name].driver.set_lane_path(
             self._now(), msg.source_stamp.sec + msg.source_stamp.nanosec * 1e-9,
-            int(msg.quality), float(msg.error_x_norm), bool(msg.crosswalk_detected))
+            int(msg.quality), float(msg.error_x_norm), bool(msg.crosswalk_detected),
+            barricade=bool(getattr(msg, 'barricade_detected', False)),
+            left_seen=bool(msg.left_seen), right_seen=bool(msg.right_seen))
 
     def _on_fleet_command(self, name, msg: FleetCommand):
         r = self._robots[name]
@@ -251,7 +253,8 @@ class FakeLaneFleet(Node):
             if self._loopback:
                 res = self._ests[r.name].update(self._det.infer(img), img.shape[1], img.shape[0])
                 r.driver.set_lane_path(self._now(), self._now(), res.quality, res.error_x,
-                                       res.crosswalk_detected)
+                                       res.crosswalk_detected, barricade=res.barricade_detected,
+                                       left_seen=res.left_seen, right_seen=res.right_seen)
                 continue
             ok, buf = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
             if not ok:

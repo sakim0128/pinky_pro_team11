@@ -18,6 +18,7 @@ pinky_lane_agent:
     junction_zone: 0.25
     lane_only: false             # true: 경로·위치 없이 카메라 차선 중앙만 (lane_only.launch.xml 이 덮는다)
     lane_lost_coast: 0.6
+    search_omega: 0.4            # LANE_SEARCH 제자리 회전 각속도 (rad/s)
     auto_start: false
     control:
       v_max: 0.15
@@ -37,6 +38,16 @@ pinky_lane_agent:
       crosswalk_relatch_distance: 0.60   # > crosswalk_zone
       lane_lost_speed_factor: 0.5
       blind_warn_distance: 0.60
+      lane_search: true                  # 차선 쌍이 안 보이면 제자리 회전 탐색 (D14 작업 2)
+      search_on_single: true             # 한쪽만 보여도 탐색. false 면 아예 안 보일 때만
+      search_after: 0.5                  # 쌍이 이만큼(s) 안 보여야 탐색 시작
+      search_confirm_seconds: 0.3        # 탐색 중 쌍이 이만큼 이어지면 주행 복귀
+      search_max_seconds: 8.0            # 초과하면 실패 → 정지 (사람이 개입)
+      junction_stop: true                # 분기 노드 반경(junction_zone) 진입 시 정지 후 경로만으로 통과 (D14 작업 3)
+      junction_stop_seconds: 1.0
+      junction_speed_factor: 0.4         # 통과 속도 = v_max × 0.4 (0.15 → 0.06)
+      junction_exit_confirm: 0.3         # 반경 밖에서 차선 쌍이 이만큼 보이면 주행 복귀
+      junction_relatch_distance: 0.60    # > 2 × junction_zone
     guard:
       sector_deg: 35.0
       box_x: 0.18

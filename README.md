@@ -128,12 +128,12 @@ YOLO 모델이 나온 뒤 첫 실차 테스트. 시작·목적지 없이 기동 
 횡단보도 3 s 정지·장애물 정지·카메라 끊김 정지는 그대로 동작한다.
 
 **모델**: 가중치는 git 밖, 관제 PC `~/models/lane_26n.pt`. `pinky_lane_station/config/detector_yolo.yaml` 이 가리킨다.
-모델 클래스 0(왼쪽 라인)·2(오른쪽 라인)는 둘 다 `lane` 으로 묶고 좌/우는 화면 위치로 정한다. 1 은 `crosswalk`,
-3 라바콘·4 신호등·5 바리게이트는 오버레이 표시용(주행 판단에는 아직 안 쓴다).
+모델 클래스 0 → `left_lane`, 2 → `right_lane` (라벨은 차선이 3개 이상일 때만 쓰고, 2개 이하면 화면 위치로 정한다). 1 은 `crosswalk`,
+5 `barricade` 는 정지 트리거, 3 라바콘·4 신호등은 오버레이 표시용.
 yolo26 은 `pip install -U ultralytics`(8.4+). 학습 입력이 448×320 이라 `imgsz 448`(긴 변). 관제 PC 는 CPU, p95 > 100 ms 면 320 으로.
 
-**상위 30 % 마스킹**: 학습 때 이미지 상위 30 % 를 검정으로 채웠으므로 추론 입력도 똑같이 채운다
-(`pipeline.mask_top_frac: 0.30`, `pipeline_image.mask_top`). 관제 화면(`/pinky1/lane_debug/compressed`)은 **마스킹하지 않은 원본** 위에
+**상위 50 % 마스킹**: 학습 때 이미지 상위 50 % 를 검정으로 채웠으므로 추론 입력도 똑같이 채운다
+(`pipeline.mask_top_frac: 0.50`, `pipeline_image.mask_top`). 관제 화면(`/pinky1/lane_debug/compressed`)은 **마스킹하지 않은 원본** 위에
 검출 바운딩박스(클래스·conf)·차선 중심점(빨간 원)·좌/우 샘플점(초록)·샘플 행·정지 행을 그린다. 회색 점선이 마스크 경계 —
 그 위쪽에 박스가 하나도 없어야 정상(모델이 그 영역을 못 본다). 세그 폴리곤까지 보려면 `pipeline.debug_polygons: true`.
 
@@ -160,9 +160,46 @@ ros2 topic pub -1 /pinky1/lane_command pinky_lane_msgs/msg/LaneCommand "{command
 
 값의 흐름: 로봇 `camera_node` → `/pinky1/camera/image/compressed` → 관제 `lane_pipeline_node`(YOLO → 폴리곤 → 0.72·H 행에서 좌/우 x →
 중앙 → `error_x_norm`, 횡단보도 하단 y ≥ 0.8·H) → `/pinky1/lane_path` → 로봇 `lane_agent_node`(lane_only: ω = −Kp·e − Kd·ė,
-v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. 차선을 잃으면 0.6 s 직전 명령 유지 후 정지, LanePath 가 0.9 s 끊겨도 정지.
+v = v_max·(1 − 0.5·|e|)) → `/cmd_vel`. LanePath 가 0.9 s 끊기면 정지.
+
+**차선 규칙 (D14)**
+- 차선 ≤ 2개: 화면 중앙에 가장 가까운 좌/우 쌍. **≥ 3개**: 모델 클래스 기준 가장 바깥 쌍 — 왼쪽 클래스 중 가장 왼쪽,
+  오른쪽 클래스 중 가장 오른쪽 (왼쪽 1 + 오른쪽 2 면 오른쪽은 왼쪽과 가장 먼 것). 클래스가 위치와 모순이면 위치 규칙. `scene_state.pair_rule` 로 확인.
+- 차선 쌍이 0.5 s 이상 안 보이면(한쪽만 보이거나 없음) `LANE_SEARCH`: 제자리 회전 0.4 rad/s. 방향은 경로가 있으면 다음 웨이포인트 쪽,
+  없으면 안 보이는 차선 쪽(왼쪽만 보이면 우회전). 쌍이 0.3 s 이어지면 주행 복귀, 8 s 넘기면 정지(`state_reason` 에 실패).
+  끄려면 `fsm.lane_search: false` (그때는 0.6 s 직전 명령 유지 후 정지).
+- 횡단보도: 하단 y ≥ 0.8·H 에서 3 프레임 확정 → 3 s 정지 → 0.6 m 재래치. 바리게이트: 같은 조건으로 확정 → `BARRICADE_WAIT`,
+  10 프레임(≈1 s) 안 보이면 자동 재출발. 라이다 장애물 정지와 겹쳐 동작한다.
+- 교차로(경로 모드만): 항공뷰 위치가 그래프 분기 노드 반경 0.25 m 에 들어오면 `JUNCTION_STOP` 1 s → `JUNCTION_PASS`
+  (카메라 끄고 경로 pure-pursuit, v_max × 0.4) → 반경 밖에서 차선 쌍이 0.3 s 보이면 주행 복귀. 0.6 m 재래치.
+- 메시지가 바뀌었으므로 **양쪽 모두 `pinky_lane_msgs` 재빌드** (LanePath.barricade_*, SceneState 좌/우 수, LaneStatus 10~13).
 
 ---
+
+## 항공뷰 위치추정 (관제 `overhead_tracker_node` → 로봇 `pose_fuser_node`)
+
+AMCL 대신 천장 웹캠이 핑키 머리 위 ArUco(id 1/2) 를 보고 map 좌표를 준다. 관제 노드(팀원, `pinky_fleet_station`) 는
+yaml 의 고정 호모그래피로 `/pinkyN/overhead_pose`(PoseStamped, map) 를 발행하고, 브릿지(`bridge_lane.yaml`) 가 로봇으로 넘기면
+로봇 `pose_fuser_node` 가 수신 시각 − `station_latency`(0.15 s) 의 odom 에 붙여 map→odom TF 를 발행한다.
+같은 노드가 `/pinkyN/pose_fix`(PoseFix, 중계 비전 API·바닥 마커) 도 받는다. 중계 PC(domain 8) 구성에서는 `overhead_pose` 가
+로봇으로 브릿지되지 않으므로(relay_station 설계) 그쪽에서는 `pose_fix` 로 넣는다. `lane_agent_node` 는 TF 만 읽는다.
+항공뷰가 `fix_timeout`(3 s) 끊기면 TF 를 끊어 로봇이 선다.
+
+```bash
+# 1) 캘리브레이션 (관제 PC, ROS 없이). 지도 네 꼭짓점 마커 id : map 좌표(m, 줄자로 잰 마커 중심)
+python3 tools/overhead_calib.py --device 0 --corners "40:0.10,0.10;41:2.25,0.10;42:2.25,1.15;43:0.10,1.15" \
+    --write pinky_fleet_station/config/overhead_tracker.yaml
+#    출력의 "로봇 마커 1: map (x, y)" 를 줄자와 비교 (5 cm 이내). 최대 재투영 오차 2 cm 넘으면 좌표 재측정
+# 2) 관제: 웹캠 → /overhead/camera/image/compressed 발행 노드 + 트래커
+ros2 launch pinky_fleet_station overhead_tracker.launch.xml
+ros2 topic echo /pinky1/overhead_pose
+# 3) 로봇: AMCL 없이 (lane_robot.launch.xml 을 위치추정 없이 띄우고 pose_fuser_node 를 더한다)
+ros2 launch pinky_fleet_agent lane_overhead.launch.xml robot_name:=pinky1 domain_id:=10
+ros2 topic echo /pinky1/fix_status          # accepted/rejected/age
+```
+
+마커를 로봇 전방과 다르게 붙였으면 `marker_yaw_offset`(rad), 마커 중심이 `base_footprint` 앞에 있으면 `marker_offset_x`(m).
+꼭짓점 마커 id 와 로봇 마커 id(`overhead_tracker.yaml` 의 `pinky1_marker_id`) 는 팀원 설정을 따른다.
 
 ## 메시지 (`pinky_lane_msgs`, 신규)
 

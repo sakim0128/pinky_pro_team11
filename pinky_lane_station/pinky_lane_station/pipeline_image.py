@@ -1,6 +1,7 @@
 """이미지 전처리·디버그 오버레이 (ROS-free).
 
-새 세그 모델은 학습 때 이미지 상위 30 % 를 검정(0)으로 채웠다 → 추론 입력도 똑같이 마스킹한다.
+세그 모델은 학습 때 이미지 상위 일부(현재 50 %, detector_yolo.yaml 의 pipeline.mask_top_frac)를
+검정(0)으로 채웠다 → 추론 입력도 똑같이 마스킹한다.
 오버레이는 **마스킹하지 않은 원본** 위에 그린다 (모델이 본 영역은 회색 경계선으로 표시).
 """
 
@@ -14,10 +15,12 @@ except ImportError:              # pragma: no cover
 # 클래스별 오버레이 색 (BGR)
 CLASS_COLORS = {
     'lane': (0, 255, 0),
+    'left_lane': (0, 255, 0),
+    'right_lane': (255, 200, 0),
     'crosswalk': (0, 220, 255),
     'cone': (0, 140, 255),
     'traffic_light': (0, 140, 255),
-    'barricade': (0, 140, 255),
+    'barricade': (0, 0, 255),
 }
 DEFAULT_COLOR = (200, 200, 200)
 TARGET_COLOR = (0, 0, 255)
