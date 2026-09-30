@@ -132,8 +132,8 @@ YOLO 모델이 나온 뒤 첫 실차 테스트. 시작·목적지 없이 기동 
 5 `barricade` 는 정지 트리거, 3 라바콘·4 신호등은 오버레이 표시용.
 yolo26 은 `pip install -U ultralytics`(8.4+). 학습 입력이 448×320 이라 `imgsz 448`(긴 변). 관제 PC 는 CPU, p95 > 100 ms 면 320 으로.
 
-**상위 30 % 마스킹**: 학습 때 이미지 상위 30 % 를 검정으로 채웠으므로 추론 입력도 똑같이 채운다
-(`pipeline.mask_top_frac: 0.30`, `pipeline_image.mask_top`). 관제 화면(`/pinky1/lane_debug/compressed`)은 **마스킹하지 않은 원본** 위에
+**상위 50 % 마스킹**: 학습 때 이미지 상위 50 % 를 검정으로 채웠으므로 추론 입력도 똑같이 채운다
+(`pipeline.mask_top_frac: 0.50`, `pipeline_image.mask_top`). 관제 화면(`/pinky1/lane_debug/compressed`)은 **마스킹하지 않은 원본** 위에
 검출 바운딩박스(클래스·conf)·차선 중심점(빨간 원)·좌/우 샘플점(초록)·샘플 행·정지 행을 그린다. 회색 점선이 마스크 경계 —
 그 위쪽에 박스가 하나도 없어야 정상(모델이 그 영역을 못 본다). 세그 폴리곤까지 보려면 `pipeline.debug_polygons: true`.
 
