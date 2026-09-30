@@ -947,6 +947,9 @@
     const v = f.mode === "vision" ? f.vision : null;
     panel.hidden = !v;
     document.body.classList.toggle("vision-mode", !!v);
+    if ($("vision-map-card")) $("vision-map-card").hidden = !(v && (v.map || v.map_error));
+    state.visionMap = v ? v.map : null;
+    if (v && !v.map && v.map_error && $("vision-map-empty")) $("vision-map-empty").textContent = "코스 파일 오류 — " + v.map_error;
     if (v && document.querySelector('.nav-item.active[data-hide-vision]')) document.querySelector('.nav-item[data-tab="dashboard"]')?.click();
     if ($("summary-mode")) $("summary-mode").textContent = v ? "비전 차선 주행 + 교차로 통행권 (항공뷰 없음)" : "Nav2 이동 + 도로망 예약";
     if (!v) return;
@@ -967,6 +970,50 @@
     const rows = $("vision-robots");
     if (rows) rows.innerHTML = run ? Object.entries(run.robots || {}).map(([n, r]) => visionRobotCard(n, r, run)).join("") : "";
   }
+
+  // ---- 비전 모드 위치 표시 (/api/fleet/poses, 0.2 s) — 천장 카메라 없이 odom + 코스 모양 추정
+  const POSE_COLOR = {pinky1: "#d64545", pinky2: "#2f6fdc"};
+  const visionImg = new Image();
+  let visionImgSrc = "", posesBusy = false;
+  function drawVisionMap(poses) {
+    const cv = $("vision-map");
+    const m = state.visionMap;
+    if (!cv || !m) return;
+    if (m.image_url && visionImgSrc !== m.image_url) { visionImgSrc = m.image_url; visionImg.src = m.image_url; }
+    const ctx = cv.getContext("2d");
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    if (visionImg.complete && visionImg.naturalWidth) ctx.drawImage(visionImg, 0, 0, cv.width, cv.height);
+    const sx = cv.width / (visionImg.naturalWidth || cv.width), sy = cv.height / (visionImg.naturalHeight || cv.height);
+    const robots = Object.entries((poses && poses.robots) || {});
+    if ($("vision-map-empty")) $("vision-map-empty").hidden = robots.length > 0;
+    for (const [name, p] of robots) {
+      const x = p.px * sx, y = p.py * sy, c = POSE_COLOR[name] || "#333";
+      const stale = p.age == null || p.age > 1.5;
+      ctx.globalAlpha = stale ? 0.4 : 1;
+      ctx.fillStyle = c; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 20 * Math.cos(p.yaw), y - 20 * Math.sin(p.yaw)); ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = "#111"; ctx.font = "bold 12px sans-serif"; ctx.fillText(name.replace("pinky", "P"), x + 13, y - 11);
+      ctx.globalAlpha = 1;
+    }
+    const rows = $("vision-pose-rows");
+    if (rows) rows.innerHTML = robots.map(([name, p]) => `<div class="row">
+        <strong style="color:${POSE_COLOR[name] || "#333"}">${esc(name)} ${esc(p.start)} → ${esc(p.goal)}</strong>
+        <span>x ${p.x.toFixed(2)} m · y ${p.y.toFixed(2)} m · ${p.mode === "free" ? "교차로 동작(odom)" : "코스 위 " + p.s.toFixed(2) + " / " + p.route_length.toFixed(2) + " m"}</span>
+        <span class="muted">마지막 맞춤: ${esc(p.fix)} · 그 뒤 ${p.travel_since_fix.toFixed(2)} m${p.age == null ? " · odom 없음" : (p.age > 1.5 ? ` · ${p.age.toFixed(1)} s 끊김` : "")}</span>
+      </div>`).join("");
+  }
+  async function refreshPoses() {
+    if (posesBusy || !document.body.classList.contains("vision-mode") || !state.visionMap) return;
+    posesBusy = true;
+    try {
+      const r = await fetch("/api/fleet/poses", {cache: "no-store"});
+      if (r.ok) drawVisionMap(await r.json());
+    } catch (e) { /* 연결 끊김은 상단 연결 표시가 알린다 */ }
+    finally { posesBusy = false; }
+  }
+  visionImg.onload = () => refreshPoses();
+  setInterval(refreshPoses, 200);
 
   function visionRobotCard(n, r, run) {
     const idx = VISION_STEPS.findIndex(x => x[0] === r.stage);

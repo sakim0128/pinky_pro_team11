@@ -115,6 +115,25 @@
             </div>
           </article>
 
+          <!-- 비전 모드 전용: 천장 카메라 없이 odom + 코스 모양으로 추정한 핑키 위치 (표시 전용, 0.2 s 갱신) -->
+          <article class="card map-card vision-map-card" id="vision-map-card" hidden>
+            <div class="card-head">
+              <div>
+                <h2>핑키 위치 (추정)</h2>
+                <p>odom + 코스 모양으로 추정, 빨간 선·횡단보도·벽 마커 정지에서 다시 맞춘다 — 천장 카메라 없음, 표시 전용</p>
+              </div>
+              <div class="legend compact">
+                <span><i class="dot r1"></i>Pinky 1</span>
+                <span><i class="dot r2"></i>Pinky 2</span>
+              </div>
+            </div>
+            <div class="fleet-map-wrap">
+              <canvas id="vision-map" width="1003" height="625"></canvas>
+              <div class="map-empty" id="vision-map-empty">시나리오를 시작하면 위치가 보입니다</div>
+            </div>
+            <div class="vision-pose-rows" id="vision-pose-rows"></div>
+          </article>
+
           <article class="card camera-summary">
             <div class="card-head">
               <div>

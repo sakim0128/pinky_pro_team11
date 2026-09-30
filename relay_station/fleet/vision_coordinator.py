@@ -14,6 +14,8 @@ RelayFleetCoordinator 를 그대로 물려받아 정지·비상정지·로봇별
     통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아가면 반납 → 다음 로봇 허가
     같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇 계획에 arrive_on_obstacle — 그 뒤 장애물 정지가 도착
     로봇이 ARRIVED 를 보고하면 도착, 모두 도착하면 DONE
+    위치 표시(천장 카메라 없음): RobotState(frame_id 'odom') + LaneStatus → pinky_lane_station.vision_pose 가 코스
+      (vision_course.yaml) 위 위치로 바꾼다. 화면 표시 전용 — /api/fleet/poses (0.2 s 폴링)
     웹에서 만든 시나리오 중 저장한 것은 vision_mission_user.yaml (save_user_scenario / delete_user_scenario)
 
 경로 모드와 다른 점: Route 를 내지 않는다(AUTO_ASSIGN = False — lane_only 로봇은 받아도 무시한다), FleetCommand 는 하트비트만
@@ -25,12 +27,13 @@ RelayFleetCoordinator 를 그대로 물려받아 정지·비상정지·로봇별
 import os
 from typing import Any, Dict, Optional
 
-from pinky_fleet_msgs.msg import FleetCommand
+from pinky_fleet_msgs.msg import FleetCommand, RobotState
 from pinky_lane_msgs.msg import JunctionPlan, LaneCommand, LaneStatus
 from pinky_lane_station.vision_mission import (CUSTOM_NAME, ScenarioRun, VisionConfigError, course_dict,
                                                default_user_path, delete_user_scenario, load_user_scenarios,
                                                load_vision_config, save_user_scenario, scenario_from_dict,
                                                scenario_summary)
+from pinky_lane_station.vision_pose import CourseError, PoseTracker, default_course_path, load_vision_course
 
 from .fleet_coordinator import (MISSION_DONE, MISSION_ESTOP, MISSION_IDLE, MISSION_RUNNING, MISSION_STOPPED,
                                 ROUTE_QOS, RelayFleetCoordinator, _locked)
@@ -67,6 +70,18 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
         self._vision_seq = int(max([c.route_seq for c in self.robots.values()] + [0])) + 100
         self.plan_pubs = {name: self.create_publisher(JunctionPlan, f'/{name}/junction_plan', ROUTE_QOS)
                           for name in self.robots}
+        # 위치 표시 (천장 카메라 없음 — odom + 코스 모양 + 확실한 지점에서 다시 맞추기)
+        self.vision_course = None
+        self.vision_course_error = ''
+        self.vision_pose: Dict[str, PoseTracker] = {}
+        course_path = os.environ.get('PINKY_VISION_COURSE') or default_course_path(self.vision_config_path)
+        try:
+            self.vision_course = load_vision_course(course_path)
+            self.vision_course_image = os.path.join(REPO_ROOT, self.vision_course.image_file)
+        except (OSError, CourseError, ValueError, KeyError, TypeError) as exc:
+            self.vision_course_error = f'{course_path}: {exc}'
+            self.vision_course_image = ''
+            self.get_logger().warn(f"위치 표시 끔 — 코스 파일 {self.vision_course_error}")
         self.get_logger().info(
             f"VisionFleetCoordinator: {self.vision_config_path} — 시나리오 {list(self.vision_cfg.scenarios)}")
 
@@ -145,6 +160,7 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
             ctx.route_seq = run.seq[rname]
             ctx.start_node, ctx.goal_node = plan.start, plan.goal
             self._publish_plan(rname)
+        self._start_pose_trackers(run, now)
         self.mission_state = MISSION_RUNNING
         self._save_control_state()
         self.get_logger().info(f"🚦 scenario {name} started: "
@@ -152,6 +168,35 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
                                            for n, p in run.scenario.robots.items())
                                + (' — 로봇 1대: 교차로 허가 없이 1 s 정지 뒤 출발' if run.skip_clearance else ''))
         return True
+
+    def _start_pose_trackers(self, run: ScenarioRun, now: float) -> None:
+        """시나리오 로봇마다 출발 지점에 위치 추정기를 놓는다 (표시 전용)."""
+        self.vision_pose = {}
+        if self.vision_course is None:
+            return
+        for rname, plan in run.scenario.robots.items():
+            try:
+                tr = PoseTracker(self.vision_course.route(plan.start, plan.goal), now)
+            except CourseError as exc:
+                self.get_logger().warn(f"[{rname}] 위치 표시 없음 — {exc}")
+                continue
+            ctx = self.robots.get(rname)
+            st = ctx.state if ctx is not None else None
+            if st is not None and getattr(st.header, 'frame_id', '') == 'odom':
+                tr.feed_odom(st.x, st.y, st.yaw, now)            # 지금 odom 을 출발 자세의 기준으로
+            self.vision_pose[rname] = tr
+
+    @_locked
+    def vision_poses(self) -> Dict[str, Any]:
+        """/api/fleet/poses — 가벼운 위치만 (0.2 s 폴링)."""
+        now = self._now()
+        robots = {}
+        for name, tr in self.vision_pose.items():
+            ctx = self.robots.get(name)
+            p = tr.pose()
+            p['age'] = round(now - ctx.state_time, 2) if ctx is not None and ctx.state is not None else None
+            robots[name] = p
+        return {'t': now, 'robots': robots, 'error': self.vision_course_error}
 
     # ------------------------------------------------------------------ 저장 시나리오 (HTTP 쓰레드에서 직접 부른다)
 
@@ -229,12 +274,22 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
                              'ok': bool(ok), 'mission_state': self.mission_state, 'error': self.vision_error}
 
     @_locked
+    def _cb_robot_state(self, name: str, msg: RobotState):
+        super()._cb_robot_state(name, msg)
+        tr = self.vision_pose.get(name)
+        if tr is not None and getattr(msg.header, 'frame_id', '') == 'odom':
+            tr.feed_odom(msg.x, msg.y, msg.yaw, self._now())
+
+    @_locked
     def _cb_lane_status(self, name: str, msg: LaneStatus):
         ctx = self.robots.get(name)
         if not ctx:
             return
         ctx.lane_status = msg
         ctx.lane_status_time = self._now()
+        tr = self.vision_pose.get(name)
+        if tr is not None and msg.route_seq == ctx.route_seq:
+            tr.feed_status(msg.drive_state, msg.edge_id, getattr(msg, 'state_reason', ''), ctx.lane_status_time)
         if (msg.drive_state == LaneStatus.DRIVE_ESTOP and not self.estop_latched and not self._estop_authority):
             self.estop_latched = True                            # S6 와 같다: 재시작 직후 로봇이 쥔 ESTOP 을 플릿 래치로
             self._pre_estop_state = self.mission_state
@@ -356,5 +411,8 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
             'active': self.vision_scenario,
             'error': self.vision_error,
             'run': run.status(now) if run is not None else None,
+            'map': dict(self.vision_course.to_dict(), image_url='/api/fleet/vision_map.png')
+            if self.vision_course is not None else None,
+            'map_error': self.vision_course_error,
         }
         return out

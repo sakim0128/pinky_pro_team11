@@ -78,7 +78,8 @@ def red_observation(msg):
 def declare_driver_params(node):
     """DriverParams 의 숫자 필드를 ROS 파라미터로 노출하고 채워서 돌려준다."""
     p = DriverParams()
-    groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard, 'maneuver': p.maneuver, '': p}
+    groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard, 'maneuver': p.maneuver,
+              'view': p.view, 'memory': p.memory, '': p}
     for prefix, obj in groups.items():
         for key, value in vars(obj).items():
             if not isinstance(value, (int, float, bool)):
@@ -125,6 +126,7 @@ class LaneAgent(Node):
         self._pose = None                     # (x, y, yaw)
         self._pose_time = None
         self._lin = self._ang = 0.0
+        self._odom_pose = None                # (x, y, yaw) odom 프레임 — lane_only 에서 위치추정이 없으면 RobotState 로 보낸다
         self._battery = float('nan')
         self._last_out = None
         self._route_msg = None
@@ -212,7 +214,9 @@ class LaneAgent(Node):
                                   left_seen=bool(msg.left_seen), right_seen=bool(msg.right_seen),
                                   markers=dict(zip((int(i) for i in getattr(msg, 'marker_ids', [])),
                                                    (float(d) for d in getattr(msg, 'marker_distances', [])))),
-                                  red_obs=red_observation(msg))
+                                  red_obs=red_observation(msg),
+                                  target=(int(msg.target_x), int(msg.target_y), int(msg.image_width),
+                                          int(msg.image_height), float(msg.half_lane_px)))
 
     def _on_fleet_command(self, msg: FleetCommand):
         now = self._now()
@@ -243,8 +247,9 @@ class LaneAgent(Node):
         self._lin = msg.twist.twist.linear.x
         self._ang = msg.twist.twist.angular.z
         pose = msg.pose.pose
-        self.driver.update_odom(self._now(), pose.position.x, pose.position.y,
-                                yaw_from_quaternion(pose.orientation))
+        self._odom_pose = (pose.position.x, pose.position.y, yaw_from_quaternion(pose.orientation))
+        stamp = stamp_seconds(msg.header.stamp)
+        self.driver.update_odom(self._now(), *self._odom_pose, stamp=stamp if stamp > 0 else None)
 
     def _on_junction_plan(self, msg: JunctionPlan):
         if msg.robot_name and msg.robot_name != self._name:
@@ -356,7 +361,13 @@ class LaneAgent(Node):
         rs.name = self._name
         rs.domain_id = self._domain_id
         rs.localized = self._localized()
-        if self._pose is not None:
+        if self._pose is not None and rs.localized:
+            rs.x, rs.y, rs.yaw = self._pose
+        elif self._lane_only and self._odom_pose is not None:
+            # 위치추정 없음(비전 미션): odom 자세를 그대로 보낸다 — 관제 vision_pose 가 코스 위 위치로 바꿔 그린다
+            rs.header.frame_id = 'odom'
+            rs.x, rs.y, rs.yaw = (float(v) for v in self._odom_pose)
+        elif self._pose is not None:
             rs.x, rs.y, rs.yaw = self._pose
         rs.linear_velocity = self._lin
         rs.angular_velocity = self._ang

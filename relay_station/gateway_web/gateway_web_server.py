@@ -2368,6 +2368,29 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        elif parsed.path == '/api/fleet/poses':
+            # 비전 미션 위치 표시 (천장 카메라 없음) — 가벼운 위치만, 웹이 0.2 s 마다 가져간다
+            coord = GLOBAL_FLEET_COORDINATOR
+            if coord is None or not hasattr(coord, 'vision_poses'):
+                self._send_json(json.dumps({'robots': {}, 'error': 'NO_VISION_COORDINATOR'}).encode('utf-8'), code=404)
+                return
+            self._send_json(json.dumps(coord.vision_poses(), ensure_ascii=False).encode('utf-8'))
+            return
+        elif parsed.path == '/api/fleet/vision_map.png':
+            path = getattr(GLOBAL_FLEET_COORDINATOR, 'vision_course_image', '') if GLOBAL_FLEET_COORDINATOR else ''
+            if not path or not os.path.isfile(path):
+                self.send_response(404)
+                self.end_headers()
+                return
+            with open(path, 'rb') as fh:
+                data = fh.read()
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Cache-Control', 'max-age=60')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         elif parsed.path == '/api/fleet/status':
             if GLOBAL_FLEET_COORDINATOR:
                 status_dict = GLOBAL_FLEET_COORDINATOR.get_fleet_status_dict()

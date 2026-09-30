@@ -116,3 +116,23 @@ class LaneController:
         if v_target <= 0.0 and not turn_in_place:
             omega = 0.0
         return v_target, omega
+
+    def follow_curvature(self, kappa, dt, speed_factor=1.0):
+        """(v, ω) — 기억한 차선 중앙을 pure pursuit 곡률 κ 로 따라간다 (lane_memory). ω = κ·v.
+
+        속도는 command() 와 같은 규칙(v_max · 곡률 감속 · speed_factor · 가속 슬루). ω 가 omega_max 를 넘으면 v 를 줄인다.
+        """
+        p = self.p
+        dt = max(1e-3, float(dt))
+        k = float(kappa)
+        self._prev_error = None
+        self._meas_stamp, self._meas_e, self._meas_de = None, None, 0.0
+        v_target = p.v_max * max(0.2, 1.0 - p.k_curv * abs(k) * p.v_max / p.omega_max)
+        v_target *= max(0.0, float(speed_factor))
+        if abs(k) * v_target > p.omega_max:
+            v_target = p.omega_max / abs(k)
+        if v_target > self._v_cmd:
+            v_target = min(v_target, self._v_cmd + p.accel_slew * dt)
+        self._v_cmd = v_target
+        omega = max(-p.omega_max, min(p.omega_max, k * v_target))
+        return v_target, omega

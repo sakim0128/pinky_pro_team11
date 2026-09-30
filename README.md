@@ -92,7 +92,8 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 
 ## 비전 미션 모드 (2026-09-30) — 위치추정 없이 카메라로 달리고 교차로는 새 빨간 선 찾기
 
-항공뷰 없이 돈다. 코스: T자 교차로 하나, 1번(오른쪽 위 끝) · 2번(왼쪽 아래) · 3번(아래 가운데, 교차로 오른쪽 가지).
+항공뷰(천장 카메라) 없이 돈다. 코스: 빨간 선 3개로 둘러싼 교차로 하나. `docs/map5.png`(map5 맵 위 차선 그림) 로 볼 때
+1번 = 오른쪽 아래 끝 · 2번 = 왼쪽 위 끝 · 3번 = 왼쪽 중간 끝(횡단보도 1곳). 바닥 마커는 없고, 벽 ArUco 는 지점에 **도착하는 방향** 에서만 보인다.
 시나리오 = 출발·목적 지점. 교차로 방향은 경로 표(`routes`)가 정한다.
 
 | 경로 | 교차로 방향 | 교차로 동작 (`directions:`, 각도·거리 값 없음) |
@@ -140,6 +141,16 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
   설정 `lane_agent.yaml` `fsm.red_line_stop` · `fsm.red_line_stop_seconds` · `red_line_min_gap`.
 - 차선 조향: D 항은 새 LanePath 가 올 때만 측정 간격으로 계산하고, error 는 새 측정마다 저역통과(`control.error_alpha` 0.5)한다.
   제어 20 Hz · 인식 ≤ 10 Hz 차이 때문에 프레임마다 조향이 튀던 것을 없앤다.
+- 카메라 사각지대 보정(`lane_memory`, `follow_memory: true`): 카메라는 핑키 앞면 10 cm 앞부터 보이고 차선 중앙은 약 17.5 cm 앞 행(0.72·H)에서
+  읽는다. 본 차선 중앙을 **그 사진을 찍은 순간의 odom 자세** 로 기억해 두고, 핑키 구동축이 그 자리에 올 때 따라간다(기억 점 pure pursuit,
+  `memory.lookahead` 0.12 m). 커브 안쪽을 미리 자르지 않고, 차선이 잠깐 안 보여도 본 곳까지는 간다.
+  화면 → 바닥 거리는 실측 두 점(화면 맨 아래 10 cm · 50 % 행 43 cm, `view.bottom_m`·`view.mid_m`)으로, 옆 거리는 차선 폭 15 cm 로 잰다.
+  **현장에서 `view.axle_to_camera_m`(구동 바퀴 축 → 카메라, 기본 0.04 m) 을 재서 고친다.** 예전 방식은 `follow_memory: false`.
+- 관제 화면 위치 표시(천장 카메라 없음, 표시 전용): 핑키가 odom 자세를 `/pinkyN/state`(frame_id `odom`) 로 보내면 관제
+  `vision_pose` 가 코스(`pinky_lane_station/config/vision_course.yaml`, map5.png px 좌표) 위 위치로 바꾼다. 차선 주행 중에는 odom 이동거리만큼
+  코스 중심선 위를 나아가고, 교차로 동작 중에는 2D odom 으로 그리며, 교차로 입구·나가는 빨간 선 정지 · 횡단보도 정지 · 벽 마커 도착에서
+  다시 맞춘다. 웹 대시보드 "핑키 위치 (추정)" 카드가 `/api/fleet/poses` 를 0.2 s 마다 가져와 그린다.
+  코스 좌표 확인: `python3 tools/vision_course_overlay.py` → `docs/vision_course_overlay.png`. 정지 위치 거리(`red_stop_back` 등)는 yaml.
 - 인식 주기 확인: 로봇 `ros2 topic hz /pinky1/lane_path` (설계 10 Hz), 관제 `ros2 topic echo /pinky1/scene_state --field infer_ms`,
   로봇 `ros2 topic echo /pinky1/lane_status --field path_age` (이미지 촬영 → 로봇 수신 지연).
 
