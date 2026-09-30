@@ -1,6 +1,6 @@
 """도착 지점 벽 ArUco 마커 검출 — 영상 처리 (YOLO 아님). ROS 에 의존하지 않는다.
 
-비전 미션의 도착 지점(1·2·3번) 앞 벽에 같은 번호의 ArUco 마커를 카메라 높이로 붙인다. 로봇 카메라 영상에서 마커를 찾고
+비전 미션의 도착 지점(1·2·3번) 앞 벽에 ArUco 마커(id 40·41·42, vision_mission.yaml arrival.markers)를 붙인다. 로봇 카메라 영상에서 마커를 찾고
 한 변 픽셀 길이로 카메라~마커 거리를 잰다 (핀홀: 거리 = 초점거리(px) × 마커 한 변(m) / 한 변(px)).
 벽 마커는 카메라를 정면으로 보므로 한 변 길이만으로 충분하다 — 카메라 보정 행렬이 없어도 된다.
 
@@ -27,10 +27,10 @@ except ImportError:              # pragma: no cover
 class ArucoParams:
     enabled: bool = True
     dictionary: str = 'DICT_4X4_50'
-    marker_size: float = 0.05         # 마커 검은 테두리 포함 한 변 (m)
+    marker_size: float = 0.04         # 마커 검은 테두리 포함 한 변 (m) — 현장 ANCHOR 40 mm
     focal_px: float = 500.0           # ref_width 폭 영상 기준 초점거리 (px). 현장에서 한 번 잰다 (모듈 설명)
     ref_width: int = 640              # focal_px 를 잰 영상 폭. 다른 폭이면 비례로 환산
-    ids: list = field(default_factory=lambda: [1, 2, 3])   # 이 id 만 쓴다 (빈 목록이면 전부)
+    ids: list = field(default_factory=lambda: [40, 41, 42])   # 이 id 만 쓴다 (빈 목록이면 전부)
     max_distance: float = 1.5         # 이보다 먼 추정은 버린다 (m)
     confirm: int = 2                  # 연속 프레임 수 — 확정
     release: int = 3                  # 안 보인 프레임 수 — 해제

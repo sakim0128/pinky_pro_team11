@@ -40,7 +40,7 @@ def test_distance_from_side_pinhole_and_width_scaling():
 
 
 def test_detects_ids_and_distance():
-    det = ArucoMarkerDetector(ArucoParams(focal_px=500.0, confirm=1))
+    det = ArucoMarkerDetector(ArucoParams(focal_px=500.0, confirm=1, marker_size=0.05, ids=[1, 3]))
     r = det.update(frame_with_markers([(1, 100, 200, 200), (3, 50, 460, 200)]))
     assert set(r.raw) == {1, 3} and set(r.markers) == {1, 3}
     assert r.raw[1] == pytest.approx(0.25, rel=0.08)
@@ -48,13 +48,13 @@ def test_detects_ids_and_distance():
 
 
 def test_ignores_ids_not_listed_and_far():
-    det = ArucoMarkerDetector(ArucoParams(focal_px=500.0, confirm=1, ids=[1, 2, 3], max_distance=0.4))
+    det = ArucoMarkerDetector(ArucoParams(focal_px=500.0, confirm=1, ids=[1, 2, 3], max_distance=0.4, marker_size=0.05))
     r = det.update(frame_with_markers([(7, 100, 200, 200), (2, 40, 460, 200)]))   # 7 은 목록 밖, 2 는 0.62 m
     assert r.raw == {} and r.markers == {}
 
 
 def test_debounce_confirm_and_release_keeps_last_distance():
-    det = ArucoMarkerDetector(ArucoParams(confirm=2, release=3))
+    det = ArucoMarkerDetector(ArucoParams(confirm=2, release=3, ids=[1]))
     assert det.update_from_raw({1: 0.5}).markers == {}
     assert det.update_from_raw({1: 0.4}).markers == {1: 0.4}
     assert det.update_from_raw({}).markers == {1: 0.4}                # 한두 프레임 놓쳐도 유지
@@ -66,6 +66,14 @@ def test_params_from_yaml_and_disabled():
     import yaml
     cfg = yaml.safe_load(open(os.path.join(os.path.dirname(HERE), 'config', 'detector_yolo.yaml'), encoding='utf-8'))
     p = params_from_dict(cfg['aruco'])
-    assert p.dictionary == 'DICT_4X4_50' and p.marker_size == pytest.approx(0.05) and p.ids == [1, 2, 3]
+    assert p.dictionary == 'DICT_4X4_50' and p.marker_size == pytest.approx(0.04) and p.ids == [40, 41, 42]
     off = ArucoMarkerDetector(ArucoParams(enabled=False))
     assert not off.available and off.update(frame_with_markers([(1, 100, 200, 200)])).markers == {}
+
+
+def test_field_anchor_photos_are_40_41_42():
+    """현장 벽 마커(ANCHOR A1·A2·A3) 규격: DICT_4X4_50 id 40·41·42 — 기본 설정이 읽는다."""
+    det = ArucoMarkerDetector(ArucoParams(confirm=1))
+    r = det.update(frame_with_markers([(40, 90, 120, 200), (41, 90, 320, 200), (42, 90, 520, 200)]))
+    assert set(r.markers) == {40, 41, 42}
+    assert r.raw[40] == pytest.approx(500.0 * 0.04 / 90, rel=0.08)

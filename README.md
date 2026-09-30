@@ -108,7 +108,7 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
       시나리오 로봇 1대: 통행권 없음 — 1 s 정지 뒤 바로 출발 (JunctionPlan.skip_clearance)
 로봇  허가 → 고정 동작(odom, 장애물에 끊기면 남은 양만 이어서) → 차선 쌍이 보이면 주행, 안 보이면 방금 돈 쪽으로 탐색 회전
 관제  통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아간 순간 반납 → 다음 로봇 허가
-로봇  도착: 목적지 앞 벽의 ArUco 마커(지점 번호 = id)까지 15 cm 이하면 정지. 마커 35 cm 안에서는 감속
+로봇  도착: 목적지 앞 벽의 ArUco 마커(1→id 40, 2→41, 3→42)까지 15 cm 이하면 정지. 마커 35 cm 안에서는 감속
       같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤에서 장애물로 선 순간이 도착 (JunctionPlan.arrive_on_obstacle)
 공통  장애물: 초음파 10 cm 에서 정지, 치워지면 1 s 뒤 재출발 (lane_only 는 라이다 판정 끔 — use_lidar:=False)
       횡단보도 3 s 정지
@@ -116,10 +116,11 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 
 - 설정: 경로·방향·동작·시나리오·도착 방식 `pinky_lane_station/config/vision_mission.yaml`(관제, `arrival:` `directions:` `routes:`),
   웹에서 저장한 시나리오는 옆 파일 `vision_mission_user.yaml`(게이트웨이가 쓴다, `PINKY_VISION_USER_SCENARIOS` 로 바꿀 수 있다),
-  마커 인식 `detector_yolo.yaml` 의 `aruco:`(DICT_4X4_50, 한 변 5 cm, `focal_px`), 빨간 테이프는 모델 클래스 이름 `red_line`,
+  마커 인식 `detector_yolo.yaml` 의 `aruco:`(DICT_4X4_50, 한 변 4 cm, id 40·41·42, `focal_px`), 빨간 테이프는 모델 클래스 이름 `red_line`,
   로봇 튜닝 `lane_agent.yaml`(`maneuver:` · `guard.us_stop` · `arrive_distance` · `marker_slow_distance`).
-- 현장 준비: 1·2·3번 도착 지점 앞 벽에 ArUco 1·2·3 (DICT_4X4_50, 5 cm)을 카메라 높이·차선 정면에 붙인다. 로봇은 각 출발 지점에 차선 방향으로.
-- `focal_px` 맞추기(한 번): 마커를 카메라 정면 d m 에 두고 `lane_debug` 오버레이의 `id… …px` 를 읽어 `focal_px = px × d / 0.05`.
+- 현장 준비: 1·2·3번 도착 지점 앞 벽에 ANCHOR A1(id 40)·A2(id 41)·A3(id 42) (DICT_4X4_50, 40 mm)를 차선 정면에 붙인다.
+  지점↔id 는 `vision_mission.yaml` 의 `arrival.markers` 와 `detector_yolo.yaml` 의 `aruco.ids` 두 곳을 같이 고친다. 로봇은 각 출발 지점에 차선 방향으로.
+- `focal_px` 맞추기(한 번): 마커를 카메라 정면 d m 에 두고 `lane_debug` 오버레이의 `id… …px` 를 읽어 `focal_px = px × d / 0.04`.
 - 흰 정지선 도착(예전 방식)은 `arrival.mode: stop_line` 으로 되돌린다.
 - 메시지(`JunctionPlan` · `LanePath`)에 필드가 늘었다 — 관제 PC·로봇 둘 다 `colcon build --packages-select pinky_lane_msgs` 뒤 다시 띄운다.
   관제 PC 에 `cv2.aruco` 가 있어야 한다(`python3-opencv` 4.7+ 또는 `opencv-contrib-python`).
@@ -140,7 +141,7 @@ ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:
   `POST /api/fleet/scenario/save {"name","scenario"}` · `POST /api/fleet/scenario/delete {"name"}` (모두 제어권 정책).
 
 현장 조정 순서: 로봇 1대로 `focal_px` → 경로마다 교차로 동작 값(`vision_mission.yaml` 고치고 게이트웨이만 재시작) → 2대 시나리오.
-인식 확인은 `python3 tools/view_image.py /pinky1/lane_debug/compressed` (상단 글자 `red=`, 벽 마커는 초록 상자 `id1 0.42m 60px`).
+인식 확인은 `python3 tools/view_image.py /pinky1/lane_debug/compressed` (상단 글자 `red=`, 벽 마커는 초록 상자 `id40 0.42m 48px`).
 
 ---
 

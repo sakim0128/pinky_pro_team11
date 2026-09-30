@@ -46,8 +46,8 @@ def test_config_scenarios_match_course():
     assert [v for k, v in c.maneuvers['left_1_to_3'] if k == 'turn'] == [90.0]
     assert all(k == 'straight' for k, _ in c.maneuvers['straight_2_to_1'] + c.maneuvers['straight_1_to_2'])
     assert c.robots == {'pinky1': 10, 'pinky2': 11}
-    assert c.arrival_mode == 'marker' and c.arrive_distance == 0.15 and c.markers == {'1': 1, '2': 2, '3': 3}
-    assert {n: p.goal_marker_id for n, p in s2.robots.items()} == {'pinky1': 2, 'pinky2': 3}
+    assert c.arrival_mode == 'marker' and c.arrive_distance == 0.15 and c.markers == {'1': 40, '2': 41, '3': 42}
+    assert {n: p.goal_marker_id for n, p in s2.robots.items()} == {'pinky1': 41, 'pinky2': 42}
 
 
 def test_routes_give_direction_and_maneuver():
@@ -57,7 +57,7 @@ def test_routes_give_direction_and_maneuver():
     assert {k: v['direction'] for k, v in c.routes.items()} == want
     s = scenario_from_dict(c, 'x', {'robots': {'pinky1': {'start': 2, 'goal': 3}}}, 'custom')
     p = s.robots['pinky1']
-    assert p.direction == 'right' and p.steps == c.directions['right'] and p.goal_marker_id == 3
+    assert p.direction == 'right' and p.steps == c.directions['right'] and p.goal_marker_id == 42
     # 경로 전용 동작이 있으면 그것, 방향을 바꾸면 방향 기본 동작
     s = scenario_from_dict(c, 'x', {'robots': {'pinky1': {'start': 3, 'goal': 1}}})
     assert s.robots['pinky1'].maneuver == 'right_3_to_1'
@@ -131,7 +131,7 @@ def test_single_robot_scenario_skips_clearance():
 def test_same_goal_second_robot_arrives_on_obstacle():
     run = ScenarioRun(cfg(), 's1', t0=0.0)
     f = run.plan_fields('pinky1')
-    assert f['goal_marker_id'] == 1 and f['arrive_distance'] == 0.15 and f['arrive_on_obstacle'] is False
+    assert f['goal_marker_id'] == 40 and f['arrive_distance'] == 0.15 and f['arrive_on_obstacle'] is False
     run.on_status('pinky2', DRIVE_ARRIVED, run.seq['pinky2'], 'vision:arrived', 5.0)
     assert run.tick(5.1) == ['pinky1'] and run.plan_fields('pinky1')['arrive_on_obstacle'] is True
     assert run.tick(5.2) == []                                         # 한 번만
@@ -369,7 +369,7 @@ def test_marker_scenario1_first_stops_at_wall_second_behind_it():
     b2, b1 = bots['pinky2'], bots['pinky1']
     gap2 = b2.wall - (b2.d._travelled - b2.pass_travel)
     assert 0.10 <= gap2 <= 0.15 + 1e-6                                  # 벽 마커 15 cm 안, 지나치지 않게
-    assert '벽 마커 1' in b2.d._arrived_reason
+    assert '벽 마커 40' in b2.d._arrived_reason
     assert run.arrive_on_obstacle == {'pinky1': True, 'pinky2': False}
     assert '앞 로봇 뒤' in b1.d._arrived_reason
     gap1 = b1.wall - (b1.d._travelled - b1.pass_travel)

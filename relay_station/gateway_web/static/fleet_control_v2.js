@@ -1044,7 +1044,7 @@
     if (note && course.arrival) {
       const a = course.arrival;
       note.textContent = "출발·목적 지점을 고르면 교차로 방향은 경로 표에서 정해진다(자동). 쓰지 않는 로봇은 체크를 푼다. "
-        + (a.mode === "marker" ? `도착: 목적지 벽 ArUco 마커(지점 번호 = id) ${Math.round(a.arrive_distance * 100)} cm 앞.` : "도착: 흰 정지선.")
+        + (a.mode === "marker" ? `도착: 목적지 벽 ArUco 마커(${Object.entries(a.markers || {}).map(([pt, id]) => `${pt}번→id ${id}`).join(", ")}) ${Math.round(a.arrive_distance * 100)} cm 앞.` : "도착: 흰 정지선.")
         + " 2대면 교차로 통행권, 1대면 1 s 정지 뒤 출발.";
     }
   }

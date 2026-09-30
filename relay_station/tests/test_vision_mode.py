@@ -342,7 +342,7 @@ def test_vision_coordinator_scenario1_real_init_closed_loop(vision_coordinator_c
     last = _scenario(coord, 's1')
     assert last['ok'] is True and coord.mission_state == 'RUNNING'
     plan = coord.plan_pubs['pinky1'].published[-1]
-    assert plan.goal_marker_id == 1 and plan.arrive_distance == pytest.approx(0.15) and plan.skip_clearance is False
+    assert plan.goal_marker_id == 40 and plan.arrive_distance == pytest.approx(0.15) and plan.skip_clearance is False
     assert _scenario(coord, 's2')['ok'] is False                                              # 도는 중엔 다른 시나리오 거절
     done_at = _loop(coord, bots, 90)
     assert done_at is not None, coord.get_fleet_status_dict()['vision']
@@ -384,7 +384,7 @@ def test_vision_coordinator_custom_single_robot_skips_clearance(vision_coordinat
     last = _scenario(coord, 'custom', {'label': '2→3 한 대', 'robots': {'pinky1': {'start': '2', 'goal': '3'}}})
     assert last['ok'] is True
     plan = coord.plan_pubs['pinky1'].published[-1]
-    assert plan.skip_clearance is True and plan.goal_marker_id == 3 and list(plan.step_value)[1] == -90.0   # 2→3 우회전
+    assert plan.skip_clearance is True and plan.goal_marker_id == 42 and list(plan.step_value)[1] == -90.0   # 2→3 우회전
     assert coord.vision_run.robots == ['pinky1']
     done_at = _loop(coord, bots, 60)
     assert done_at is not None
