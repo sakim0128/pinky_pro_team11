@@ -199,7 +199,9 @@ class LaneAgent(Node):
                                   barricade=bool(getattr(msg, 'barricade_detected', False)),
                                   red_line=bool(getattr(msg, 'red_line_detected', False)),
                                   stop_line=bool(getattr(msg, 'stop_line_detected', False)),
-                                  left_seen=bool(msg.left_seen), right_seen=bool(msg.right_seen))
+                                  left_seen=bool(msg.left_seen), right_seen=bool(msg.right_seen),
+                                  markers=dict(zip((int(i) for i in getattr(msg, 'marker_ids', [])),
+                                                   (float(d) for d in getattr(msg, 'marker_distances', [])))))
 
     def _on_fleet_command(self, msg: FleetCommand):
         now = self._now()
@@ -245,12 +247,22 @@ class LaneAgent(Node):
             self.get_logger().error(f'JunctionPlan seq={msg.seq} 거부: {exc}')
             return
         new = self.driver._plan is None or self.driver._plan['seq'] != int(msg.seq)
+        before = dict(self.driver._plan or {})
         self.driver.set_plan(int(msg.seq), steps, int(msg.stop_line_count),
-                             float(msg.linear_speed), float(msg.angular_speed))
+                             float(msg.linear_speed), float(msg.angular_speed),
+                             goal_marker_id=int(getattr(msg, 'goal_marker_id', -1)),
+                             arrive_distance=float(getattr(msg, 'arrive_distance', 0.0)),
+                             skip_clearance=bool(getattr(msg, 'skip_clearance', False)),
+                             arrive_on_obstacle=bool(getattr(msg, 'arrive_on_obstacle', False)))
+        plan = self.driver._plan
+        arrive = (f"벽 마커 {plan['goal_marker_id']} {plan['arrive_distance']:.2f} m" if plan['goal_marker_id'] >= 0
+                  else f'정지선 {msg.stop_line_count}번째')
         if new:
             desc = ' → '.join(f'{k} {v:+g}' for k, v in steps) or '(동작 없음)'
-            self.get_logger().info(f'JunctionPlan seq={msg.seq} {msg.scenario}/{msg.maneuver}: {desc}, '
-                                   f'정지선 {msg.stop_line_count}번째')
+            self.get_logger().info(f'JunctionPlan seq={msg.seq} {msg.scenario}/{msg.maneuver}: {desc}, 도착 {arrive}'
+                                   + (', 교차로 허가 없이 출발' if plan['skip_clearance'] else ''))
+        elif plan['arrive_on_obstacle'] and not before.get('arrive_on_obstacle'):
+            self.get_logger().info(f'JunctionPlan seq={msg.seq}: 같은 목적지 앞 로봇 도착 — 장애물 정지를 도착으로 친다')
 
     def _on_battery(self, msg: Float32):
         self._battery = float(msg.data)

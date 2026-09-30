@@ -19,6 +19,8 @@ from sensor_msgs.msg import CompressedImage
 
 from pinky_lane_msgs.msg import LanePath, SceneState
 
+from .aruco_detector import ArucoMarkerDetector
+from .aruco_detector import params_from_dict as aruco_params
 from .detectors import create_detector
 from .lane_mission import LaneMissionError, load_lane_mission
 from .lane_target import QUALITY_STALE, LaneTargetEstimator, TargetParams
@@ -49,15 +51,17 @@ def load_detector_config(path):
                 'mask_top_frac': 0.0, 'mask_fill': 0, 'debug_polygons': False}
     pipeline.update(data.get('pipeline') or {})
     pipeline['stop_line'] = stop_line_params(data.get('stop_line'))
+    pipeline['aruco'] = aruco_params(data.get('aruco'))
     return det, target, pipeline
 
 
 class RobotLane:
-    def __init__(self, spec, target_params, stop_params=None):
+    def __init__(self, spec, target_params, stop_params=None, aruco_params=None):
         self.spec = spec
         self.name = spec['name']
         self.est = LaneTargetEstimator(target_params)
         self.stop_line = WhiteStopLineDetector(stop_params)
+        self.aruco = ArucoMarkerDetector(aruco_params)
         self.seq = 0
         self.last_msg = None            # 마지막으로 보낸 LanePath (STALE 재발행용)
         self.last_frame_time = None     # 관제 시계
@@ -95,7 +99,9 @@ class LanePipeline(Node):
         self._debug_pubs = {}
         debug = bool(self.get_parameter('publish_debug_image').value)
         for spec in mission.robots:
-            rl = RobotLane(spec, target_params, pipe['stop_line'])
+            rl = RobotLane(spec, target_params, pipe['stop_line'], pipe['aruco'])
+            if pipe['aruco'].enabled and not rl.aruco.available:
+                self.get_logger().error('ArUco 검출 불가 — cv2.aruco 가 없다 (opencv-contrib). 비전 미션 도착 판정이 안 된다')
             self._robots[rl.name] = rl
             self._path_pubs[rl.name] = self.create_publisher(LanePath, spec['lane_path_topic'],
                                                              BEST_EFFORT_1)
@@ -134,6 +140,7 @@ class LanePipeline(Node):
         instances, infer_ms = self.detector.infer_timed(masked)
         r = rl.est.update(instances, W, H)
         sl = rl.stop_line.update(img)            # 목적지 흰 정지선 — 원본(마스킹 전) 영상에서
+        mk = rl.aruco.update(img)                # 도착 지점 벽 ArUco — 원본 영상에서 (마스킹된 위쪽에 있다)
 
         rl.seq += 1
         lp = LanePath()
@@ -158,6 +165,8 @@ class LanePipeline(Node):
         lp.red_line_bottom_y = int(r.red_line_bottom_y)
         lp.stop_line_detected = bool(sl.detected)
         lp.stop_line_bottom_y = int(sl.bottom_y)
+        lp.marker_ids = [int(i) for i in mk.markers]
+        lp.marker_distances = [float(d) for d in mk.markers.values()]
         lp.pipeline_latency = float(self._now() - t_in)
         self._path_pubs[name].publish(lp)
         rl.last_msg = lp
@@ -193,12 +202,12 @@ class LanePipeline(Node):
         self._scene_pubs[name].publish(sc)
 
         if name in self._debug_pubs:
-            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms, sl)
+            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms, sl, mk)
 
-    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0, stop_line=None):
+    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0, stop_line=None, aruco=None):
         dbg = draw_debug(img, instances, r, mask_frac=self._mask_frac, infer_ms=infer_ms,
                          stop_row_frac=self._stop_row_frac, draw_polygons=self._debug_polygons,
-                         stop_line=stop_line)
+                         stop_line=stop_line, aruco=aruco)
         ok, buf = cv2.imencode('.jpg', dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
         if not ok:
             return

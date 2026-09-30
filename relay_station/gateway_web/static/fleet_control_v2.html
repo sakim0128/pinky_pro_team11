@@ -34,7 +34,7 @@
     <nav class="primary-nav" aria-label="Pinky Fleet Control sections">
       <button class="nav-item active" data-tab="dashboard">대시보드</button>
       <button class="nav-item" data-tab="mission">미션 / 시나리오</button>
-      <button class="nav-item" data-tab="navigation">맵 / 내비게이션</button>
+      <button class="nav-item" data-tab="navigation" data-hide-vision>맵 / 내비게이션</button>
       <button class="nav-item" data-tab="vision">비전 / 마커</button>
       <button class="nav-item" data-tab="communications">통신</button>
       <button class="nav-item" data-tab="diagnostics">로봇 진단</button>
@@ -61,11 +61,31 @@
             <button class="btn" data-command="resume" data-moving="1">재시작</button>
             <button class="btn danger" data-command="estop">비상정지</button>
           </div>
-          <!-- 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼 · 교차로 통행권. 비전 모드가 아니면 숨는다 -->
+          <!-- 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼 · 교차로 통행권. 비전 모드가 아니면 숨는다.
+               비전 모드에서는 항공뷰(중계 탑뷰)·지도·경로 배정([data-hide-vision])을 숨긴다 — 위치 없이 카메라 차선 주행이다. -->
           <div class="vision-panel" id="vision-panel" hidden>
-            <div class="button-row" id="vision-scenarios"></div>
-            <p class="muted" id="vision-status">—</p>
-            <div id="vision-robots"></div>
+            <div class="vision-block">
+              <h3>시나리오</h3>
+              <p class="muted">프리셋(vision_mission.yaml)과 웹에서 저장한 시나리오. 누르면 로봇에 교차로 계획을 보내고 출발한다.</p>
+              <div class="button-row" id="vision-scenarios"></div>
+            </div>
+            <div class="vision-block" id="vision-custom">
+              <h3>직접 설정</h3>
+              <p class="muted" id="vision-custom-note">출발·목적 지점을 고르면 교차로 방향은 경로 표에서 정해진다. 쓰지 않는 로봇은 체크를 푼다.</p>
+              <div id="vision-custom-rows"></div>
+              <div class="button-row vision-custom-actions">
+                <input type="text" id="vision-custom-name" placeholder="저장 이름 (예: run_3to2)" maxlength="40" aria-label="저장 이름" data-moving="1">
+                <input type="text" id="vision-custom-label" placeholder="설명 (선택)" maxlength="80" aria-label="설명" data-moving="1">
+                <button class="btn primary" id="vision-custom-start" data-moving="1">이대로 시작</button>
+                <button class="btn" id="vision-custom-save" data-moving="1">저장</button>
+              </div>
+              <p class="muted" id="vision-custom-msg"></p>
+            </div>
+            <div class="vision-block">
+              <h3>진행</h3>
+              <p class="muted" id="vision-status">—</p>
+              <div class="vision-robot-grid" id="vision-robots"></div>
+            </div>
           </div>
           <div class="toolbar-summary">
             <div><span>운영 방식</span><strong id="summary-mode">Nav2 이동 + 도로망 예약</strong></div>
@@ -76,7 +96,7 @@
         </div>
 
         <div class="dashboard-grid">
-          <article class="card map-card">
+          <article class="card map-card" data-hide-vision>
             <div class="card-head">
               <div>
                 <h2>Fleet Map</h2>
@@ -105,7 +125,7 @@
             </div>
             <!-- U-5: 스트림이 없으면 JS(initMedia)가 img 요소를 "영상 없음" 문구로 바꾼다 — 검은 상자를 남기지 않는다 -->
             <!-- relay-cam 은 중계 노트북의 USB 웹캠(중앙 탑뷰)이지 태블릿 항공뷰가 아니다(검토 P2) — 없을 때의 이유도 소스별로 -->
-            <div class="camera-main">
+            <div class="camera-main" data-hide-vision>
               <img src="/video_feed?src=relay-cam" alt="Relay top-view camera" data-media="중계 탑뷰(USB 웹캠)" data-missing-why="중계 웹캠 신호 없음(--no-camera 또는 미연결)">
               <span class="media-label">Relay top-view (USB webcam)</span>
             </div>
@@ -171,7 +191,7 @@
         </div>
         <div class="metric-grid" id="vision-metrics"></div>
         <div class="camera-diagnostic-grid">
-          <article class="card">
+          <article class="card" data-hide-vision>
             <div class="card-head"><div><h3>Overhead / External</h3><p>ArUco · Homography · PoseFix</p></div></div>
             <div class="diagnostic-feed"><img src="/video_feed?src=relay-cam" alt="Relay top-view camera" data-media="중계 탑뷰(USB 웹캠)" data-missing-why="중계 웹캠 신호 없음 · 태블릿 항공뷰는 T-10 전"></div>
           </article>
@@ -250,7 +270,7 @@
           </div>
           <p class="muted" id="profile-msg">④ 태블릿 좌표계(마커 기준 좌표)는 태블릿 쪽에서 맞춥니다(T-11) — 아래 "중계 좌표 frame" 과 같은지 확인하세요.</p>
         </article>
-        <article class="card profile-card" id="assign-card">
+        <article class="card profile-card" id="assign-card" data-hide-vision>
           <div class="card-head">
             <div><h3>미션 배정 (시작 → 목적지)</h3>
               <p>도로망의 출발·도착 노드(endpoint) 중에서 로봇마다 고릅니다. 배정하면 경로가 새로 계산되고 출발은 하지 않습니다.

@@ -61,6 +61,7 @@ pinky_lane_agent:
       confirm_count: 2
       clear_seconds: 1.0
       lidar_offset_x: 0.0
+      use_lidar: true            # false: 초음파만 정지 판정 (lane_only.launch.xml 기본 false — 비전 미션)
     maneuver:                    # 비전 미션 교차로 고정 동작 (maneuver.ManeuverParams). 속도는 관제 JunctionPlan 이 주면 그 값
       linear_speed: 0.08
       angular_speed: 0.5

@@ -112,7 +112,8 @@ def test_lane_only_launch_overrides_only_allowed_params(agent_params):
     block = launch.split('exec="lane_agent_node"', 1)[1].split('</node>', 1)[0]
     keys = set(re.findall(r'<param name="([a-z_.]+)"', block))
     assert keys <= {'robot_name', 'domain_id', 'use_sim_time', 'use_ultrasonic', 'lane_only',
-                    'auto_start', 'control.v_max', 'control.cam_sign'}, keys
+                    'auto_start', 'control.v_max', 'control.cam_sign', 'guard.use_lidar'}, keys
+    assert 'use_lidar' in agent_params['guard']                   # 덮는 키는 yaml 에도 있어야 한다
     assert 'lane_only' in agent_params and agent_params['lane_only'] is False
     assert agent_params['lane_lost_coast'] < agent_params['path_timeout']
 

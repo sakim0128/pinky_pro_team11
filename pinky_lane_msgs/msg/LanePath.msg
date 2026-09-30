@@ -36,4 +36,6 @@ bool    red_line_detected          # 디바운스 통과한 빨간 선 (교차�
 int32   red_line_bottom_y
 bool    stop_line_detected          # 디바운스 통과한 목적지 흰 정지선 (영상 처리). 로봇은 교차로 통과 뒤에만 센다
 int32   stop_line_bottom_y
+int32[]   marker_ids                # 디바운스 통과한 ArUco 마커 id (바닥이 아니라 도착 지점 벽)
+float32[] marker_distances          # 카메라 ~ 마커 거리 (m), marker_ids 와 같은 순서
 float32 pipeline_latency            # 관제 PC 내부 수신->발행 (s). 관제 시계끼리라 유효
