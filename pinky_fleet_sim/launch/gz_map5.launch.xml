@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--
+  팀11 map5 실기 아레나 1:1 디지털 트윈 가제보 시뮬레이션 런치
+  
+  실행:
+    ros2 launch pinky_fleet_sim gz_map5.launch.xml
+    
+  포함 내용:
+    - map5_arena.sdf (2.36m x 1.28m 실기 규격 월드 + 고화질 바닥 차선 텍스처 + 탑뷰 카메라)
+    - ros_gz_bridge: /clock 및 /camera (640x480 탑뷰) ROS 2 퍼블리시
+-->
+<launch>
+    <arg name="world_name" default="map5_arena.sdf"
+         description="pinky_fleet_sim/worlds 안의 월드 파일."/>
+    <arg name="world" default="$(find-pkg-share pinky_fleet_sim)/worlds/$(var world_name)"/>
+    <arg name="gui" default="True" description="False면 headless 모드로 실행"/>
+    <arg name="bridge_params"
+         default="$(find-pkg-share pinky_fleet_sim)/params/map5_world_bridge.yaml"/>
+
+    <!-- Gazebo 리소스 경로 설정 -->
+    <set_env name="GZ_SIM_RESOURCE_PATH"
+             value="$(find-pkg-share pinky_fleet_sim)/worlds:$(find-pkg-share pinky_description)/../:$(find-pkg-share pinky_gz_sim)/models:$(env HOME)/.gazebo/models"/>
+
+    <!-- Gazebo Sim 서버 -->
+    <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+        <arg name="gz_args" value="-r -s -v4 $(var world)"/>
+        <arg name="on_exit_shutdown" value="true"/>
+    </include>
+
+    <!-- Gazebo Sim GUI -->
+    <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py"
+             if="$(var gui)">
+        <arg name="gz_args" value="-g -v4 "/>
+    </include>
+
+    <!-- ROS-Gazebo 브릿지: /clock, /camera -->
+    <node pkg="ros_gz_bridge" exec="parameter_bridge" name="map5_world_bridge" output="screen"
+          args="--ros-args -p config_file:=$(var bridge_params)"/>
+</launch>

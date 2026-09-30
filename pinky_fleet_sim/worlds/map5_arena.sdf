@@ -1,0 +1,235 @@
+<?xml version="1.0" ?>
+<!--
+  팀11 map5 실기 아레나 1:1 디지털 트윈 가제보 월드.
+
+    가로(x) 2.36m  x  세로(y) 1.28m,  벽 높이 20cm (하드보드지)
+    원점 (0,0)은 좌하단 코너이며, map5.yaml 좌표계와 완벽히 1:1 일치합니다.
+    바닥면에는 실제 차선/횡단보도/정지선 텍스처가 매핑되어 시뮬레이션 카메라로도 차선 검출이 가능합니다.
+-->
+<sdf version="1.8">
+  <world name="map5_arena">
+
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+
+    <!-- 환경광 및 조명 -->
+    <scene>
+      <ambient>0.6 0.6 0.6 1.0</ambient>
+      <background>0.8 0.85 0.9 1.0</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>1.18 0.64 5.0 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>0 0 -1</direction>
+    </light>
+
+    <!-- 바닥면 (Ground Plane): 2.36m x 1.28m 아레나 바닥 -->
+    <model name="ground_plane">
+      <static>true</static>
+      <pose>1.18 0.64 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>2.36 1.28</size></plane></geometry>
+          <surface>
+            <friction>
+              <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>2.36 1.28</size></plane></geometry>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.85 0.85 0.85 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>map5_with_lanes_hi.png</albedo_map>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!--
+      벽체 정의: 높이 20cm, 두께 2cm.
+      pose의 z는 벽 중심이므로 0.1m.
+    -->
+
+    <!-- 1. 외곽 북쪽 벽 (y = 1.28m) -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>1.18 1.28 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>2.38 0.02 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>2.38 0.02 0.2</size></box></geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.2 0.2 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 2. 외곽 남쪽 벽 (y = 0.00m) -->
+    <model name="wall_south">
+      <static>true</static>
+      <pose>1.18 0.00 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>2.38 0.02 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>2.38 0.02 0.2</size></box></geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.2 0.2 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 3. 외곽 서쪽 벽 (x = 0.00m) -->
+    <model name="wall_west">
+      <static>true</static>
+      <pose>0.00 0.64 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.02 1.30 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.02 1.30 0.2</size></box></geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.2 0.2 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 4. 외곽 동쪽 벽 (x = 2.36m) -->
+    <model name="wall_east">
+      <static>true</static>
+      <pose>2.36 0.64 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.02 1.30 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.02 1.30 0.2</size></box></geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.2 0.2 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 5. 내부 좌측 수평 차단벽 (x in [0, 0.95], y = 0.88m) -->
+    <model name="wall_inner_left">
+      <static>true</static>
+      <pose>0.475 0.88 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.95 0.02 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.95 0.02 0.2</size></box></geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.2 0.2 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 6. 내부 우측 수평 돌출벽 (x in [2.20, 2.36], y = 0.64m) -->
+    <model name="wall_inner_right">
+      <static>true</static>
+      <pose>2.28 0.64 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.16 0.02 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.16 0.02 0.2</size></box></geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.2 0.2 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 7. 하단 중앙 사다리꼴 장애물 (x in [1.10, 1.55], y in [0.0, 0.55]) -->
+    <model name="obstacle_center">
+      <static>true</static>
+      <pose>1.325 0.25 0.1 0 0 0.15</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.45 0.50 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.45 0.50 0.2</size></box></geometry>
+          <material>
+            <ambient>0.1 0.1 0.1 1</ambient>
+            <diffuse>0.15 0.15 0.15 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!--
+      8. 천장 광역 카메라 센서 (Overhead Camera)
+      위치: Z=2.3m 상공에서 아레나 중심(1.18, 0.64)을 수직 직하방으로 촬영
+      토픽: /camera (640x480, 30fps)
+    -->
+    <model name="overhead_camera_mount">
+      <static>true</static>
+      <pose>1.18 0.64 2.3 0 1.5708 -1.5708</pose>
+      <link name="link">
+        <sensor name="overhead_cam" type="camera">
+          <camera>
+            <horizontal_fov>1.40</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10.0</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>30</update_rate>
+          <visualize>true</visualize>
+          <topic>/camera</topic>
+        </sensor>
+      </link>
+    </model>
+
+  </world>
+</sdf>
