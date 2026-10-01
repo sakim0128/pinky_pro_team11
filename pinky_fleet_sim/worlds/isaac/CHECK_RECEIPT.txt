@@ -1,0 +1,31 @@
+opencv 4.13.0  dict DICT_4X4_50  tol 3.0 px
+map5_arena_texture.png  size=[2360, 1280]  black=0.1179  corners={'TL': 0.278, 'TR': 0.285, 'BL': 0.285, 'BR': 0.292}
+   id=40  center=(180.5,140.5) side=89.0 px
+   id=41  center=(2180.5,139.5) side=89.0 px
+   id=42  center=(2180.5,1140.5) side=89.0 px
+   id=43  center=(180.5,1139.5) side=89.0 px
+map5_ground_truth_ortho.png  size=[2360, 1280]  black=0.1179  corners={'TL': 0.278, 'TR': 0.285, 'BL': 0.285, 'BR': 0.292}
+   id=40  center=(180.5,140.5) side=89.0 px
+   id=41  center=(2180.5,139.5) side=89.0 px
+   id=42  center=(2180.5,1140.5) side=89.0 px
+   id=43  center=(180.5,1139.5) side=89.0 px
+PASS  map5_arena_texture.png:size  (got 2360x1280 want 2360x1280)
+PASS  map5_arena_texture.png:id40 detected once at manifest pixel  (near=1 total_with_id=1)
+PASS  map5_arena_texture.png:id40 no duplicate elsewhere  (extra=[])
+PASS  map5_arena_texture.png:id41 detected once at manifest pixel  (near=1 total_with_id=1)
+PASS  map5_arena_texture.png:id41 no duplicate elsewhere  (extra=[])
+PASS  map5_arena_texture.png:id42 detected once at manifest pixel  (near=1 total_with_id=1)
+PASS  map5_arena_texture.png:id42 no duplicate elsewhere  (extra=[])
+PASS  map5_arena_texture.png:id43 detected once at manifest pixel  (near=1 total_with_id=1)
+PASS  map5_arena_texture.png:id43 no duplicate elsewhere  (extra=[])
+PASS  map5_ground_truth_ortho.png:size  (got 2360x1280 want 2360x1280)
+PASS  map5_ground_truth_ortho.png:id40 detected once at manifest pixel  (near=1 total_with_id=1)
+PASS  map5_ground_truth_ortho.png:id40 no duplicate elsewhere  (extra=[])
+PASS  map5_ground_truth_ortho.png:id41 detected once at manifest pixel  (near=1 total_with_id=1)
+PASS  map5_ground_truth_ortho.png:id41 no duplicate elsewhere  (extra=[])
+PASS  map5_ground_truth_ortho.png:id42 detected once at manifest pixel  (near=1 total_with_id=1)
+PASS  map5_ground_truth_ortho.png:id42 no duplicate elsewhere  (extra=[])
+PASS  map5_ground_truth_ortho.png:id43 detected once at manifest pixel  (near=1 total_with_id=1)
+PASS  map5_ground_truth_ortho.png:id43 no duplicate elsewhere  (extra=[])
+0/18 assertions failed
+

@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "texture": {
+    "file": "map5_arena_texture.png",
+    "ground_truth_file": "map5_ground_truth_ortho.png",
+    "resolution_px": [
+      2360,
+      1280
+    ],
+    "scale": "1mm_per_px",
+    "arena_size_m": [
+      2.36,
+      1.28
+    ],
+    "source_geometry": "map5_with_lanes_hi.png",
+    "generation_method": "deterministic geometry resize + OpenCV DICT_4X4_50 canonical marker rendering"
+  },
+  "map5": {
+    "resolution_m_per_cell": 0.01,
+    "origin": [
+      -0.01,
+      -0.01,
+      0.0
+    ],
+    "lane_width_m": 0.2,
+    "nodes_m": {
+      "BL": [
+        0.2,
+        0.2
+      ],
+      "BR": [
+        2.15,
+        0.2
+      ],
+      "TR": [
+        2.15,
+        1.08
+      ],
+      "J": [
+        1.18,
+        0.64
+      ]
+    }
+  },
+  "aruco": {
+    "dictionary": "DICT_4X4_50",
+    "rendered_side_px": 90,
+    "nominal_side_m": 0.09
+  },
+  "reference_markers_m": {
+    "40": {
+      "pixel": [
+        180.5,
+        140.0
+      ],
+      "meter": [
+        0.18,
+        1.14
+      ]
+    },
+    "41": {
+      "pixel": [
+        2180.2,
+        139.2
+      ],
+      "meter": [
+        2.18,
+        1.14
+      ]
+    },
+    "42": {
+      "pixel": [
+        2180.0,
+        1140.0
+      ],
+      "meter": [
+        2.18,
+        0.14
+      ]
+    },
+    "43": {
+      "pixel": [
+        180.0,
+        1139.8
+      ],
+      "meter": [
+        0.18,
+        0.14
+      ]
+    }
+  },
+  "ros2_frame_alignment": {
+    "world_origin": "lower-left",
+    "world_x": "right",
+    "world_y": "up",
+    "image_origin": "upper-left",
+    "image_x": "right",
+    "image_y": "down",
+    "pixel_to_world_note": "image top corresponds to +Y/north; image bottom corresponds to lower Y/south",
+    "pixel_to_meter_nominal": {
+      "x_m": "x_px / 1000",
+      "y_m": "(1280 - y_px) / 1000"
+    }
+  }
+}
