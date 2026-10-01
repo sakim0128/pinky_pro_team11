@@ -1768,20 +1768,56 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                                             'message': '비전 미션 모드가 아니다 — 게이트웨이를 --vision 으로 띄운다'},
                                            ensure_ascii=False).encode('utf-8'), code=409)
                 return
+            custom = req_json.get('custom')
             name = str(req_json.get('name', '')).strip()
-            if name not in coord.vision_cfg.scenarios:
+            if isinstance(custom, dict):
+                # 웹 직접 설정 (저장 안 함) — 검증은 코디네이터가 한다 (scenario_from_dict)
+                payload = {'cmd': 'scenario', 'name': 'custom', 'custom': custom}
+                label = '직접 설정'
+            elif name not in coord.vision_cfg.scenarios and not (name == 'custom' and coord.vision_custom is not None):
                 self._send_json(json.dumps({'success': False, 'reason': 'UNKNOWN_SCENARIO', 'command': 'scenario',
                                             'message': '그런 시나리오가 없다: %r (있는 것: %s)'
                                                        % (name, ', '.join(coord.vision_cfg.scenarios))},
                                            ensure_ascii=False).encode('utf-8'), code=404)
                 return
-            payload = {'cmd': 'scenario', 'name': name}
+            else:
+                payload = {'cmd': 'scenario', 'name': name}
+                label = name
             seq0 = coord.control_seq
             GLOBAL_ROBOT_SUB_NODE.send_fleet_control(payload)
-            code, body = applied_reply(wait_control_result(coord, seq0, 'scenario'),
-                                       {'command': 'scenario', 'payload': payload,
-                                        'message': '시나리오 %s 시작' % name})
+            result = wait_control_result(coord, seq0, 'scenario')
+            code, body = applied_reply(result, {'command': 'scenario', 'payload': payload,
+                                                'message': '시나리오 %s 시작' % label})
+            if isinstance(result, dict) and result.get('error'):
+                body['message'] = result['error']
             self._send_json(json.dumps(body, ensure_ascii=False).encode('utf-8'), code=code)
+            return
+
+        # 3-B4. 비전 미션 시나리오 저장·삭제 (/api/fleet/scenario/save {"name", "scenario"} · /delete {"name"})
+        #       로봇을 움직이지 않지만 관제 설정을 바꾸므로 제어권 정책을 탄다. 저장 파일: vision_mission_user.yaml
+        elif parsed.path in ('/api/fleet/scenario/save', '/api/fleet/scenario/delete'):
+            action = parsed.path.rsplit('/', 1)[-1]
+            if self._deny_if_cannot_move('remote fleet scenario ' + action, {'command': 'scenario_' + action}):
+                return
+            coord = GLOBAL_FLEET_COORDINATOR
+            if coord is None or not hasattr(coord, 'save_user_scenario'):
+                self._send_json(json.dumps({'success': False, 'reason': 'NOT_VISION_MODE', 'command': 'scenario_' + action,
+                                            'message': '비전 미션 모드가 아니다 — 게이트웨이를 --vision 으로 띄운다'},
+                                           ensure_ascii=False).encode('utf-8'), code=409)
+                return
+            name = str(req_json.get('name', '')).strip()
+            if action == 'save':
+                scenario = req_json.get('scenario')
+                if not isinstance(scenario, dict):
+                    ok, msg = False, 'scenario 가 없다'
+                else:
+                    ok, msg = coord.save_user_scenario(name, scenario)
+            else:
+                ok, msg = coord.delete_user_scenario(name)
+            self._send_json(json.dumps({'success': bool(ok), 'command': 'scenario_' + action, 'name': name,
+                                        'message': ('저장했다: %s' % msg if action == 'save' else '지웠다: %s' % msg)
+                                        if ok else msg},
+                                       ensure_ascii=False).encode('utf-8'), code=200 if ok else 400)
             return
 
         # 3-C. 관제국 멀티로봇 플릿 제어 API (/api/fleet/start, /api/fleet/stop, /api/fleet/estop, /api/fleet/resume, /api/fleet/assign)
@@ -2418,6 +2454,29 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', 'image/png')
             self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        elif parsed.path == '/api/fleet/poses':
+            # 비전 미션 위치 표시 (천장 카메라 없음) — 가벼운 위치만, 웹이 0.2 s 마다 가져간다
+            coord = GLOBAL_FLEET_COORDINATOR
+            if coord is None or not hasattr(coord, 'vision_poses'):
+                self._send_json(json.dumps({'robots': {}, 'error': 'NO_VISION_COORDINATOR'}).encode('utf-8'), code=404)
+                return
+            self._send_json(json.dumps(coord.vision_poses(), ensure_ascii=False).encode('utf-8'))
+            return
+        elif parsed.path == '/api/fleet/vision_map.png':
+            path = getattr(GLOBAL_FLEET_COORDINATOR, 'vision_course_image', '') if GLOBAL_FLEET_COORDINATOR else ''
+            if not path or not os.path.isfile(path):
+                self.send_response(404)
+                self.end_headers()
+                return
+            with open(path, 'rb') as fh:
+                data = fh.read()
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Cache-Control', 'max-age=60')
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)

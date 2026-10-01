@@ -282,3 +282,46 @@ body.control-held [data-moving]:not(#control-acquire):not(#control-release) { op
 .camera-main.media-missing-host .media-label { display: none; }
 /* 미션 사다리의 '해당 없음'(미구현 단계) */
 .scenario-step.na { opacity: .5; }
+
+/* 비전 미션 (2026-09-30): 항공뷰·지도·경로 배정은 숨기고 시나리오 패널을 넓게 */
+body.vision-mode [data-hide-vision] { display: none !important; }
+body.vision-mode .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+body.vision-mode .mission-toolbar { flex-direction: column; align-items: stretch; }
+body.vision-mode .mission-toolbar .vision-panel { width: 100%; }
+body.vision-mode .map-card, body.vision-mode .camera-summary { min-height: 0; }
+.vision-panel { display: grid; gap: 12px; margin: 12px 0; }
+.vision-panel[hidden] { display: none; }
+.vision-block { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface-2); }
+.vision-block h3 { margin: 0; font-size: 14px; }
+.vision-block .button-row { margin-top: 8px; flex-wrap: wrap; }
+.scenario-chip { display: inline-flex; gap: 4px; align-items: center; }
+.scenario-chip .btn.small { min-height: 30px; padding: 4px 8px; font-size: 12px; }
+.vision-custom-row { display: grid; grid-template-columns: 110px repeat(4, minmax(0, 1fr)); gap: 8px; align-items: center;
+  padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+.vision-custom-row label { display: flex; gap: 6px; align-items: center; font-weight: 750; }
+.vision-custom-row select, .vision-custom-row input, .vision-custom-actions input {
+  min-height: 32px; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; background: var(--surface); }
+.vision-custom-row .field { display: grid; gap: 2px; }
+.vision-custom-row .field span { font-size: 10px; color: var(--muted); font-weight: 700; }
+.vision-custom-row.off { opacity: .5; }
+.vision-custom-actions input { min-width: 160px; }
+.vision-robot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-top: 8px; }
+.vision-robot { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+.vision-robot .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.vision-robot .steps { display: flex; gap: 4px; margin: 8px 0; }
+.vision-robot .steps span { flex: 1; text-align: center; font-size: 11px; padding: 4px 2px; border-radius: 6px;
+  background: var(--surface-2); color: var(--muted); border: 1px solid #edf1f6; }
+.vision-robot .steps span.done { background: var(--green-soft); color: var(--green); border-color: #c7eddf; }
+.vision-robot .steps span.now { background: var(--blue-soft); color: var(--blue); border-color: #c9dafc; font-weight: 800; }
+.vision-robot .data-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; }
+.vision-robot .data-row span { color: var(--muted); }
+@media (max-width: 760px) {
+  .vision-custom-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* 비전 모드 위치 표시 (vision-map-card) */
+.vision-map-card .fleet-map-wrap { min-height: 0; background: #fff; }
+.vision-map-card .fleet-map-wrap canvas { height: auto; min-height: 0; aspect-ratio: 1003 / 625; }
+.vision-pose-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; margin: 0 14px 14px; font-size: 12px; }
+.vision-pose-rows .row { border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; display: grid; gap: 2px; }
+.vision-pose-rows .row .muted { color: var(--muted); }

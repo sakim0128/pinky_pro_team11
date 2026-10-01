@@ -219,7 +219,8 @@
       extVision,
       poseSource: (diagRobot(index) || {}).pose_source || null,
       name: robotName(key),
-      localized: s.localized ?? !f.is_unlocalized,
+      // 비전 미션(카메라 차선 주행)은 위치추정이 없는 게 정상 — "위치 모름" 으로 빨강·회색을 칠하지 않는다(null = 해당 없음)
+      localized: state.fleet?.mode === "vision" ? null : (s.localized ?? !f.is_unlocalized),
       x: s.x,
       y: s.y,
       yaw: s.yaw,
@@ -297,9 +298,11 @@
             <div class="kpi"><span>도착</span><strong title="${esc(r.arrival)}">${esc(ko("arrival", r.arrival))}</strong></div>
           </div>
           <div class="robot-detail-grid">
-            <div class="data-row"><span>운영 위치</span><strong>${r.localized === false ? "위치 모름(미정위)" : pos}</strong></div>
+            <div class="data-row"><span>운영 위치</span><strong>${r.localized === false ? "위치 모름(미정위)" : r.localized === null ? "위치추정 없음(비전 차선 주행)" : pos}</strong></div>
             <div class="data-row"><span>관제 위치 융합</span><strong>${esc(r.fixWord)}</strong></div>
             <div class="data-row"><span>관제 ↔ 오돔 오차</span><strong>${deltaText(r)}</strong></div>
+            <div class="data-row"><span>위치 출처</span><strong>${esc(ko("pose", r.poseSource || "미수신"))}</strong></div>
+            <div class="data-row"><span>외부 위치 측정</span><strong>${esc(r.vision?.state ? ko("vision", r.vision.state) : "미수신")}</strong></div>
             <div class="data-row"><span>경로 진행</span><strong>${progress}</strong></div>
             <div class="data-row"><span>경로 이탈</span><strong>${typeof r.cte === "number" ? Math.round(r.cte*100)+" cm" : "—"}</strong></div>
             <div class="data-row"><span>대기 사유</span><strong>${r.waitingFor ? esc(r.waitingFor) + (r.blockedBy ? ` (${esc(r.blockedBy)} 통과 중)` : "") : "없음"}</strong></div>
@@ -1066,42 +1069,274 @@
   }
 
   // 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼과 교차로 통행권. /api/fleet/status 의 mode·vision 만 본다.
+  //   항공뷰 없이 카메라 차선 주행 — 지도·항공뷰·경로 배정은 숨기고([data-hide-vision]) 시나리오 패널(프리셋·직접 설정·저장)을 쓴다.
   const VISION_STAGE = {"vision:approach": "교차로로 가는 중", "vision:junction": "교차로 동작 중",
                         "vision:after_junction": "교차로 통과 — 목적지로", "vision:arrived": "도착"};
+  const VISION_STEPS = [["vision:approach", "출발"], ["vision:junction", "교차로"], ["vision:after_junction", "목적지로"], ["vision:arrived", "도착"]];
+  const DIR_LABEL = {straight: "직진", left: "좌회전", right: "우회전"};
+  function visionRouteDir(course, start, goal) {
+    const r = (course?.routes || []).find(x => x.start === start && x.goal === goal);
+    return r ? r.direction : "";
+  }
   function renderVision() {
     const panel = $("vision-panel");
     if (!panel) return;
     const f = state.fleet || {};
     const v = f.mode === "vision" ? f.vision : null;
     panel.hidden = !v;
-    if ($("summary-mode")) $("summary-mode").textContent = v ? "비전 차선 주행 + 교차로 통행권" : "Nav2 이동 + 도로망 예약";
+    document.body.classList.toggle("vision-mode", !!v);
+    if ($("vision-map-card")) $("vision-map-card").hidden = !(v && (v.map || v.map_error));
+    state.visionMap = v ? v.map : null;
+    if (v && !v.map && v.map_error && $("vision-map-empty")) $("vision-map-empty").textContent = "코스 파일 오류 — " + v.map_error;
+    if (v && document.querySelector('.nav-item.active[data-hide-vision]')) document.querySelector('.nav-item[data-tab="dashboard"]')?.click();
+    if ($("summary-mode")) $("summary-mode").textContent = v ? "비전 차선 주행 + 교차로 통행권 (항공뷰 없음)" : "Nav2 이동 + 도로망 예약";
     if (!v) return;
-    const host = $("vision-scenarios");
-    const key = (v.scenarios || []).map(s => s.name).join(",");
-    if (host && host.dataset.key !== key) {                 // 버튼은 목록이 바뀔 때만 다시 만든다(OPS-4)
-      host.innerHTML = (v.scenarios || []).map(s =>
-        `<button class="btn primary" data-scenario="${esc(s.name)}" data-moving="1" title="${esc(s.label)}">${esc(s.label.split("—")[0].trim() || s.name)} 시작</button>`).join("");
-      host.querySelectorAll("[data-scenario]").forEach(b => b.addEventListener("click", () => scenarioAction(b.dataset.scenario, b.title)));
-      host.dataset.key = key;
-      applyViewOnly();
-    }
+    renderVisionScenarios(v);
+    renderVisionCustom(v);
     const run = v.run;
     const st = $("vision-status");
     if (st) {
-      if (!run) st.textContent = "시나리오 대기 — 버튼을 누르면 로봇에 교차로 계획을 보내고 출발한다";
-      else st.textContent = `${run.label} · 통행권: ${run.holder || "비어 있음"} · 대기: ${(run.queue || []).join(", ") || "없음"}`
-                            + ` · 통과 순서: ${(run.grant_order || []).join(" → ") || "—"}${run.done ? " · 완료" : ""}`;
+      const err = v.error ? ` · ⛔ ${v.error}` : "";
+      if (!run) st.textContent = "시나리오 대기 — 버튼을 누르면 로봇에 교차로 계획을 보내고 출발한다" + err;
+      else {
+        const pass = run.skip_clearance ? "로봇 1대 — 교차로 1 s 정지 뒤 허가 없이 출발"
+          : `통행권: ${run.holder || "비어 있음"} · 대기: ${(run.queue || []).join(", ") || "없음"} · 통과 순서: ${(run.grant_order || []).join(" → ") || "—"}`;
+        const arrive = run.arrival_mode === "marker" ? `도착: 벽 마커 ${Math.round((run.arrive_distance || 0) * 100)} cm 앞` : "도착: 흰 정지선";
+        st.textContent = `${run.label} · ${pass} · ${arrive}${run.done ? " · 완료" : ""}${err}`;
+      }
     }
     const rows = $("vision-robots");
-    if (rows) {
-      rows.innerHTML = run ? Object.entries(run.robots || {}).map(([n, r]) => {
-        const stage = VISION_STAGE[r.stage] || r.stage || "—";
-        const depart = r.depart_in > 0 ? ` · 출발까지 ${r.depart_in}s` : "";
-        const sl = r.stop_line_count ? `${r.stop_line_count}번째 정지선` : "정지선 수 미정(통행권 순서로)";
-        return `<div class="config-row"><span>${esc(n)} ${esc(r.start)}→${esc(r.goal)}</span>`
-             + `<strong>${esc(stage)} · ${esc(ko("drive", r.drive_state))} · 통과 ${r.clearance ? "허가" : "대기"} · ${esc(sl)}${esc(depart)}</strong></div>`;
-      }).join("") : "";
+    if (rows) rows.innerHTML = run ? Object.entries(run.robots || {}).map(([n, r]) => visionRobotCard(n, r, run)).join("") : "";
+  }
+
+  // ---- 비전 모드 위치 표시 (/api/fleet/poses, 0.2 s) — 천장 카메라 없이 odom + 코스 모양 추정
+  const POSE_COLOR = {pinky1: "#d64545", pinky2: "#2f6fdc"};
+  const visionImg = new Image();
+  let visionImgSrc = "", posesBusy = false;
+  function drawVisionMap(poses) {
+    const cv = $("vision-map");
+    const m = state.visionMap;
+    if (!cv || !m) return;
+    if (m.image_url && visionImgSrc !== m.image_url) { visionImgSrc = m.image_url; visionImg.src = m.image_url; }
+    const ctx = cv.getContext("2d");
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    if (visionImg.complete && visionImg.naturalWidth) ctx.drawImage(visionImg, 0, 0, cv.width, cv.height);
+    const sx = cv.width / (visionImg.naturalWidth || cv.width), sy = cv.height / (visionImg.naturalHeight || cv.height);
+    const robots = Object.entries((poses && poses.robots) || {});
+    if ($("vision-map-empty")) $("vision-map-empty").hidden = robots.length > 0;
+    for (const [name, p] of robots) {
+      const x = p.px * sx, y = p.py * sy, c = POSE_COLOR[name] || "#333";
+      const stale = p.age == null || p.age > 1.5;
+      ctx.globalAlpha = stale ? 0.4 : 1;
+      ctx.fillStyle = c; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 20 * Math.cos(p.yaw), y - 20 * Math.sin(p.yaw)); ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = "#111"; ctx.font = "bold 12px sans-serif"; ctx.fillText(name.replace("pinky", "P"), x + 13, y - 11);
+      ctx.globalAlpha = 1;
     }
+    const rows = $("vision-pose-rows");
+    if (rows) rows.innerHTML = robots.map(([name, p]) => `<div class="row">
+        <strong style="color:${POSE_COLOR[name] || "#333"}">${esc(name)} ${esc(p.start)} → ${esc(p.goal)}</strong>
+        <span>x ${p.x.toFixed(2)} m · y ${p.y.toFixed(2)} m · ${p.mode === "free" ? "교차로 동작(odom)" : "코스 위 " + p.s.toFixed(2) + " / " + p.route_length.toFixed(2) + " m"}</span>
+        <span class="muted">마지막 맞춤: ${esc(p.fix)} · 그 뒤 ${p.travel_since_fix.toFixed(2)} m${p.age == null ? " · odom 없음" : (p.age > 1.5 ? ` · ${p.age.toFixed(1)} s 끊김` : "")}</span>
+      </div>`).join("");
+  }
+  async function refreshPoses() {
+    if (posesBusy || !document.body.classList.contains("vision-mode") || !state.visionMap) return;
+    posesBusy = true;
+    try {
+      const r = await fetch("/api/fleet/poses", {cache: "no-store"});
+      if (r.ok) drawVisionMap(await r.json());
+    } catch (e) { /* 연결 끊김은 상단 연결 표시가 알린다 */ }
+    finally { posesBusy = false; }
+  }
+  visionImg.onload = () => refreshPoses();
+  setInterval(refreshPoses, 200);
+
+  function visionRobotCard(n, r, run) {
+    const idx = VISION_STEPS.findIndex(x => x[0] === r.stage);
+    const steps = VISION_STEPS.map(([k, label], i) =>
+      `<span class="${r.arrived || i < idx ? "done" : (i === idx ? "now" : "")}">${esc(label)}</span>`).join("");
+    const tone = r.arrived ? "ok" : ([5, 8, 9, 10].includes(r.drive_state) ? "warn" : ([12, 13, 3].includes(r.drive_state) ? "pending" : "neutral"));
+    const depart = r.depart_in > 0 ? `출발까지 ${r.depart_in} s` : "출발함";
+    const pass = run.skip_clearance ? "허가 불필요 (1대)" : (r.clearance ? "허가" : "대기");
+    let arrive;
+    if (r.goal_marker_id >= 0) arrive = `벽 마커 id ${r.goal_marker_id} · ${Math.round((run.arrive_distance || 0) * 100)} cm`;
+    else arrive = r.stop_line_count ? `${r.stop_line_count}번째 정지선` : "정지선 수 미정(통행권 순서로)";
+    if (r.arrive_on_obstacle && !r.arrived) arrive += " · 앞 로봇 뒤 정지 = 도착";
+    return `<div class="vision-robot">
+        <div class="head"><strong>${esc(n)} ${esc(r.start)} → ${esc(r.goal)}</strong>
+          <span class="status-pill ${tone}" title="${esc(r.reason || "")}">${esc(ko("drive", r.drive_state))}</span></div>
+        <div class="steps">${steps}</div>
+        <div class="data-row"><span>교차로</span><strong>${esc(r.direction_label || r.direction || r.maneuver || "—")}</strong></div>
+        <div class="data-row"><span>통과</span><strong>${esc(pass)}</strong></div>
+        <div class="data-row"><span>도착 판정</span><strong>${esc(arrive)}</strong></div>
+        <div class="data-row"><span>단계</span><strong>${esc(VISION_STAGE[r.stage] || r.stage || "—")} · ${esc(depart)}</strong></div>
+        <div class="data-row"><span>사유</span><strong class="muted">${esc(r.reason || "—")}</strong></div>
+      </div>`;
+  }
+
+  function renderVisionScenarios(v) {
+    const host = $("vision-scenarios");
+    if (!host) return;
+    const list = v.scenarios || [];
+    const key = list.map(s => s.name + ":" + s.source + ":" + s.label).join(",");
+    if (host.dataset.key === key) return;                  // 버튼은 목록이 바뀔 때만 다시 만든다(OPS-4)
+    host.innerHTML = list.map(s => {
+      const short = (s.label.split("—")[0].trim() || s.name);
+      const robots = Object.entries(s.robots || {}).map(([n, r]) => `${n} ${r.start}→${r.goal} ${r.direction_label || ""}`).join(" / ");
+      const del = s.source === "user"
+        ? `<button class="btn small" data-scenario-del="${esc(s.name)}" data-moving="1" title="저장한 시나리오 지우기">삭제</button>` : "";
+      return `<span class="scenario-chip">
+          <button class="btn primary" data-scenario="${esc(s.name)}" data-moving="1" title="${esc(s.label + " — " + robots)}">${esc(short)}${s.source === "user" ? " (저장)" : ""} 시작</button>
+          <button class="btn small" data-scenario-load="${esc(s.name)}" title="직접 설정 칸에 불러오기">불러오기</button>${del}</span>`;
+    }).join("");
+    host.querySelectorAll("[data-scenario]").forEach(b => b.addEventListener("click", () => scenarioAction(b.dataset.scenario, b.title)));
+    host.querySelectorAll("[data-scenario-del]").forEach(b => b.addEventListener("click", () => scenarioDelete(b.dataset.scenarioDel)));
+    host.querySelectorAll("[data-scenario-load]").forEach(b => b.addEventListener("click", () => scenarioLoad(b.dataset.scenarioLoad)));
+    host.dataset.key = key;
+    applyViewOnly();
+  }
+
+  function renderVisionCustom(v) {
+    const host = $("vision-custom-rows");
+    const course = v.course;
+    if (!host || !course) return;
+    const key = (course.robots || []).join(",") + "|" + (course.points || []).join(",");
+    if (host.dataset.key !== key) {                         // 폼은 한 번만 만든다 — 고르는 중인 값을 지우지 않게
+      const pts = course.points || [];
+      const opt = (sel) => pts.map(p => `<option value="${esc(p)}" ${p === sel ? "selected" : ""}>${esc(p)}번</option>`).join("");
+      host.innerHTML = (course.robots || []).map((n, i) => {
+        const start = pts[i % pts.length] || "", goal = pts[(i + 1) % pts.length] || "";
+        return `<div class="vision-custom-row" data-custom-robot="${esc(n)}">
+            <label><input type="checkbox" data-custom="enabled" ${i === 0 ? "checked" : ""} data-moving="1"> ${esc(n)}</label>
+            <div class="field"><span>출발</span><select data-custom="start" data-moving="1">${opt(start)}</select></div>
+            <div class="field"><span>목적</span><select data-custom="goal" data-moving="1">${opt(goal)}</select></div>
+            <div class="field"><span>교차로 방향</span><select data-custom="direction" data-moving="1">
+              <option value="">자동</option>${(course.directions || []).map(d => `<option value="${d}">${esc(DIR_LABEL[d] || d)}</option>`).join("")}</select></div>
+            <div class="field"><span>출발 지연 (s)</span><input type="number" min="0" max="600" step="1" value="0" data-custom="depart_delay" data-moving="1"></div>
+          </div>`;
+      }).join("");
+      host.addEventListener("change", () => updateCustomHints(course));
+      host.dataset.key = key;
+      $("vision-custom-start")?.addEventListener("click", customStart);
+      $("vision-custom-save")?.addEventListener("click", customSave);
+      applyViewOnly();
+    }
+    host._course = course;
+    updateCustomHints(course);
+    const note = $("vision-custom-note");
+    if (note && course.arrival) {
+      const a = course.arrival;
+      note.textContent = "출발·목적 지점을 고르면 교차로 방향은 경로 표에서 정해진다(자동). 쓰지 않는 로봇은 체크를 푼다. "
+        + (a.mode === "marker" ? `도착: 목적지 벽 ArUco 마커(${Object.entries(a.markers || {}).map(([pt, id]) => `${pt}번→id ${id}`).join(", ")}) ${Math.round(a.arrive_distance * 100)} cm 앞.` : "도착: 흰 정지선.")
+        + " 2대면 교차로 통행권, 1대면 1 s 정지 뒤 출발.";
+    }
+  }
+
+  function updateCustomHints(course) {
+    document.querySelectorAll("[data-custom-robot]").forEach(row => {
+      const on = row.querySelector('[data-custom="enabled"]').checked;
+      row.classList.toggle("off", !on);
+      const start = row.querySelector('[data-custom="start"]').value, goal = row.querySelector('[data-custom="goal"]').value;
+      const auto = row.querySelector('[data-custom="direction"] option[value=""]');
+      const d = visionRouteDir(course, start, goal);
+      if (auto) auto.textContent = start === goal ? "자동 — 출발=목적" : (d ? `자동 (${DIR_LABEL[d] || d})` : "자동 — 경로 표에 없음");
+    });
+  }
+
+  function collectCustom() {
+    const robots = {};
+    document.querySelectorAll("[data-custom-robot]").forEach(row => {
+      if (!row.querySelector('[data-custom="enabled"]').checked) return;
+      const r = {};
+      ["start", "goal", "direction", "depart_delay"].forEach(k => { r[k] = row.querySelector(`[data-custom="${k}"]`).value; });
+      if (!r.direction) delete r.direction;
+      r.depart_delay = Number(r.depart_delay) || 0;
+      robots[row.dataset.customRobot] = r;
+    });
+    const label = ($("vision-custom-label")?.value || "").trim();
+    const out = {robots};
+    if (label) out.label = label;
+    return out;
+  }
+
+  function customCheck(sc) {
+    const names = Object.keys(sc.robots);
+    if (!names.length) return "로봇을 하나 이상 고른다";
+    const same = names.find(n => sc.robots[n].start === sc.robots[n].goal);
+    if (same) return `${same}: 출발과 목적이 같다`;
+    return "";
+  }
+
+  async function customStart() {
+    if (DEMO) return;
+    const msg = $("vision-custom-msg");
+    const sc = collectCustom();
+    const bad = customCheck(sc);
+    if (bad) { msg.textContent = "⛔ " + bad; return; }
+    const desc = Object.entries(sc.robots).map(([n, r]) => `${n}: ${r.start} → ${r.goal}${r.depart_delay ? ` (+${r.depart_delay}s)` : ""}`).join("\n");
+    if (!window.confirm(`직접 설정으로 시작합니다.\n${desc}\n로봇을 출발 지점에 놓았나요?`)) return;
+    try {
+      const r = await postJson("/api/fleet/scenario", {custom: sc});
+      msg.textContent = (r.success ? "✅ " : "⚠️ ") + (r.message || "") + (r.applied === null ? " (적용 여부 모름)" : "");
+    } catch (e) {
+      msg.textContent = "⛔ " + e.message;
+    }
+    refresh();
+  }
+
+  async function customSave() {
+    if (DEMO) return;
+    const msg = $("vision-custom-msg");
+    const name = ($("vision-custom-name")?.value || "").trim();
+    if (!name) { msg.textContent = "⛔ 저장 이름을 적는다"; return; }
+    const sc = collectCustom();
+    const bad = customCheck(sc);
+    if (bad) { msg.textContent = "⛔ " + bad; return; }
+    const exists = (state.fleet?.vision?.scenarios || []).some(s => s.name === name && s.source === "user");
+    if (exists && !window.confirm(`'${name}' 이(가) 이미 있습니다. 덮어쓸까요?`)) return;
+    try {
+      const r = await postJson("/api/fleet/scenario/save", {name, scenario: sc});
+      msg.textContent = "✅ " + (r.message || "저장했다");
+    } catch (e) {
+      msg.textContent = "⛔ 저장 실패: " + e.message;
+    }
+    refresh();
+  }
+
+  async function scenarioDelete(name) {
+    if (DEMO) return;
+    if (!window.confirm(`저장한 시나리오 '${name}' 을(를) 지웁니다.`)) return;
+    const msg = $("vision-custom-msg");
+    try {
+      const r = await postJson("/api/fleet/scenario/delete", {name});
+      if (msg) msg.textContent = "✅ " + (r.message || "지웠다");
+    } catch (e) {
+      if (msg) msg.textContent = "⛔ 삭제 실패: " + e.message;
+    }
+    refresh();
+  }
+
+  function scenarioLoad(name) {
+    const s = (state.fleet?.vision?.scenarios || []).find(x => x.name === name);
+    if (!s) return;
+    const raw = s.raw?.robots || {};
+    document.querySelectorAll("[data-custom-robot]").forEach(row => {
+      const r = raw[row.dataset.customRobot];
+      row.querySelector('[data-custom="enabled"]').checked = !!r;
+      if (!r) return;
+      row.querySelector('[data-custom="start"]').value = String(r.start);
+      row.querySelector('[data-custom="goal"]').value = String(r.goal);
+      row.querySelector('[data-custom="direction"]').value = r.direction || "";
+      row.querySelector('[data-custom="depart_delay"]').value = Number(r.depart_delay) || 0;
+    });
+    if ($("vision-custom-name")) $("vision-custom-name").value = s.source === "user" ? s.name : "";
+    if ($("vision-custom-label")) $("vision-custom-label").value = s.label || "";
+    const host = $("vision-custom-rows");
+    if (host?._course) updateCustomHints(host._course);
+    const msg = $("vision-custom-msg");
+    if (msg) msg.textContent = `'${s.label}' 을(를) 불러왔다 — 바꾼 뒤 시작하거나 저장한다`;
   }
 
   async function scenarioAction(name, label) {

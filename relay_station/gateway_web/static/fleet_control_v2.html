@@ -36,7 +36,7 @@
     <nav class="primary-nav" aria-label="Pinky Fleet Control sections">
       <button class="nav-item active" data-tab="dashboard">대시보드</button>
       <button class="nav-item" data-tab="mission">미션 / 시나리오</button>
-      <button class="nav-item" data-tab="navigation">맵 / 내비게이션</button>
+      <button class="nav-item" data-tab="navigation" data-hide-vision>맵 / 내비게이션</button>
       <button class="nav-item" data-tab="vision">비전 / 마커</button>
       <button class="nav-item" data-tab="communications">통신</button>
       <button class="nav-item" data-tab="diagnostics">로봇 진단</button>
@@ -64,11 +64,31 @@
             <button class="btn danger" data-command="estop">비상정지</button>
             <button class="btn warn" id="btn-fault-pose-block" style="margin-left:auto;" title="관제 위치(overhead_pose) 전송을 차단하여 로봇이 3초 뒤 데드맨으로 정지하는지 검증">⚠️ 관제 위치 전송 차단 (고장 주입 테스트)</button>
           </div>
-          <!-- 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼 · 교차로 통행권. 비전 모드가 아니면 숨는다 -->
+          <!-- 비전 미션 (2026-09-30, 게이트웨이 --vision): 시나리오 버튼 · 교차로 통행권. 비전 모드가 아니면 숨는다.
+               비전 모드에서는 항공뷰(중계 탑뷰)·지도·경로 배정([data-hide-vision])을 숨긴다 — 위치 없이 카메라 차선 주행이다. -->
           <div class="vision-panel" id="vision-panel" hidden>
-            <div class="button-row" id="vision-scenarios"></div>
-            <p class="muted" id="vision-status">—</p>
-            <div id="vision-robots"></div>
+            <div class="vision-block">
+              <h3>시나리오</h3>
+              <p class="muted">프리셋(vision_mission.yaml)과 웹에서 저장한 시나리오. 누르면 로봇에 교차로 계획을 보내고 출발한다.</p>
+              <div class="button-row" id="vision-scenarios"></div>
+            </div>
+            <div class="vision-block" id="vision-custom">
+              <h3>직접 설정</h3>
+              <p class="muted" id="vision-custom-note">출발·목적 지점을 고르면 교차로 방향은 경로 표에서 정해진다. 쓰지 않는 로봇은 체크를 푼다.</p>
+              <div id="vision-custom-rows"></div>
+              <div class="button-row vision-custom-actions">
+                <input type="text" id="vision-custom-name" placeholder="저장 이름 (예: run_3to2)" maxlength="40" aria-label="저장 이름" data-moving="1">
+                <input type="text" id="vision-custom-label" placeholder="설명 (선택)" maxlength="80" aria-label="설명" data-moving="1">
+                <button class="btn primary" id="vision-custom-start" data-moving="1">이대로 시작</button>
+                <button class="btn" id="vision-custom-save" data-moving="1">저장</button>
+              </div>
+              <p class="muted" id="vision-custom-msg"></p>
+            </div>
+            <div class="vision-block">
+              <h3>진행</h3>
+              <p class="muted" id="vision-status">—</p>
+              <div class="vision-robot-grid" id="vision-robots"></div>
+            </div>
           </div>
           <div class="toolbar-summary">
             <div><span>운영 방식</span><strong id="summary-mode">Nav2 이동 + 도로망 예약</strong></div>
@@ -79,7 +99,7 @@
         </div>
 
         <div class="dashboard-grid">
-          <article class="card map-card">
+          <article class="card map-card" data-hide-vision>
             <div class="card-head">
               <div>
                 <h2>Fleet Map</h2>
@@ -96,6 +116,25 @@
               <canvas id="fleet-map" width="980" height="520"></canvas>
               <div class="map-empty" id="map-empty">경로 좌표는 백엔드 연동 후 표시됩니다.</div>
             </div>
+          </article>
+
+          <!-- 비전 모드 전용: 천장 카메라 없이 odom + 코스 모양으로 추정한 핑키 위치 (표시 전용, 0.2 s 갱신) -->
+          <article class="card map-card vision-map-card" id="vision-map-card" hidden>
+            <div class="card-head">
+              <div>
+                <h2>핑키 위치 (추정)</h2>
+                <p>odom + 코스 모양으로 추정, 빨간 선·횡단보도·벽 마커 정지에서 다시 맞춘다 — 천장 카메라 없음, 표시 전용</p>
+              </div>
+              <div class="legend compact">
+                <span><i class="dot r1"></i>Pinky 1</span>
+                <span><i class="dot r2"></i>Pinky 2</span>
+              </div>
+            </div>
+            <div class="fleet-map-wrap">
+              <canvas id="vision-map" width="1003" height="625"></canvas>
+              <div class="map-empty" id="vision-map-empty">시나리오를 시작하면 위치가 보입니다</div>
+            </div>
+            <div class="vision-pose-rows" id="vision-pose-rows"></div>
           </article>
 
           <article class="card camera-summary">
@@ -253,7 +292,7 @@
           </div>
           <p class="muted" id="profile-msg">④ 태블릿 좌표계(마커 기준 좌표)는 태블릿 쪽에서 맞춥니다(T-11) — 아래 "중계 좌표 frame" 과 같은지 확인하세요.</p>
         </article>
-        <article class="card profile-card" id="assign-card">
+        <article class="card profile-card" id="assign-card" data-hide-vision>
           <div class="card-head">
             <div><h3>미션 배정 (시작 → 목적지)</h3>
               <p>도로망의 출발·도착 노드(endpoint) 중에서 로봇마다 고릅니다. 배정하면 경로가 새로 계산되고 출발은 하지 않습니다.

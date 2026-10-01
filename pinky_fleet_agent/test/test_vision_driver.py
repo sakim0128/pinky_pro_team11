@@ -84,19 +84,20 @@ def test_parse_steps():
 class VisionSim:
     """lane_only 드라이버 + 계획. 빨간 선은 x ≥ red_x 에서 보인다(교차로 통과 뒤로는 안 보인다고 둔다)."""
 
-    def __init__(self, steps=RIGHT, stop_line_count=1, red_x=1.0, params=None):
+    def __init__(self, steps=RIGHT, stop_line_count=1, red_x=1.0, params=None, **plan):
         p = params or DriverParams()
         p.lane_only = True
         p.control.v_max = 0.15
         self.d = LaneDriver(p)
         self.seq = 7
-        self.d.set_plan(self.seq, steps, stop_line_count)
+        self.d.set_plan(self.seq, steps, stop_line_count, **plan)
         self.x = self.y = self.yaw = 0.0
         self.t = 0.0
         self.clear = 0
         self.red_x = red_x
         self.quality = QUALITY_BOTH
         self.stop_line = False
+        self.markers = lambda: {}                                 # 이번 LanePath 의 {id: 거리}
         self.us = 1.0
         self.log = []
         self.d.set_command(CMD_START, self.t)
@@ -109,7 +110,7 @@ class VisionSim:
             if int(round(self.t / DT)) % 3 == 0:
                 red = self.x >= self.red_x and not self.d._junction_passed
                 self.d.set_lane_path(self.t, self.t, self.quality, 0.0, False,
-                                     red_line=red, stop_line=self.stop_line)
+                                     red_line=red, stop_line=self.stop_line, markers=self.markers())
             self.d.update_us(self.us)
             self.d.update_odom(self.t, self.x, self.y, self.yaw)
             out = self.d.tick(self.t, 0.0, 0.0, 0.0)
@@ -230,6 +231,126 @@ def test_lane_agent_params_expose_maneuver_group():
     assert params['guard']['box_x'] == pytest.approx(0.18)       # 라이다→앞면 8 cm + 10 cm
     src = open(os.path.join(here, 'pinky_fleet_agent', 'lane_agent_node.py'), encoding='utf-8').read()
     assert "'maneuver': p.maneuver" in src
+
+
+# ------------------------------------------------------------ 벽 ArUco 마커 도착 · 장애물
+
+def _to_after_junction(s):
+    s.run(12)
+    s.clear = 1
+    s.run(10, until=lambda o: o.state == CRUISE)
+    assert s.d._junction_passed
+    return s.x
+
+
+def test_marker_arrival_at_wall_distance():
+    s = VisionSim(steps=[('straight', 0.20)], stop_line_count=0, goal_marker_id=1, arrive_distance=0.15)
+    wall = [None]
+    s.markers = lambda: {} if wall[0] is None else {1: wall[0] - s.x, 3: 0.12}   # 다른 id(3)는 무시
+    x0 = _to_after_junction(s)
+    wall[0] = x0 + 0.60
+    out = s.run(15, until=lambda o: o.state == ARRIVED)
+    assert out.state == ARRIVED and '벽 마커 1' in out.reason and out.edge_id == 'vision:arrived'
+    assert 0.10 <= wall[0] - s.x <= 0.15
+    s.run(2.0)
+    assert s.log[-1][1].state == ARRIVED and s.log[-1][1].v == 0.0
+
+
+def test_goal_marker_arrives_even_before_junction():
+    """2026-09-30 사용자 결정: 목적지 마커는 교차로 통과와 무관하게 도착 (빨간 선을 놓쳐도 목적지 앞에서 선다)."""
+    s = VisionSim(steps=[('straight', 0.20)], goal_marker_id=2, red_x=99.0)   # 빨간 선을 못 봄
+    wall = [None]
+    s.markers = lambda: {} if wall[0] is None else {2: wall[0] - s.x}
+    s.run(2.0)
+    wall[0] = s.x + 0.50
+    out = s.run(10, until=lambda o: o.state == ARRIVED)
+    assert out.state == ARRIVED and '벽 마커 2' in out.reason and not s.d._junction_passed
+    assert 0.10 <= wall[0] - s.x <= 0.15
+
+
+def test_other_marker_before_junction_is_not_arrival():
+    s = VisionSim(steps=[('straight', 0.20)], goal_marker_id=2)
+    s.markers = lambda: {1: 0.05, 3: 0.05}                         # 목적지가 아닌 id 는 가까워도 무시
+    out = s.run(12)
+    assert out.state == JUNCTION_STOP and not s.d._arrived
+
+
+def test_marker_slows_down_near_wall():
+    s = VisionSim(steps=[('straight', 0.20)], goal_marker_id=1, arrive_distance=0.15)
+    wall = [None]
+    s.markers = lambda: {} if wall[0] is None else {1: wall[0] - s.x}
+    x0 = _to_after_junction(s)
+    s.run(2.0)
+    v_far = s.log[-1][1].v
+    wall[0] = s.x + 0.30
+    s.run(0.6)
+    assert s.log[-1][1].v < v_far * 0.75
+
+
+def test_obstacle_waits_then_resumes_when_not_arrival():
+    s = VisionSim(steps=[('straight', 0.20)], goal_marker_id=1)
+    _to_after_junction(s)
+    s.us = 0.08
+    out = s.run(2.0)
+    assert out.state == OBSTACLE_WAIT and out.v == 0.0 and not s.d._arrived
+    s.us = 1.0
+    out = s.run(2.0)
+    assert out.state == CRUISE and out.v > 0
+
+
+def test_arrive_on_obstacle_after_same_goal_robot_arrived():
+    s = VisionSim(steps=[('straight', 0.20)], goal_marker_id=1)
+    _to_after_junction(s)
+    s.d.set_plan(s.seq, [('straight', 0.20)], 0, goal_marker_id=1, arrive_on_obstacle=True)   # 관제: 앞 로봇 도착
+    assert s.d._junction_passed                                    # 같은 seq — 진행 유지
+    s.us = 0.08
+    out = s.run(1.0, until=lambda o: o.state == ARRIVED)
+    assert out.state == ARRIVED and '앞 로봇' in out.reason
+    s.us = 1.0                                                     # 앞 로봇이 치워져도 다시 가지 않는다
+    s.run(2.0)
+    assert s.log[-1][1].state == ARRIVED and s.log[-1][1].v == 0.0
+
+
+def test_obstacle_with_goal_marker_close_is_arrival():
+    s = VisionSim(steps=[('straight', 0.20)], goal_marker_id=1, arrive_distance=0.15)
+    _to_after_junction(s)
+    s.markers = lambda: {1: 0.30}
+    s.us = 0.08
+    out = s.run(1.0, until=lambda o: o.state == ARRIVED)
+    assert out.state == ARRIVED and '장애물' in out.reason
+
+
+def test_skip_clearance_goes_after_stop_seconds():
+    s = VisionSim(steps=[('straight', 0.20)], skip_clearance=True)
+    s.run(15, until=lambda o: o.state == JUNCTION_PASS)
+    stops = [t for t, o in s.log if o.state == JUNCTION_STOP]
+    assert s.log[-1][1].state == JUNCTION_PASS and s.clear == 0
+    assert 0.95 <= max(stops) - min(stops) <= 1.2
+
+
+def test_ultrasonic_only_ignores_lidar():
+    from pinky_fleet_agent.obstacle_guard import GuardParams, ObstacleGuard
+    g = ObstacleGuard(GuardParams(use_lidar=False, us_stop=0.10))
+    g.update_scan([0.10] * 3, -0.1, 0.1)                           # 라이다 박스 안
+    g.update_us(0.50)
+    assert g.step(0.0) == (False, '') and g.step(0.1) == (False, '')
+    assert g.lidar_min == pytest.approx(0.10)                      # 기록은 한다
+    g.update_us(0.09)
+    g.update_us(0.09)
+    g.step(0.2)
+    blocked, reason = g.step(0.3)
+    assert blocked and '초음파' in reason and '라이다' not in reason
+    g2 = ObstacleGuard(GuardParams(use_lidar=True))
+    g2.update_scan([0.10] * 3, -0.1, 0.1)
+    g2.step(0.0)
+    assert g2.step(0.1)[0]
+
+
+def test_lane_only_launch_uses_ultrasonic_only():
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    xml = open(os.path.join(here, 'launch', 'lane_only.launch.xml'), encoding='utf-8').read()
+    assert '<arg name="use_lidar" default="False"' in xml
+    assert '<param name="guard.use_lidar" value="$(var use_lidar)"/>' in xml
 
 
 class ExitLineSim(VisionSim):

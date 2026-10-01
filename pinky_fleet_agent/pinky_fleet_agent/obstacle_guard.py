@@ -20,6 +20,7 @@ class GuardParams:
     confirm_count: int = 2           # 연속 감지 횟수
     clear_seconds: float = 1.0       # 이만큼 비어 있으면 해제
     lidar_offset_x: float = 0.0      # base_footprint 기준 라이다 위치 (필요하면 조정)
+    use_lidar: bool = True           # False 면 라이다는 기록(lidar_min)만 하고 정지 판정은 초음파만
 
 
 class ObstacleGuard:
@@ -77,7 +78,8 @@ class ObstacleGuard:
     def step(self, now):
         """(blocked, reason). 연속 confirm_count 감지로 걸리고 clear_seconds 비면 풀린다."""
         p = self.p
-        any_hit = self._lidar_hit or self._us_hit
+        lidar_hit = self._lidar_hit and p.use_lidar
+        any_hit = lidar_hit or self._us_hit
         if any_hit:
             self._hits += 1
             self._clear_since = None
@@ -93,7 +95,7 @@ class ObstacleGuard:
                     self._clear_since = None
         if self._blocked:
             parts = []
-            if self._lidar_hit and math.isfinite(self.lidar_min):
+            if lidar_hit and math.isfinite(self.lidar_min):
                 parts.append(f'라이다 {self.lidar_min:.2f}m')
             if self._us_hit:
                 parts.append(f'초음파 {self.us_range:.2f}m')

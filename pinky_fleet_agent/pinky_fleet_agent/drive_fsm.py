@@ -90,6 +90,7 @@ class Inputs:
     lane_visible: bool = True       # quality ∈ {BOTH, SINGLE, JUNCTION}
     lane_both: bool = True          # quality ∈ {BOTH, JUNCTION} — 탐색 복귀 조건
     arrived: bool = False
+    arrived_reason: str = ''
     travelled: float = 0.0          # 누적 주행거리 (m). 상태 진입 후 거리 계산에 쓴다
 
 
@@ -133,6 +134,10 @@ class DriveFsm:
             return self.state, 0.0, self.reason
         if not inp.link_ok or not inp.path_ok:
             self._enter(LINK_LOST, t, d, '관제 하트비트 끊김' if not inp.link_ok else 'LanePath 끊김')
+            return self.state, 0.0, self.reason
+        # 도착은 장애물보다 먼저 — 앞 로봇 뒤에서 장애물로 선 것을 도착으로 칠 때 OBSTACLE_WAIT 에 묶이지 않게 (둘 다 정지)
+        if inp.arrived:
+            self._enter(ARRIVED, t, d, inp.arrived_reason or '도착')
             return self.state, 0.0, self.reason
         if inp.obstacle:
             self._enter(OBSTACLE_WAIT, t, d, inp.obstacle_reason or '장애물')
@@ -227,10 +232,6 @@ class DriveFsm:
         if p.junction_stop and inp.junction_trigger and junction_relatch_ok:
             self._junction_stop_travel = d
             self._enter(JUNCTION_STOP, t, d, '교차로 정지 0.0/%.0fs' % p.junction_stop_seconds)
-            return self.state, 0.0, self.reason
-
-        if inp.arrived:
-            self._enter(ARRIVED, t, d, '도착')
             return self.state, 0.0, self.reason
 
         # 차선 쌍 탐색 (BOTH/JUNCTION 이 아닌 시간을 잰다 — 주행 상태에서만)

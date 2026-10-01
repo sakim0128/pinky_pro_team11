@@ -19,6 +19,7 @@ from dataclasses import replace
 from .drive_fsm import IDLE, JUNCTION_PASS, LANE_SEARCH, STATE_NAMES, DriveFsm, FsmParams, Inputs
 from .lane_control import (QUALITY_BOTH, QUALITY_JUNCTION, QUALITY_LOST, QUALITY_SINGLE,
                            QUALITY_STALE, ControlParams, LaneController)
+from .lane_memory import GroundView, LaneMemory, MemoryParams, OdomBuffer, ViewParams
 from .link_watch import LinkWatch
 from .maneuver import ManeuverExecutor, ManeuverParams
 from .obstacle_guard import GuardParams, ObstacleGuard
@@ -33,6 +34,8 @@ class DriverParams:
     fsm: FsmParams = field(default_factory=FsmParams)
     guard: GuardParams = field(default_factory=GuardParams)
     maneuver: ManeuverParams = field(default_factory=ManeuverParams)
+    view: ViewParams = field(default_factory=ViewParams)
+    memory: MemoryParams = field(default_factory=MemoryParams)
     lookahead: float = 0.25
     arrive_tolerance: float = 0.10
     clearance_tolerance: float = 0.05     # clear_until 에 이 거리 안이면 "닿았다"
@@ -48,7 +51,13 @@ class DriverParams:
     search_omega: float = 0.4             # LANE_SEARCH 제자리 회전 각속도 (rad/s)
     odom_timeout: float = 0.5             # 비전 미션 고정 동작: odom 이 이만큼 끊기면 멈춰 기다린다
     stop_line_min_gap: float = 0.15       # 비전 미션: 흰 정지선을 연달아 셀 때 최소 주행거리 (m) — 한 선을 두 번 세지 않게
+    arrive_distance: float = 0.15         # 비전 미션: 도착 지점 벽 ArUco 마커까지 이 거리(m) 이하면 도착 (JunctionPlan 이 주면 그 값)
+    marker_slow_distance: float = 0.35    # 비전 미션: 목적지 마커가 이 거리 안이면 감속 (지나치지 않게)
+    marker_slow_factor: float = 0.5
+    marker_obstacle_distance: float = 0.35  # 목적지 마커가 이 거리 안에 보이는데 장애물 정지면 도착으로 친다 (벽·앞 물체)
     red_line_min_gap: float = 0.05        # lane_only: 빨간 선 정지 뒤 이만큼(m) 달린 다음의 새 선만 다시 세운다
+    follow_memory: bool = True            # lane_only: 본 차선 중앙을 odom 에 기억했다가 그 자리에서 따라간다 (카메라 사각지대 보정).
+                                          # False = 예전 방식(가장 최근 error_x 로 바로 조향)
 
 
 @dataclass
@@ -92,9 +101,9 @@ class LaneDriver:
         # 최근 LanePath
         self._lane = {'stamp': None, 'quality': QUALITY_LOST, 'error_x': None, 'crosswalk': False,
                       'barricade': False, 'red_line': False, 'stop_line': False,
-                      'left_seen': False, 'right_seen': False}
+                      'left_seen': False, 'right_seen': False, 'markers': {}, 'red_obs': []}
         # 비전 미션 (lane_only + JunctionPlan)
-        self._plan = None                  # {'seq', 'steps', 'stop_line_count', 'linear', 'angular'}
+        self._plan = None                  # {'seq', 'steps', 'stop_line_count', 'linear', 'angular', 'goal_marker_id', ...}
         self._maneuver = None
         self._maneuver_finished_pending = False
         self._junction_passed = False
@@ -102,6 +111,7 @@ class LaneDriver:
         self._stop_line_prev = False
         self._last_count_travel = None
         self._arrived = False
+        self._arrived_reason = ''
         self._pending_search_dir = 0.0
         self._odom = None                  # (x, y, yaw) odom frame
         # 빨간 선 (lane_only): 검출 상승 에지 → RED_LINE_STOP
@@ -116,6 +126,9 @@ class LaneDriver:
         self._last_tick = None
         self._last_cmd = (0.0, 0.0)
         self._lost_since = None
+        self.view = GroundView(self.p.view)
+        self.memory = LaneMemory(self.p.memory)
+        self.odom_buf = OdomBuffer()
 
     # ------------------------------------------------ 입력
 
@@ -140,6 +153,8 @@ class LaneDriver:
                 self.clear_until = int(clear_until or 0)
         elif cmd == CMD_START:
             if self.station_link.accepts_motion_command(now):
+                if not self.started:
+                    self.memory.clear()
                 self.started = True
         elif cmd == CMD_STOP:
             self.started = False
@@ -158,8 +173,15 @@ class LaneDriver:
         self.clearance_reason = reason
         self.set_command(CMD_CLEARANCE, now, route_seq=route_seq, clear_until=idx)
 
-    def set_plan(self, seq, steps, stop_line_count, linear_speed=0.0, angular_speed=0.0):
-        """비전 미션 계획 (JunctionPlan). seq 가 바뀌면 새 미션(교차로·정지선 진행을 처음부터), 같으면 값만 갱신."""
+    def set_plan(self, seq, steps, stop_line_count, linear_speed=0.0, angular_speed=0.0, goal_marker_id=-1,
+                 arrive_distance=0.0, skip_clearance=False, arrive_on_obstacle=False):
+        """비전 미션 계획 (JunctionPlan). seq 가 바뀌면 새 미션(교차로·도착 진행을 처음부터), 같으면 값만 갱신.
+
+        goal_marker_id >= 0: 교차로 뒤 도착 지점 벽 ArUco 마커(그 id)까지 arrive_distance 이하면 도착.
+        goal_marker_id < 0 : 흰 정지선 stop_line_count 번째에서 도착 (예전 방식).
+        skip_clearance     : 교차로에서 관제 허가 없이 정지 시간만 채우고 출발 (로봇 1대 시나리오).
+        arrive_on_obstacle : 교차로 뒤 장애물 정지 = 도착 (같은 목적지에 앞 로봇이 먼저 도착했다).
+        """
         seq = int(seq)
         if self._plan is None or seq != self._plan['seq']:
             self.route_seq = seq
@@ -171,16 +193,24 @@ class LaneDriver:
             self._stop_line_prev = False
             self._last_count_travel = None
             self._arrived = False
+            self._arrived_reason = ''
             self._pending_search_dir = 0.0
             self._red_pending = False
             self._red_stop_travel = None
+            self.memory.clear()
             self.fsm = DriveFsm(self.p.fsm)
         self._plan = {'seq': seq, 'steps': list(steps), 'stop_line_count': int(stop_line_count),
-                      'linear': float(linear_speed), 'angular': float(angular_speed)}
+                      'linear': float(linear_speed), 'angular': float(angular_speed),
+                      'goal_marker_id': int(goal_marker_id),
+                      'arrive_distance': float(arrive_distance) if arrive_distance and arrive_distance > 0
+                      else self.p.arrive_distance,
+                      'skip_clearance': bool(skip_clearance), 'arrive_on_obstacle': bool(arrive_on_obstacle)}
 
-    def update_odom(self, now, x, y, yaw):
+    def update_odom(self, now, x, y, yaw, stamp=None):
+        """stamp: odom 메시지 header.stamp (로봇 시계). 사진 stamp 의 자세를 보간하는 데 쓴다. 없으면 now."""
         self._odom = (float(x), float(y), float(yaw))
         self._odom_time = float(now)
+        self.odom_buf.add(now if stamp is None else stamp, x, y, yaw)
 
     @property
     def mission_stage(self):
@@ -196,7 +226,11 @@ class LaneDriver:
         return 'vision:approach'
 
     def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False,
-                      barricade=False, left_seen=None, right_seen=None, red_line=False, stop_line=False):
+                      barricade=False, left_seen=None, right_seen=None, red_line=False, stop_line=False,
+                      markers=None, red_obs=None, target=None):
+        """markers: {ArUco id: 카메라~마커 거리 m} (LanePath.marker_ids / marker_distances).
+        red_obs: 빨간 덩어리 [(x_norm, width_frac, bottom_frac), ...] — 교차로 seek 동작용 (LanePath.red_line_xs/ys/widths).
+        target: (target_x, target_y, image_width, image_height, half_lane_px) — 차선 중앙 기억(follow_memory)용."""
         self.path_link.on_command(now, heartbeat=True)
         q = int(quality)
         if left_seen is None:            # 옛 호출자: quality 로 추정
@@ -207,9 +241,31 @@ class LaneDriver:
                       'error_x': None if error_x is None else float(error_x),
                       'crosswalk': bool(crosswalk), 'barricade': bool(barricade),
                       'red_line': bool(red_line), 'stop_line': bool(stop_line),
-                      'left_seen': bool(left_seen), 'right_seen': bool(right_seen)}
+                      'left_seen': bool(left_seen), 'right_seen': bool(right_seen),
+                      'markers': {int(k): float(v) for k, v in dict(markers or {}).items()},
+                      'red_obs': [(float(b[0]), float(b[1]), float(b[2])) for b in (red_obs or [])],
+                      'red_stamp': float(source_stamp) if q != QUALITY_STALE else None}
         if q in (QUALITY_BOTH, QUALITY_SINGLE) and error_x is not None:
             self._last_valid_error = float(error_x)
+            self._remember(source_stamp, target)
+
+    def _remember(self, source_stamp, target):
+        """차선 중앙점을 사진을 찍은 순간의 odom 자세로 기억한다 (교차로 동작 중에는 안 쌓는다)."""
+        if not (self.p.lane_only and self.p.follow_memory) or target is None:
+            return
+        if self._maneuver is not None and not self._maneuver.done:
+            return
+        pt = self.view.to_robot(*target)
+        pose = self.odom_buf.at(source_stamp) if pt is not None else None
+        if pose is not None:
+            self.memory.add(pt, pose)
+
+    def _memory_curvature(self, now):
+        """기억한 차선 중앙을 따라갈 곡률. 끔·odom 끊김·따라갈 점 없음이면 None."""
+        p = self.p
+        if not p.follow_memory or self._odom_time is None or now - self._odom_time > p.odom_timeout:
+            return None
+        return self.memory.curvature(self._odom)
 
     def update_scan(self, ranges, angle_min, angle_increment, range_min=0.05, range_max=12.0):
         self.guard.update_scan(ranges, angle_min, angle_increment, range_min, range_max)
@@ -273,6 +329,7 @@ class LaneDriver:
         if out.state != LANE_SEARCH:
             self._search_dir = 0.0
             return False
+        self.memory.clear()                       # 제자리 회전 — 이전 방향으로 본 점은 버린다
         self.controller.reset()
         self._last_cmd = (0.0, 0.0)
         self._lost_since = None
@@ -399,9 +456,45 @@ class LaneDriver:
                     self._arrived = True
         self._stop_line_prev = seen
 
+    def _goal_marker_distance(self, quality):
+        """목적지 마커까지 거리 (m). 계획이 마커 방식이 아니거나 안 보이면(낡은 LanePath 포함) None."""
+        if self._plan is None or self._plan['goal_marker_id'] < 0 or quality == QUALITY_STALE:
+            return None
+        return self._lane['markers'].get(self._plan['goal_marker_id'])
+
+    def _check_arrival(self, blocked, quality):
+        """비전 미션 도착 판정.
+
+        목적지 벽 마커(goal_marker_id) 는 교차로 통과와 **무관하게** 본다 (2026-09-30 사용자 결정 — 빨간 선을 놓쳐 교차로 절차가
+        안 걸려도 목적지 앞에서는 선다). 다른 id 는 무시한다. 흰 정지선 세기와 "앞 로봇 뒤 정지 = 도착" 은 교차로를 지난 뒤에만.
+        """
+        plan = self._plan
+        if plan is None or self._arrived:
+            return
+        if plan['goal_marker_id'] < 0:
+            self._count_stop_lines()                  # 교차로 앞에서도 불러 선의 이전 상태를 이어 둔다 (세기는 통과 뒤만)
+            if self._arrived:
+                self._arrived_reason = f"도착 — 정지선 {self._stop_lines_seen}번째"
+        if self._arrived:
+            return
+        if plan['goal_marker_id'] >= 0:
+            dist = self._goal_marker_distance(quality)
+            if dist is not None and dist <= plan['arrive_distance']:
+                self._arrived = True
+                self._arrived_reason = f"도착 — 벽 마커 {plan['goal_marker_id']} {dist:.2f} m"
+            elif blocked and dist is not None and dist <= self.p.marker_obstacle_distance:
+                self._arrived = True
+                self._arrived_reason = f"도착 — 벽 마커 {plan['goal_marker_id']} {dist:.2f} m 앞 장애물 정지"
+        if not self._junction_passed or self._arrived:
+            return
+        if blocked and plan['arrive_on_obstacle']:
+            self._arrived = True
+            self._arrived_reason = '도착 — 같은 목적지 앞 로봇 뒤 정지'
+
     def _run_maneuver(self, now, dt, out):
         """허가 뒤 고정 동작 한 틱. 끝나면 다음 틱에 FSM 이 차선 주행(또는 탐색)으로 넘긴다."""
         p = self.p
+        self.memory.clear()                       # 교차로 동작 중·직후엔 다른 가지의 점을 따라가지 않게
         if self._maneuver is None:
             mp = replace(p.maneuver)
             if self._plan['linear'] > 0:
@@ -411,7 +504,7 @@ class LaneDriver:
             self._maneuver = ManeuverExecutor(self._plan['steps'], mp)
         odom = (self._odom if self._odom_time is not None and now - self._odom_time <= p.odom_timeout
                 else None)
-        v, w, done, why = self._maneuver.command(now, odom)
+        v, w, done, why = self._maneuver.command(now, odom, self._lane['red_obs'], self._lane.get('red_stamp'))
         if done:
             self._junction_passed = True
             self._maneuver_finished_pending = True
@@ -456,16 +549,18 @@ class LaneDriver:
         p = self.p
         plan = self._plan
         if plan is not None:
-            self._count_stop_lines()
+            self._check_arrival(blocked, quality)
             junction_trigger = (bool(self._lane['red_line']) and not self._junction_passed
                                 and self._maneuver is None)
-            junction_clear = self.clear_until >= 1
+            junction_clear = plan['skip_clearance'] or self.clear_until >= 1
             maneuver_active = self._maneuver is not None and not self._maneuver.done
         else:
             # 계획 없음(테스트 주행): 빨간 선은 교차로 절차 없이 RED_LINE_STOP 으로만 선다
             junction_trigger, junction_clear, maneuver_active = False, True, False
         finished, self._maneuver_finished_pending = self._maneuver_finished_pending, False
         red_line_event = self._red_line_event(plan, maneuver_active, finished)
+        # 카메라 사각지대 보정: 본 차선 중앙을 기억해 두었다면, 지금 차선이 안 보여도 그 점까지는 간다
+        kappa = self._memory_curvature(now)
         inp = Inputs(
             started=self.started, estop=self.estop,
             link_ok=self.station_link.alive(now), path_ok=self.path_link.alive(now),
@@ -477,7 +572,8 @@ class LaneDriver:
             red_line_event=red_line_event,
             maneuver_active=maneuver_active, maneuver_finished=finished,
             maneuver_reason=self._maneuver.describe() if maneuver_active else '',
-            lane_visible=lane_visible, lane_both=lane_both, arrived=self._arrived, travelled=self._travelled,
+            lane_visible=lane_visible or kappa is not None, lane_both=lane_both, arrived=self._arrived,
+            arrived_reason=self._arrived_reason, travelled=self._travelled,
         )
         state, speed_factor, reason = self.fsm.step(now, inp)
         out.state, out.state_name, out.reason = state, STATE_NAMES[state], reason
@@ -495,7 +591,7 @@ class LaneDriver:
             self._lost_since = None
             out.v, out.omega = 0.0, 0.0
             return out
-        if not lane_visible:
+        if not lane_visible and kappa is None:
             # 맵이 없으니 서행 계속은 불가 — 잠깐 직전 명령을 유지하고 선다
             if self._lost_since is None:
                 self._lost_since = now
@@ -510,8 +606,17 @@ class LaneDriver:
                 out.reason = '차선 없음 — 정지'
             return out
         self._lost_since = None
-        out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False,
-                                                   error_stamp=self._lane['stamp'])
+        goal_dist = self._goal_marker_distance(quality)             # 교차로 통과와 무관 (도착 판정과 같은 조건)
+        if goal_dist is not None and goal_dist <= p.marker_slow_distance:
+            speed_factor *= p.marker_slow_factor
+            out.reason = f"{reason} — 벽 마커 {plan['goal_marker_id']} {goal_dist:.2f} m"
+        if kappa is not None:
+            out.v, out.omega = self.controller.follow_curvature(kappa, dt, speed_factor)
+            if not lane_visible:
+                out.reason = f'{reason} — 차선 안 보임, 기억한 중앙 따라감'
+        else:
+            out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False,
+                                                       error_stamp=self._lane['stamp'])
         self._last_cmd = (out.v, out.omega)
         # 위치가 없으니 주행거리는 명령 속도로 추측한다 (횡단보도 재래치 거리 판정용)
         self._travelled += abs(out.v) * dt

@@ -1,5 +1,5 @@
 # domain_bridge 템플릿 — pinky1 업링크 (로봇 → 관제). 도메인 번호는 파일에 없다:
-#   ros2 run domain_bridge domain_bridge --from <로봇 도메인> --to <관제 도메인> <이 파일>
+#   ros2 run pinky_lane_station bridge_runner --from <로봇 도메인> --to <관제 도메인> <이 파일>
 # lane_bridge.launch.xml 이 station_domain / pinky1_domain 인수로 넘긴다. QoS 는 노드와 동일하게 고정.
 name: pinky1_bridge_up
 mode: normal

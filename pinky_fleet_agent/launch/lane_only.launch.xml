@@ -13,7 +13,8 @@
   정지:  ros2 topic pub -1 /pinky1/lane_command pinky_lane_msgs/msg/LaneCommand "{command: 2}"   (3: ESTOP, 4: RESUME, 1: START)
 
   비전 미션 (2026-09-30): 같은 launch 를 auto_start:=False 로 띄우면 관제(게이트웨이 vision 모드)가 JunctionPlan·START 를 준다.
-    빨간 테이프(YOLO red_line) 앞 정지 → 관제 통행권 → 교차로 고정 동작(odom) → 차선 복귀 → 흰 정지선 N 번째 앞 도착.
+    빨간 테이프(YOLO red_line) 앞 1 s 정지 → 관제 통행권(로봇 2대일 때만) → 교차로 고정 동작(odom) → 차선 복귀
+    → 도착 지점 벽 ArUco 마커 15 cm 앞 정지. 장애물은 초음파 10 cm 만 본다(use_lidar:=False).
     ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 v_max:=0.15
 -->
 <launch>
@@ -28,6 +29,7 @@
     <arg name="auto_start" default="False" description="True 면 LanePath 가 오는 즉시 출발"/>
     <arg name="v_max" default="0.10"/>
     <arg name="cam_sign" default="1.0" description="로봇을 차선 왼쪽에 두면 우회전(ω 음수) 이어야 한다. 반대면 -1.0"/>
+    <arg name="use_lidar" default="False" description="False: 장애물 정지는 초음파(10 cm)만. True 면 라이다 박스도"/>
     <arg name="record" default="False" description="True: ros2 bag 블랙박스 기록 (scripts/record_bag.sh)"/>
     <arg name="log_root" default="$(env HOME)/pinky_logs"/>
     <arg name="params_file" default="$(find-pkg-share pinky_fleet_agent)/params/lane_agent.yaml"/>
@@ -50,6 +52,7 @@
         <param name="auto_start" value="$(var auto_start)"/>
         <param name="control.v_max" value="$(var v_max)"/>
         <param name="control.cam_sign" value="$(var cam_sign)"/>
+        <param name="guard.use_lidar" value="$(var use_lidar)"/>
     </node>
 
     <!-- 카메라가 다른 프로세스에 잡혀 있으면 init 이 실패한다. 3 초 뒤 자동 재시도 -->

@@ -90,7 +90,10 @@ def test_detector_yolo_class_map_matches_model_labels():
     assert 'lane' not in cm                                     # 좌/우 라벨을 합치지 않는다 (작업 1)
     ids = sorted(i for v in cm.values() for i in v if isinstance(i, int))
     assert ids == [0, 1, 2, 3, 4, 5], ids                     # 모든 모델 클래스가 정확히 한 번
-    assert cm['red_line'] == ['red_line']                     # 교차로 빨간 테이프 — 재학습 모델의 클래스 이름으로 매칭
+    assert 'red_line' not in cm                               # 빨간 선은 모델 클래스가 아니라 색 검출 (red_line_color:)
+    from pinky_lane_station.red_line_detector import RedLineParams
+    rc = cfg['red_line_color']
+    assert rc['enabled'] is True and set(rc) <= set(RedLineParams.__dataclass_fields__), set(rc)
     pipe = cfg['pipeline']
     assert abs(pipe['mask_top_frac'] - 0.50) < 1e-9 and pipe['mask_fill'] == 0   # 2026-09-30 운용값 50 % (학습은 30 %)
     allowed = {'max_rate', 'stale_period', 'stale_max_seconds', 'warmup',
@@ -112,7 +115,8 @@ def test_lane_only_launch_overrides_only_allowed_params(agent_params):
     block = launch.split('exec="lane_agent_node"', 1)[1].split('</node>', 1)[0]
     keys = set(re.findall(r'<param name="([a-z_.]+)"', block))
     assert keys <= {'robot_name', 'domain_id', 'use_sim_time', 'use_ultrasonic', 'lane_only',
-                    'auto_start', 'control.v_max', 'control.cam_sign'}, keys
+                    'auto_start', 'control.v_max', 'control.cam_sign', 'guard.use_lidar'}, keys
+    assert 'use_lidar' in agent_params['guard']                   # 덮는 키는 yaml 에도 있어야 한다
     assert 'lane_only' in agent_params and agent_params['lane_only'] is False
     assert agent_params['lane_lost_coast'] < agent_params['path_timeout']
 
@@ -261,7 +265,7 @@ def test_bridge_launch_passes_domains_as_arguments():
     launch = read(os.path.join(STATION, 'launch', 'lane_bridge.launch.xml'))
     for arg in ('station_domain', 'pinky1_domain', 'pinky2_domain'):
         assert f'<arg name="{arg}"' in launch, arg
-    assert launch.count('exec="domain_bridge"') == 4
+    assert launch.count('exec="bridge_runner"') == 4          # 도메인을 채운 사본을 domain_bridge 에 넘긴다
     assert '--from $(var pinky1_domain) --to $(var station_domain) $(var config_dir)/bridge_pinky1_up.yaml' in launch
     assert '--from $(var station_domain) --to $(var pinky2_domain) $(var config_dir)/bridge_pinky2_down.yaml' in launch
     station = read(os.path.join(STATION, 'launch', 'lane_station.launch.xml'))
@@ -328,3 +332,31 @@ def test_setup_installs_lane_configs_and_launch():
     agent_setup = read(os.path.join(AGENT, 'setup.py'))
     for entry in ('lane_agent_node', 'camera_node'):
         assert f"'{entry} = pinky_fleet_agent.{entry}:main'" in agent_setup, entry
+
+
+def test_bridge_runner_fills_domains_for_apt_domain_bridge(tmp_path):
+    """apt domain_bridge 는 yaml 에 from_domain 이 없으면 --from 을 주어도 죽는다 — bridge_runner 가 채운 사본을 만든다."""
+    import yaml
+    from pinky_lane_station.bridge_runner import main as _main, render_config, write_rendered  # noqa: F401
+    for name, (frm, to) in (('bridge_pinky1_up', (10, 0)), ('bridge_pinky2_down', (0, 11))):
+        src = os.path.join(STATION, 'config', name + '.yaml')
+        path = write_rendered(src, frm, to, out_dir=str(tmp_path))
+        data = yaml.safe_load(open(path, encoding='utf-8'))
+        assert data['from_domain'] == frm and data['to_domain'] == to
+        assert data['topics'] and all(t['from_domain'] == frm and t['to_domain'] == to and 'type' in t
+                                      for t in data['topics'].values())
+        assert set(data['topics']) == set(yaml.safe_load(open(src, encoding='utf-8'))['topics'])
+    setup = read(os.path.join(STATION, 'setup.py'))
+    assert "'bridge_runner = pinky_lane_station.bridge_runner:main'" in setup
+
+
+def test_lane_path_carries_red_line_blobs_for_robot_seek():
+    """관제 파이프라인 → LanePath.red_line_xs/ys/widths → 로봇 red_observation → 드라이버 red_obs (교차로 seek 동작)."""
+    msg = open(os.path.join(MSG_DIR, 'LanePath.msg'), encoding='utf-8').read()
+    for f in ('int32[]   red_line_xs', 'int32[]   red_line_ys', 'float32[] red_line_widths'):
+        assert f in msg
+    node = open(os.path.join(STATION, 'pinky_lane_station', 'lane_pipeline_node.py'), encoding='utf-8').read()
+    assert 'lp.red_line_xs = ' in node and 'lp.red_line_ys = ' in node and 'lp.red_line_widths = ' in node
+    agent = open(os.path.join(AGENT, 'pinky_fleet_agent', 'lane_agent_node.py'),
+                 encoding='utf-8').read()
+    assert "'red_line_xs'" in agent and 'red_obs=red_observation(msg)' in agent

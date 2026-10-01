@@ -19,10 +19,14 @@ from sensor_msgs.msg import CompressedImage
 
 from pinky_lane_msgs.msg import LanePath, SceneState
 
+from .aruco_detector import ArucoMarkerDetector
+from .aruco_detector import params_from_dict as aruco_params
 from .detectors import create_detector
 from .lane_mission import LaneMissionError, load_lane_mission
 from .lane_target import QUALITY_STALE, LaneTargetEstimator, TargetParams
 from .pipeline_image import draw_debug, mask_top
+from .red_line_detector import RedLineColorDetector
+from .red_line_detector import params_from_dict as red_line_params
 from .stop_line_detector import WhiteStopLineDetector
 from .stop_line_detector import params_from_dict as stop_line_params
 
@@ -49,15 +53,18 @@ def load_detector_config(path):
                 'mask_top_frac': 0.0, 'mask_fill': 0, 'debug_polygons': False}
     pipeline.update(data.get('pipeline') or {})
     pipeline['stop_line'] = stop_line_params(data.get('stop_line'))
+    pipeline['aruco'] = aruco_params(data.get('aruco'))
+    pipeline['red_line_color'] = red_line_params(data.get('red_line_color'))
     return det, target, pipeline
 
 
 class RobotLane:
-    def __init__(self, spec, target_params, stop_params=None):
+    def __init__(self, spec, target_params, stop_params=None, aruco_params=None):
         self.spec = spec
         self.name = spec['name']
         self.est = LaneTargetEstimator(target_params)
         self.stop_line = WhiteStopLineDetector(stop_params)
+        self.aruco = ArucoMarkerDetector(aruco_params)
         self.seq = 0
         self.last_msg = None            # 마지막으로 보낸 LanePath (STALE 재발행용)
         self.last_frame_time = None     # 관제 시계
@@ -82,12 +89,21 @@ class LanePipeline(Node):
 
         self._stop_row_frac = float(target_params.crosswalk_stop_row_frac)
         self._mask_frac = float(pipe['mask_top_frac'])          # 모델 학습과 같은 상위 마스킹
+        self.red_line = RedLineColorDetector(pipe['red_line_color'])   # 상태 없음 — 로봇끼리 공유
         self._mask_fill = int(pipe['mask_fill'])
         self._debug_polygons = bool(pipe['debug_polygons'])
         self.detector = create_detector(det_cfg)
         if pipe.get('warmup', True):
             self.detector.warmup()
         self._det_name = f'lane={self.detector.name}'
+        names = getattr(self.detector, 'names', None)
+        if names:
+            self.get_logger().info(f'모델 클래스: {names} → 우리 클래스: {getattr(self.detector, "class_map", {})}')
+        for cls in getattr(self.detector, 'unmatched', []):
+            self.get_logger().warn(f"class_map 의 '{cls}' 가 모델 클래스와 맞지 않아 검출되지 않는다")
+        rc = pipe['red_line_color']
+        self.get_logger().info(f"빨간 선: 색 검출 {'켬' if rc.enabled else '끔'} (H≤{rc.h_low_max}|≥{rc.h_high_min}, "
+                               f"S≥{rc.s_min}, V≥{rc.v_min}, ROI {rc.roi_top_frac:.2f}·H~)")
 
         self._robots = {}
         self._path_pubs = {}
@@ -95,7 +111,9 @@ class LanePipeline(Node):
         self._debug_pubs = {}
         debug = bool(self.get_parameter('publish_debug_image').value)
         for spec in mission.robots:
-            rl = RobotLane(spec, target_params, pipe['stop_line'])
+            rl = RobotLane(spec, target_params, pipe['stop_line'], pipe['aruco'])
+            if pipe['aruco'].enabled and not rl.aruco.available:
+                self.get_logger().error('ArUco 검출 불가 — cv2.aruco 가 없다 (opencv-contrib). 비전 미션 도착 판정이 안 된다')
             self._robots[rl.name] = rl
             self._path_pubs[rl.name] = self.create_publisher(LanePath, spec['lane_path_topic'],
                                                              BEST_EFFORT_1)
@@ -132,8 +150,11 @@ class LanePipeline(Node):
         # 추론 입력만 마스킹한다. 오버레이·저장은 원본(img) 그대로
         masked = mask_top(img, self._mask_frac, self._mask_fill) if self._mask_frac > 0 else img
         instances, infer_ms = self.detector.infer_timed(masked)
+        # 교차로 빨간 테이프 — 모델 클래스가 아니라 색(HSV)으로, 원본 영상에서. lane_target 이 폭·하단 행·확정 프레임을 본다
+        instances = list(instances) + self.red_line.detect(img)
         r = rl.est.update(instances, W, H)
         sl = rl.stop_line.update(img)            # 목적지 흰 정지선 — 원본(마스킹 전) 영상에서
+        mk = rl.aruco.update(img)                # 도착 지점 벽 ArUco — 원본 영상에서 (마스킹된 위쪽에 있다)
 
         rl.seq += 1
         lp = LanePath()
@@ -156,8 +177,13 @@ class LanePipeline(Node):
         lp.barricade_bottom_y = int(r.barricade_bottom_y)
         lp.red_line_detected = bool(r.red_line_detected)
         lp.red_line_bottom_y = int(r.red_line_bottom_y)
+        lp.red_line_xs = [int(b[0]) for b in r.red_line_blobs]
+        lp.red_line_ys = [int(b[1]) for b in r.red_line_blobs]
+        lp.red_line_widths = [float(b[2]) for b in r.red_line_blobs]
         lp.stop_line_detected = bool(sl.detected)
         lp.stop_line_bottom_y = int(sl.bottom_y)
+        lp.marker_ids = [int(i) for i in mk.markers]
+        lp.marker_distances = [float(d) for d in mk.markers.values()]
         lp.pipeline_latency = float(self._now() - t_in)
         self._path_pubs[name].publish(lp)
         rl.last_msg = lp
@@ -193,12 +219,12 @@ class LanePipeline(Node):
         self._scene_pubs[name].publish(sc)
 
         if name in self._debug_pubs:
-            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms, sl)
+            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms, sl, mk)
 
-    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0, stop_line=None):
+    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0, stop_line=None, aruco=None):
         dbg = draw_debug(img, instances, r, mask_frac=self._mask_frac, infer_ms=infer_ms,
                          stop_row_frac=self._stop_row_frac, draw_polygons=self._debug_polygons,
-                         stop_line=stop_line)
+                         stop_line=stop_line, aruco=aruco)
         ok, buf = cv2.imencode('.jpg', dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
         if not ok:
             return
@@ -233,6 +259,7 @@ class LanePipeline(Node):
             lp.image_width, lp.image_height = rl.last_msg.image_width, rl.last_msg.image_height
             lp.half_lane_px = rl.last_msg.half_lane_px
             lp.crosswalk_detected = False
+            # red_line_xs 는 비워 둔다 — 새 프레임이 없으니 seek 동작은 '안 보임' 으로 다룬다
             self._path_pubs[name].publish(lp)
 
 
