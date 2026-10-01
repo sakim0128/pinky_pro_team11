@@ -12,6 +12,12 @@
     <arg name="jpeg_quality" default="70"/>
     <arg name="use_ultrasonic" default="True"
          description="pinky_sensor_adc main_node 의 us_sensor/range 를 장애물 감지에 쓴다"/>
+    <arg name="initial_pose_on_start" default="False"
+         description="로봇을 지정 초기 위치에 물리 배치한 경우에만 True. AMCL 준비 후 /initialpose를 1회 발행한다."/>
+    <arg name="initial_pose_delay_sec" default="5.0"/>
+    <arg name="initial_pose_x" default="0.11"/>
+    <arg name="initial_pose_y" default="1.08"/>
+    <arg name="initial_pose_yaw" default="0.0"/>
 
     <node pkg="pinky_fleet_agent" exec="lane_agent_node" name="pinky_lane_agent" output="screen">
         <param from="$(var params_file)"/>
@@ -19,6 +25,11 @@
         <param name="domain_id" value="$(var domain_id)"/>
         <param name="use_sim_time" value="$(var use_sim_time)"/>
         <param name="use_ultrasonic" value="$(var use_ultrasonic)"/>
+        <param name="initial_pose_on_start" value="$(var initial_pose_on_start)"/>
+        <param name="initial_pose_delay_sec" value="$(var initial_pose_delay_sec)"/>
+        <param name="initial_pose_x" value="$(var initial_pose_x)"/>
+        <param name="initial_pose_y" value="$(var initial_pose_y)"/>
+        <param name="initial_pose_yaw" value="$(var initial_pose_yaw)"/>
     </node>
 
     <!-- 카메라가 다른 프로세스에 잡혀 있으면 init 이 실패한다. 3 초 뒤 자동 재시도 -->

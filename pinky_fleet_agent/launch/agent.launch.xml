@@ -45,6 +45,12 @@
          description="Nav2 가 configure 를 끝낼 때까지 기다리는 시간(s)."/>
     <arg name="audit_ns" default=""
          description="Nav2 노드가 네임스페이스 안에 있으면 적는다 (가제보 시뮬)."/>
+    <arg name="initial_pose_on_start" default="False"
+         description="로봇을 지정 초기 위치에 물리 배치한 경우에만 True. AMCL 준비 후 /initialpose를 1회 발행한다."/>
+    <arg name="initial_pose_delay_sec" default="5.0"/>
+    <arg name="initial_pose_x" default="0.11"/>
+    <arg name="initial_pose_y" default="1.08"/>
+    <arg name="initial_pose_yaw" default="0.0"/>
 
     <node pkg="pinky_fleet_agent" exec="agent_node" name="pinky_fleet_agent" output="screen">
         <param name="robot_name" value="$(var robot_name)"/>
@@ -71,5 +77,10 @@
         <param name="audit_nav2_params" value="$(var audit_nav2_params)"/>
         <param name="audit_delay" value="$(var audit_delay)"/>
         <param name="audit_ns" value="$(var audit_ns)"/>
+        <param name="initial_pose_on_start" value="$(var initial_pose_on_start)"/>
+        <param name="initial_pose_delay_sec" value="$(var initial_pose_delay_sec)"/>
+        <param name="initial_pose_x" value="$(var initial_pose_x)"/>
+        <param name="initial_pose_y" value="$(var initial_pose_y)"/>
+        <param name="initial_pose_yaw" value="$(var initial_pose_yaw)"/>
     </node>
 </launch>
