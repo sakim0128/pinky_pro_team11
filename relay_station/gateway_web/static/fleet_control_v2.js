@@ -45,6 +45,10 @@
   // 통합 검토 OPS-2: 플릿 상태를 이만큼 못 받으면 화면 값은 옛 값이다(갱신 2 s · 응답이 매달린 요청도 여기서 잡는다)
   const FLEET_STALE_MS = 5000;
 
+  // 단일 정본 관제 맵 배경 이미지 (/api/fleet/profile_map.png 또는 /my_map.png)
+  const MAP_BG_IMG = new Image();
+  MAP_BG_IMG.src = "/api/fleet/profile_map.png";
+
   const $ = (id) => document.getElementById(id);
   const fmt = (v, digits = 2) => typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "—";
   const nowText = () => new Date().toLocaleTimeString("ko-KR", {hour12:false});
@@ -788,14 +792,41 @@
     ctx.scale(dpr,dpr);
     const W=rect.width, H=detailed?560:390;
     ctx.clearRect(0,0,W,H);
-    ctx.fillStyle="#f6f8fc"; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle="#0f141c"; ctx.fillRect(0,0,W,H);
     const m=28, data=collectMapData(), a=data.arena;
     const sx=x=>m+(x-a.x_min)/(a.x_max-a.x_min)*(W-2*m);
     const sy=y=>H-m-(y-a.y_min)/(a.y_max-a.y_min)*(H-2*m);
-    ctx.strokeStyle="#e4e9f1"; ctx.lineWidth=1;
-    for(let i=0;i<=10;i++){const x=m+(W-2*m)*i/10;ctx.beginPath();ctx.moveTo(x,m);ctx.lineTo(x,H-m);ctx.stroke();}
-    for(let i=0;i<=6;i++){const y=m+(H-2*m)*i/6;ctx.beginPath();ctx.moveTo(m,y);ctx.lineTo(W-m,y);ctx.stroke();}
-    ctx.strokeStyle="#bbc8da";ctx.lineWidth=1.4;ctx.strokeRect(m,m,W-2*m,H-2*m);
+
+    // 1. 단일 정본 트랙 배경 맵 렌더링 (map5 고해상도)
+    if (MAP_BG_IMG.complete && MAP_BG_IMG.naturalWidth > 0) {
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(MAP_BG_IMG, m, m, W - 2 * m, H - 2 * m);
+      ctx.restore();
+    } else {
+      ctx.fillStyle="#f6f8fc"; ctx.fillRect(m,m,W-2*m,H-2*m);
+      ctx.strokeStyle="#e4e9f1"; ctx.lineWidth=1;
+      for(let i=0;i<=10;i++){const x=m+(W-2*m)*i/10;ctx.beginPath();ctx.moveTo(x,m);ctx.lineTo(x,H-m);ctx.stroke();}
+      for(let i=0;i<=6;i++){const y=m+(H-2*m)*i/6;ctx.beginPath();ctx.moveTo(m,y);ctx.lineTo(W-m,y);ctx.stroke();}
+    }
+    ctx.strokeStyle="#4b5563";ctx.lineWidth=1.5;ctx.strokeRect(m,m,W-2*m,H-2*m);
+
+    // 2. 미션 핵심 4개 노드 핀 마커 (BL, BR, TR, J)
+    const CORE_NODES = [
+      { id: "BL", x: 0.20, y: 0.20, color: "#ff9900" },
+      { id: "BR", x: 2.15, y: 0.20, color: "#a371f7" },
+      { id: "TR", x: 2.15, y: 1.08, color: "#2ea043" },
+      { id: "J",  x: 1.18, y: 0.64, color: "#eab308" }
+    ];
+    CORE_NODES.forEach(n => {
+      const nx = sx(n.x), ny = sy(n.y);
+      ctx.beginPath(); ctx.arc(nx, ny, n.id === "J" ? 8 : 7, 0, Math.PI * 2);
+      ctx.fillStyle = n.color; ctx.fill();
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = "#ffffff"; ctx.font = "bold 9px sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(n.id, nx, ny);
+    });
 
     if(state.layers.zones) data.zones.forEach(z=>{
       ctx.beginPath();ctx.arc(sx(z.x),sy(z.y),9,0,Math.PI*2);ctx.fillStyle=z.id.includes("GOAL")?"#18a36f":"#9aa7b9";ctx.fill();
