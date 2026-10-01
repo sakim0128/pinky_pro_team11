@@ -49,13 +49,15 @@ def test_gateway_vision_flag_and_scenario_endpoint_is_gated():
     assert "wait_control_result(coord, seq0, 'scenario')" in block
 
 
-def test_v2_vision_mode_hides_aerial_map_and_assign():
-    """항공뷰 관제 없음 — 비전 모드면 지도·중계 탑뷰·내비게이션 탭·경로 배정·Overhead 카드를 숨긴다."""
-    for anchor in ('<article class="card map-card" data-hide-vision>', '<div class="camera-main" data-hide-vision>',
+def test_v2_vision_mode_hides_map_and_assign_but_keeps_aerial():
+    """비전 모드면 지도·내비게이션 탭·경로 배정을 숨긴다. 항공뷰(폰 카메라)는 교차로 관제·이탈 보정에 쓰므로 남긴다."""
+    for anchor in ('<article class="card map-card" data-hide-vision>',
                    'data-tab="navigation" data-hide-vision', 'id="assign-card" data-hide-vision'):
         assert anchor in HTML, anchor
     i = HTML.index('<h3>Overhead / External</h3>')
-    assert 'data-hide-vision' in HTML[HTML.rindex('<article', 0, i):i]
+    assert 'data-hide-vision' not in HTML[HTML.rindex('<article', 0, i):i]
+    main = HTML[HTML.index('<div class="camera-main"'):]
+    assert main.split('>', 1)[0] == '<div class="camera-main"' and '/video_feed?src=phone' in main.split('</div>', 1)[0]
     css = open(os.path.join(STATIC, 'fleet_control_v2.css'), encoding='utf-8').read()
     assert 'body.vision-mode [data-hide-vision] { display: none !important; }' in css
     assert 'document.body.classList.toggle("vision-mode", !!v)' in JS
