@@ -16,6 +16,8 @@ relay_station/fleet/vision_coordinator.py(ROS 노드) 가 이것을 감싼다.
 통행권 규칙 (사용자 결정 2026-09-30)
     * 교차로는 하나, 통행권도 하나. 빨간 테이프 앞 정지(JUNCTION_STOP)를 **먼저 보고한** 로봇이 먼저 받는다.
       tie_window 안에 들어온 보고는 같은 순간으로 보고 domain_id 가 작은 로봇이 먼저다.
+    * 항공뷰가 있으면(2026-10-01) 교차로 입구 정지 지점까지 **남은 거리가 짧은 로봇** 이 미리 받는다 — 그 로봇은 빨간 선에서
+      1 s 만 서고 바로 지나간다. 입구에 서기 전이면 더 가까운 로봇에게 넘어간다. 항공뷰가 끊기면 위 선착순으로 돌아간다.
     * 쥔 로봇이 교차로 동작을 마치고 **차선 주행으로 돌아간 순간**(CRUISE, 교차로 뒤 단계) 반납 → 다음 로봇.
     * 시나리오 로봇이 1대면 통행권을 쓰지 않는다 — 로봇은 1 s 정지 뒤 허가 없이 출발한다(skip_clearance).
 
@@ -376,23 +378,41 @@ def scenario_summary(s):
 
 
 class JunctionArbiter:
-    """교차로 통행권 하나 — 먼저 선 로봇 먼저, tie_window 안이면 domain_id 작은 쪽."""
+    """교차로 통행권 하나.
 
-    def __init__(self, tie_window=0.5):
+    항공뷰 거리(tick 의 dist)가 있으면 (2026-10-01): 입구 정지 지점까지 **남은 거리가 짧은 로봇** 먼저.
+      tie_distance 안이면 먼저 선 로봇 → domain_id 작은 쪽. 입구에 서서 정지를 보고한 로봇은 거리 0 이다.
+      받은 로봇이 아직 입구에 서지 않았으면(잠기기 전) 더 가까운 로봇이 나타날 때 넘긴다. 입구에 서면(JUNCTION_STOP) 잠긴다.
+    없으면 (2026-09-30): 먼저 선 로봇 먼저, tie_window 안이면 domain_id 작은 쪽.
+    """
+
+    def __init__(self, tie_window=0.5, domains=None, tie_distance=0.03):
         self.tie_window = float(tie_window)
+        self.tie_distance = float(tie_distance)
+        self.domains = dict(domains or {})
         self.requests = {}              # name -> (t, domain_id)
         self.holder = None
+        self.locked = set()             # 입구에 선 통행권 — 넘기지 않는다
         self.grant_order = []           # 통행권을 받은 순서
         self.passed = set()
+        self.rule = 'first_stop'        # 마지막 배정 규칙: distance(항공뷰) | first_stop
 
     def request(self, name, t, domain_id):
-        if name in self.requests or name in self.passed or name == self.holder:
+        if name == self.holder:
+            self.locked.add(name)
+            return
+        if name in self.requests or name in self.passed:
             return
         self.requests[name] = (float(t), int(domain_id))
+
+    def lock(self, name):
+        if name == self.holder:
+            self.locked.add(name)
 
     def release(self, name):
         if self.holder == name:
             self.holder = None
+            self.locked.discard(name)
             self.passed.add(name)
             return True
         return False
@@ -400,19 +420,45 @@ class JunctionArbiter:
     def queue(self):
         return sorted(self.requests, key=lambda n: self.requests[n])
 
-    def tick(self, now):
-        """통행권이 비었으면 배정. 새로 받은 로봇 이름(없으면 None)."""
+    def _grant(self, name):
+        if name in self.requests:
+            del self.requests[name]
+            self.locked.add(name)                            # 이미 입구에 서 있다
+        self.holder = name
+        self.grant_order.append(name)
+        return name
+
+    def _pick(self, cands):
+        dmin = min(cands.values())
+        tied = [n for n, d in cands.items() if d <= dmin + self.tie_distance]
+        return min(tied, key=lambda n: (self.requests[n][0] if n in self.requests else math.inf,
+                                        self.requests[n][1] if n in self.requests else self.domains.get(n, 1 << 30), n))
+
+    def tick(self, now, dist=None):
+        """통행권 배정. 새로 받은 로봇 이름(없으면 None). dist: {이름: 입구 정지 지점까지 남은 거리(m) 또는 None}."""
+        cands = {n: float(d) for n, d in (dist or {}).items()
+                 if d is not None and n not in self.passed}
+        if cands:
+            for n in self.requests:
+                cands[n] = 0.0
+            self.rule = 'distance'
+            if self.holder is None:
+                return self._grant(self._pick(cands))
+            if self.holder in self.locked:
+                return None
+            best = self._pick(cands)
+            if best != self.holder and cands[best] < cands.get(self.holder, math.inf) - self.tie_distance:
+                self.grant_order.remove(self.holder)         # 아직 입구에 안 섰다 — 더 가까운 로봇에게 넘긴다
+                return self._grant(best)
+            return None
         if self.holder is not None or not self.requests:
             return None
         first_t = min(t for t, _ in self.requests.values())
         if now < first_t + self.tie_window:
             return None                                      # 같은 순간 보고를 조금 더 기다린다
         tied = [n for n, (t, _) in self.requests.items() if t <= first_t + self.tie_window]
-        name = min(tied, key=lambda n: (self.requests[n][1], self.requests[n][0]))
-        del self.requests[name]
-        self.holder = name
-        self.grant_order.append(name)
-        return name
+        self.rule = 'first_stop'
+        return self._grant(min(tied, key=lambda n: (self.requests[n][1], self.requests[n][0])))
 
 
 class ScenarioRun:
@@ -426,7 +472,7 @@ class ScenarioRun:
             raise VisionConfigError(f'모르는 시나리오 {scenario!r}')
         self.cfg = cfg
         self.t0 = float(t0)
-        self.arbiter = JunctionArbiter(cfg.tie_window)
+        self.arbiter = JunctionArbiter(cfg.tie_window, {n: p.domain_id for n, p in self.scenario.robots.items()})
         self.skip_clearance = len(self.scenario.robots) == 1      # 1대: 통행권 없이 1 s 정지 뒤 출발
         self.seq = {}
         self.depart_at = {}
@@ -484,15 +530,23 @@ class ScenarioRun:
             pass                                               # 통행권 없음 — 로봇이 1 s 정지 뒤 스스로 간다
         elif ds == DRIVE_JUNCTION_STOP:
             self.arbiter.request(name, now, self.scenario.robots[name].domain_id)
+        elif ds == DRIVE_JUNCTION_PASS:
+            self.arbiter.lock(name)
         elif self.arbiter.holder == name and (ds == DRIVE_ARRIVED or (ds == DRIVE_CRUISE and self.stage[name] == STAGE_AFTER)):
             self.arbiter.release(name)                         # 차선 주행으로 돌아갔다 → 다음 로봇
         if ds == DRIVE_ARRIVED:
             self.arrived[name] = True
 
-    def tick(self, now):
-        """통행권 배정·같은 목적지 도착 표시. 계획(JunctionPlan)이 바뀐 로봇 이름 목록."""
+    def tick(self, now, dist=None):
+        """통행권 배정·같은 목적지 도착 표시. 계획(JunctionPlan)이 바뀐 로봇 이름 목록.
+
+        dist: 항공뷰로 잰 {로봇: 교차로 입구 정지 지점까지 남은 거리(m) 또는 None} (vision_overhead). 출발 전·도착·교차로를
+        지난 로봇은 빼고 통행권에 쓴다. 비었으면 먼저 선 로봇 순서.
+        """
         changed = []
-        granted = None if self.skip_clearance else self.arbiter.tick(now)
+        dist = {n: d for n, d in (dist or {}).items()
+                if n in self.seq and self.due(n, now) and not self.arrived[n] and self.stage[n] != STAGE_AFTER}
+        granted = None if self.skip_clearance else self.arbiter.tick(now, dist)
         order = self.scenario.stop_lines_by_order
         if granted is not None and self.scenario.robots[granted].stop_lines is None and order:
             k = len(self.arbiter.grant_order) - 1
@@ -516,6 +570,7 @@ class ScenarioRun:
         return {
             'scenario': self.scenario.name, 'label': self.scenario.label, 'source': self.scenario.source,
             'holder': self.arbiter.holder, 'queue': self.arbiter.queue(),
+            'holder_locked': self.arbiter.holder in self.arbiter.locked, 'grant_rule': self.arbiter.rule,
             'grant_order': list(self.arbiter.grant_order), 'done': self.done,
             'skip_clearance': self.skip_clearance, 'arrival_mode': self.cfg.arrival_mode,
             'arrive_distance': self.cfg.arrive_distance,

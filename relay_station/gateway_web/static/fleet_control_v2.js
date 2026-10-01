@@ -1109,7 +1109,7 @@
     if (rows) rows.innerHTML = run ? Object.entries(run.robots || {}).map(([n, r]) => visionRobotCard(n, r, run)).join("") : "";
   }
 
-  // ---- 비전 모드 위치 표시 (/api/fleet/poses, 0.2 s) — 천장 카메라 없이 odom + 코스 모양 추정
+  // ---- 비전 모드 위치 표시 (/api/fleet/poses, 0.2 s) — odom + 코스 모양 추정(원) · 항공뷰 실측 P′(사각, 2026-10-01)
   const POSE_COLOR = {pinky1: "#d64545", pinky2: "#2f6fdc"};
   const visionImg = new Image();
   let visionImgSrc = "", posesBusy = false;
@@ -1123,7 +1123,6 @@
     if (visionImg.complete && visionImg.naturalWidth) ctx.drawImage(visionImg, 0, 0, cv.width, cv.height);
     const sx = cv.width / (visionImg.naturalWidth || cv.width), sy = cv.height / (visionImg.naturalHeight || cv.height);
     const robots = Object.entries((poses && poses.robots) || {});
-    if ($("vision-map-empty")) $("vision-map-empty").hidden = robots.length > 0;
     for (const [name, p] of robots) {
       const x = p.px * sx, y = p.py * sy, c = POSE_COLOR[name] || "#333";
       const stale = p.age == null || p.age > 1.5;
@@ -1134,12 +1133,34 @@
       ctx.fillStyle = "#111"; ctx.font = "bold 12px sans-serif"; ctx.fillText(name.replace("pinky", "P"), x + 13, y - 11);
       ctx.globalAlpha = 1;
     }
+    const overhead = Object.entries((poses && poses.overhead) || {}).filter(([, o]) => o.px != null);
+    for (const [name, o] of overhead) {
+      const x = o.px * sx, y = o.py * sy, c = POSE_COLOR[name] || "#333";
+      ctx.globalAlpha = o.fresh ? 1 : 0.35;
+      ctx.fillStyle = "#fff"; ctx.strokeStyle = o.warn ? "#d97706" : c; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.rect(x - 9, y - 9, 18, 18); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 22 * Math.cos(o.yaw), y - 22 * Math.sin(o.yaw)); ctx.strokeStyle = c; ctx.stroke();
+      ctx.fillStyle = c; ctx.font = "bold 11px sans-serif"; ctx.fillText(name.replace("pinky", "P") + "′", x - 6, y + 4);
+      ctx.globalAlpha = 1;
+    }
+    if ($("vision-map-empty")) $("vision-map-empty").hidden = robots.length + overhead.length > 0;
+    const names = [...new Set([...robots.map(([n]) => n), ...Object.keys((poses && poses.overhead) || {})])].sort();
+    const est = Object.fromEntries(robots), ov = (poses && poses.overhead) || {};
     const rows = $("vision-pose-rows");
-    if (rows) rows.innerHTML = robots.map(([name, p]) => `<div class="row">
-        <strong style="color:${POSE_COLOR[name] || "#333"}">${esc(name)} ${esc(p.start)} → ${esc(p.goal)}</strong>
-        <span>x ${p.x.toFixed(2)} m · y ${p.y.toFixed(2)} m · ${p.mode === "free" ? "교차로 동작(odom)" : "코스 위 " + p.s.toFixed(2) + " / " + p.route_length.toFixed(2) + " m"}</span>
-        <span class="muted">마지막 맞춤: ${esc(p.fix)} · 그 뒤 ${p.travel_since_fix.toFixed(2)} m${p.age == null ? " · odom 없음" : (p.age > 1.5 ? ` · ${p.age.toFixed(1)} s 끊김` : "")}</span>
-      </div>`).join("");
+    if (rows) rows.innerHTML = names.map(name => {
+      const p = est[name], o = ov[name];
+      const estLine = p ? `<span>추정: x ${p.x.toFixed(2)} m · y ${p.y.toFixed(2)} m · ${p.mode === "free" ? "교차로 동작(odom)" : "코스 위 " + p.s.toFixed(2) + " / " + p.route_length.toFixed(2) + " m"}</span>
+        <span class="muted">마지막 맞춤: ${esc(p.fix)} · 그 뒤 ${p.travel_since_fix.toFixed(2)} m${p.age == null ? " · odom 없음" : (p.age > 1.5 ? ` · ${p.age.toFixed(1)} s 끊김` : "")}</span>` : "";
+      let ovLine = `<span class="muted">항공뷰: 미수신</span>`;
+      if (o) {
+        const lat = typeof o.lateral === "number" ? `중앙에서 ${o.lateral >= 0 ? "왼쪽" : "오른쪽"} ${Math.abs(o.lateral * 100).toFixed(1)} cm` : "";
+        const tags = [o.in_junction ? "교차로 구간(보정 없음)" : "", o.correct ? "보정 중" : "",
+                      typeof o.dist_to_entry === "number" ? `입구까지 ${o.dist_to_entry.toFixed(2)} m` : ""].filter(Boolean).join(" · ");
+        ovLine = `<span class="${o.warn ? "warn-text" : ""}">항공뷰 P′: x ${o.x.toFixed(2)} m · y ${o.y.toFixed(2)} m${lat ? " · " + lat : ""}${o.warn ? " · 차선 이탈" : ""}</span>
+          <span class="muted">${o.fresh ? esc(tags || "코스 밖 또는 시나리오 전") : `${o.age.toFixed(1)} s 끊김 — 통행권은 먼저 선 순서, 보정 없음`}</span>`;
+      }
+      return `<div class="row"><strong style="color:${POSE_COLOR[name] || "#333"}">${esc(name)}${p ? ` ${esc(p.start)} → ${esc(p.goal)}` : ""}</strong>${estLine}${ovLine}</div>`;
+    }).join("");
   }
   async function refreshPoses() {
     if (posesBusy || !document.body.classList.contains("vision-mode") || !state.visionMap) return;
@@ -1159,7 +1180,9 @@
       `<span class="${r.arrived || i < idx ? "done" : (i === idx ? "now" : "")}">${esc(label)}</span>`).join("");
     const tone = r.arrived ? "ok" : ([5, 8, 9, 10].includes(r.drive_state) ? "warn" : ([12, 13, 3].includes(r.drive_state) ? "pending" : "neutral"));
     const depart = r.depart_in > 0 ? `출발까지 ${r.depart_in} s` : "출발함";
-    const pass = run.skip_clearance ? "허가 불필요 (1대)" : (r.clearance ? "허가" : "대기");
+    const rule = run.grant_rule === "distance" ? "항공뷰 남은 거리" : "먼저 정지";
+    const pass = run.skip_clearance ? "허가 불필요 (1대)"
+      : (r.clearance ? (run.holder === n && !run.holder_locked ? `허가 (${rule}, 입구 전)` : `허가 (${rule})`) : "대기");
     let arrive;
     if (r.goal_marker_id >= 0) arrive = `벽 마커 id ${r.goal_marker_id} · ${Math.round((run.arrive_distance || 0) * 100)} cm`;
     else arrive = r.stop_line_count ? `${r.stop_line_count}번째 정지선` : "정지선 수 미정(통행권 순서로)";

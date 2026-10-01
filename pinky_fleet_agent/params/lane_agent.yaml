@@ -82,6 +82,12 @@ pinky_lane_agent:
       max_range: 0.80            # 이보다 먼 점은 버린다 (m)
       keep_behind: -0.02
       min_spacing: 0.005
+    correction:                  # 항공뷰 이탈 보정 (overhead_correction.CorrectionParams) — 관제 /pinkyN/lane_correction, 차선 주행(CRUISE) 중에만
+      enabled: true
+      k_lat: 2.0                 # rad/s per m (옆 이탈, 왼쪽 +) — 8 cm 면 0.16 rad/s
+      k_head: 0.5                # rad/s per rad (방향 오차)
+      max_omega: 0.3             # 보정 각속도 상한 — 카메라 조향을 이기지 않게
+      timeout: 0.5               # 새 값이 이만큼 없으면 보정 안 함 (항공뷰 끊김)
     maneuver:                    # 비전 미션 교차로 고정 동작 (maneuver.ManeuverParams). 속도는 관제 JunctionPlan 이 주면 그 값
       linear_speed: 0.08
       angular_speed: 0.5

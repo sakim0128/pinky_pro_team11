@@ -150,6 +150,13 @@ topics:
     to_domain: 10
     qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
 
+  # 10) 항공뷰 이탈 보정 (2026-10-01): 비전 코디네이터가 항공뷰 좌표로 잰 차선 중앙 이탈 (다운링크, 10 Hz, 낡은 건 버린다)
+  /pinky1/lane_correction:
+    type: geometry_msgs/msg/Vector3Stamped
+    from_domain: 8
+    to_domain: 10
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
   # 감싼 서비스 'led' — 로봇 위 topic_wrap.py 가 서비스를 이 토픽 쌍으로 바꿔 준다.
   # 이름 규칙의 주인은 topic_wrap.py 의 topic_names() 다.
   pinky1/svc/led/request:

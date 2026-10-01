@@ -29,7 +29,9 @@ def _service():
 def test_contract_fields_after_frames():
     cfg, svc, statuses = _service()
     for _ in range(3):
-        _, img = render_overhead(cfg, {"pinky1": (0.30, 0.30, 0.0), "pinky2": (0.30, 0.95, 0.0)})
+        # 합성 영상은 6 cm 로봇 마커가 검출 경계에 가깝다 — 모서리 마커 위치가 바뀌면 화면 배율이 달라져 일부 자리에서 놓친다.
+        # 모서리(2026-10-01 꼭짓점 안쪽 5 cm)와 떨어진 자리에 둔다.
+        _, img = render_overhead(cfg, {"pinky1": (0.90, 0.30, 0.0), "pinky2": (0.90, 0.95, 0.0)})
         svc.process_overhead_frame(img)
     vh = build_vision_health(svc.get_health(), None, statuses, "mock", "abc1234")
     assert set(vh) == CONTRACT

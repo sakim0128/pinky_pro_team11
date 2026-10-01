@@ -16,13 +16,14 @@ from dataclasses import dataclass, field
 
 from dataclasses import replace
 
-from .drive_fsm import IDLE, JUNCTION_PASS, LANE_SEARCH, STATE_NAMES, DriveFsm, FsmParams, Inputs
+from .drive_fsm import CRUISE, IDLE, JUNCTION_PASS, LANE_SEARCH, STATE_NAMES, DriveFsm, FsmParams, Inputs
 from .lane_control import (QUALITY_BOTH, QUALITY_JUNCTION, QUALITY_LOST, QUALITY_SINGLE,
                            QUALITY_STALE, ControlParams, LaneController)
 from .lane_memory import GroundView, LaneMemory, MemoryParams, OdomBuffer, ViewParams
 from .link_watch import LinkWatch
 from .maneuver import ManeuverExecutor, ManeuverParams
 from .obstacle_guard import GuardParams, ObstacleGuard
+from .overhead_correction import CorrectionParams, OverheadCorrection
 from .route_follower import RouteFollower
 
 CMD_HEARTBEAT, CMD_START, CMD_STOP, CMD_ESTOP, CMD_RESUME, CMD_SET_SPEED, CMD_CLEARANCE = range(7)
@@ -36,6 +37,7 @@ class DriverParams:
     maneuver: ManeuverParams = field(default_factory=ManeuverParams)
     view: ViewParams = field(default_factory=ViewParams)
     memory: MemoryParams = field(default_factory=MemoryParams)
+    correction: CorrectionParams = field(default_factory=CorrectionParams)   # 항공뷰 이탈 보정 (lane_only)
     lookahead: float = 0.25
     arrive_tolerance: float = 0.10
     clearance_tolerance: float = 0.05     # clear_until 에 이 거리 안이면 "닿았다"
@@ -129,6 +131,7 @@ class LaneDriver:
         self.view = GroundView(self.p.view)
         self.memory = LaneMemory(self.p.memory)
         self.odom_buf = OdomBuffer()
+        self.correction = OverheadCorrection(self.p.correction)
 
     # ------------------------------------------------ 입력
 
@@ -144,6 +147,10 @@ class LaneDriver:
         self.clear_until = 0
         self.controller.reset()
         self.fsm = DriveFsm(self.p.fsm)
+
+    def set_correction(self, now, lateral, heading, active):
+        """관제 /pinkyN/lane_correction — 항공뷰로 잰 차선 중앙 이탈 (overhead_correction)."""
+        self.correction.update(now, lateral, heading, active)
 
     def set_command(self, cmd, now, route_seq=None, clear_until=None, max_v=None, max_w=None):
         """LaneCommand. 하트비트·clearance 는 link_watch 를 무장시킨다."""
@@ -617,6 +624,11 @@ class LaneDriver:
         else:
             out.v, out.omega = self.controller.command(0.0, error_x, quality, dt, None, speed_factor, False,
                                                        error_stamp=self._lane['stamp'])
+        w_corr = self.correction.omega(now) if state == CRUISE and out.v > 0.0 else None
+        if w_corr is not None:
+            w_max = self.p.control.omega_max
+            out.omega = max(-w_max, min(w_max, out.omega + w_corr))
+            out.reason = f'{out.reason} — 항공뷰 보정 {self.correction.lateral * 100:+.0f} cm'
         self._last_cmd = (out.v, out.omega)
         # 위치가 없으니 주행거리는 명령 속도로 추측한다 (횡단보도 재래치 거리 판정용)
         self._travelled += abs(out.v) * dt

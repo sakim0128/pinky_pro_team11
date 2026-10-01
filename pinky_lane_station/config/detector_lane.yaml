@@ -26,7 +26,7 @@ aruco:                            # 도착 지점 벽 ArUco 마커 (aruco_detect
   focal_px: 500.0                 # 640 px 폭 기준 초점거리. 현장에서 한 번: 마커를 정면 d m 에 두고 lane_debug 의 한 변 px 로
                                   #   focal_px = side_px × d / 0.04  (예: 0.30 m 에서 67 px → 502)
   ref_width: 640
-  ids: [40, 41, 42]               # 1·2·3번 지점 (ANCHOR A1 · A2 · A3) — vision_mission.yaml arrival.markers 와 같게
+  ids: [10, 11, 12]               # 1·2·3번 지점 벽 마커 — vision_mission.yaml arrival.markers 와 같게 (40~43 은 항공뷰 모서리)
   max_distance: 1.5
   confirm: 2
   release: 3

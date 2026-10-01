@@ -118,12 +118,12 @@
             </div>
           </article>
 
-          <!-- 비전 모드 전용: 천장 카메라 없이 odom + 코스 모양으로 추정한 핑키 위치 (표시 전용, 0.2 s 갱신) -->
+          <!-- 비전 모드 전용: odom + 코스 모양으로 추정한 핑키 위치(원, 표시 전용) + 항공뷰 실측 P′(사각, 통행권·이탈 보정), 0.2 s 갱신 -->
           <article class="card map-card vision-map-card" id="vision-map-card" hidden>
             <div class="card-head">
               <div>
-                <h2>핑키 위치 (추정)</h2>
-                <p>odom + 코스 모양으로 추정, 빨간 선·횡단보도·벽 마커 정지에서 다시 맞춘다 — 천장 카메라 없음, 표시 전용</p>
+                <h2>핑키 위치</h2>
+                <p>원 = odom + 코스 모양 추정(표시 전용). 사각 P′ = 항공뷰 실측 — 교차로 통행권(남은 거리)과 차선 이탈 보정(3 cm 보정 · 8 cm 경고)에 쓴다</p>
               </div>
               <div class="legend compact">
                 <span><i class="dot r1"></i>Pinky 1</span>

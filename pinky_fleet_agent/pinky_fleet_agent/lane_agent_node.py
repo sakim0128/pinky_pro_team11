@@ -15,7 +15,7 @@ import math
 import signal
 
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, Vector3Stamped
 from nav_msgs.msg import Odometry
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -79,7 +79,7 @@ def declare_driver_params(node):
     """DriverParams 의 숫자 필드를 ROS 파라미터로 노출하고 채워서 돌려준다."""
     p = DriverParams()
     groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard, 'maneuver': p.maneuver,
-              'view': p.view, 'memory': p.memory, '': p}
+              'view': p.view, 'memory': p.memory, 'correction': p.correction, '': p}
     for prefix, obj in groups.items():
         for key, value in vars(obj).items():
             if not isinstance(value, (int, float, bool)):
@@ -149,6 +149,8 @@ class LaneAgent(Node):
         self.create_subscription(FleetCommand, f'/{n}/command', self._on_fleet_command, RELIABLE_10)
         # 비전 미션 (lane_only): 관제가 교차로 고정 동작·도착 정지선 수를 준다 (늦게 떠도 받게 TRANSIENT_LOCAL)
         self.create_subscription(JunctionPlan, f'/{n}/junction_plan', self._on_junction_plan, ROUTE_QOS)
+        # 항공뷰 이탈 보정 (관제 vision_coordinator, 10 Hz) — lane_only 차선 주행에 작은 조향 보정을 더한다
+        self.create_subscription(Vector3Stamped, f'/{n}/lane_correction', self._on_lane_correction, BEST_EFFORT_1)
         self.create_subscription(LaserScan, self.get_parameter('scan_topic').value,
                                  self._on_scan, qos_profile_sensor_data)
         if self.get_parameter('use_ultrasonic').value:
@@ -267,6 +269,9 @@ class LaneAgent(Node):
         self._odom_pose = (pose.position.x, pose.position.y, yaw_from_quaternion(pose.orientation))
         stamp = stamp_seconds(msg.header.stamp)
         self.driver.update_odom(self._now(), *self._odom_pose, stamp=stamp if stamp > 0 else None)
+
+    def _on_lane_correction(self, msg: Vector3Stamped):
+        self.driver.set_correction(self._now(), msg.vector.x, msg.vector.y, msg.vector.z > 0.5)
 
     def _on_junction_plan(self, msg: JunctionPlan):
         if msg.robot_name and msg.robot_name != self._name:

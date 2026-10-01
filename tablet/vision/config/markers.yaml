@@ -20,18 +20,21 @@ field_markers:
   br: 42
   bl: 43
 
-# Placeholder coordinates - must be measured with physical tape relative to field origin.
 # Frame = road_graph.yaml map frame: origin at arena bottom-left, x right (2.34 m), y up (1.26 m).
-# Corners follow field_markers labels (40 tl, 41 tr, 42 br, 43 bl). Still PLACEHOLDER-COORD.
+# Corners follow field_markers labels (40 tl, 41 tr, 42 br, 43 bl).
+# x/y = 마커 **중심**. 2026-10-01 사용자: 10 cm 마커를 경기장 꼭짓점에 맞춰 안쪽 모서리에 붙인다 →
+#   중심 = 꼭짓점에서 가로·세로 0.05 m 안쪽. 줄자 실측 전 계산값 (PLACEHOLDER-COORD 대신 CORNER-FLUSH 가정).
 reference:
   size: 0.10
   height: 0.10
   markers:
-    - {id: 40, x: 0.00, y: 1.26, yaw: 1.5708}   # Measured on field: ~91.3 deg
-    - {id: 41, x: 2.34, y: 1.26, yaw: 0.0000}   # Measured on field: ~0.6 deg
-    - {id: 42, x: 2.34, y: 0.00, yaw: 3.1416}   # Measured on field: ~178.4 deg
-    - {id: 43, x: 0.00, y: 0.00, yaw: -3.1416}  # Measured on field: ~-179.0 deg
+    - {id: 40, x: 0.05, y: 1.21, yaw: 1.5708}   # Measured on field: ~91.3 deg
+    - {id: 41, x: 2.29, y: 1.21, yaw: 0.0000}   # Measured on field: ~0.6 deg
+    - {id: 42, x: 2.29, y: 0.05, yaw: 3.1416}   # Measured on field: ~178.4 deg
+    - {id: 43, x: 0.05, y: 0.05, yaw: -3.1416}  # Measured on field: ~-179.0 deg
 
+# 핑키 머리 마커: 핑키 중앙에 붙이고 마커 위쪽이 로봇 앞 (2026-10-01 사용자). 제자리 회전 중심은 앞 바퀴 축이다 —
+# offset_x(마커 중심 → 앞 바퀴 축, 앞 +) 는 실측 뒤 넣는다. 0 이면 마커 중심을 로봇 위치로 쓴다(관제 이탈·거리 계산도 이 점).
 robots:
   - name: pinky1
     id: 30

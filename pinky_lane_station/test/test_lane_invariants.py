@@ -232,7 +232,8 @@ def test_bridge_templates_carry_no_domain_and_match_nodes(lane_mission):
                  'route': ('pinky_lane_msgs/msg/Route', 'reliable', 'transient_local', 1),
                  'lane_path': ('pinky_lane_msgs/msg/LanePath', 'best_effort', 'volatile', 1),
                  'overhead_pose': ('geometry_msgs/msg/PoseStamped', 'reliable', 'volatile', 10),
-                 'junction_plan': ('pinky_lane_msgs/msg/JunctionPlan', 'reliable', 'transient_local', 1)},
+                 'junction_plan': ('pinky_lane_msgs/msg/JunctionPlan', 'reliable', 'transient_local', 1),
+                 'lane_correction': ('geometry_msgs/msg/Vector3Stamped', 'best_effort', 'volatile', 1)},
     }
     for robot in lane_mission['robots']:
         name = robot['name']
