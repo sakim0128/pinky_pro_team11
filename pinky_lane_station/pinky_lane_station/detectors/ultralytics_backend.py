@@ -52,6 +52,8 @@ class UltralyticsDetector(Detector):
                 out[cid] = nm.lower()
         if not out:
             raise DetectorError(f'class_map 이 모델 클래스와 하나도 맞지 않습니다: {self.names}')
+        # 모델에 없는 우리 클래스는 조용히 빠진다 — 무엇이 빠졌는지 남긴다 (예: 빨간 선을 모델 클래스로 착각)
+        self.unmatched = sorted(set(class_map or {}) - set(out.values()))
         return out
 
     def warmup(self, width=640, height=480):

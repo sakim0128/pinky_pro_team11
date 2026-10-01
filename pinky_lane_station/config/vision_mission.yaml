@@ -1,0 +1,63 @@
+# 비전 미션 (2026-09-30) — 위치추정 없이 카메라 차선 주행 + 교차로 동작(새 빨간 선 찾기). 관제 코디네이터(relay, --vision) 가 읽는다.
+#
+# 코스: 교차로 하나(빨간 선 3개). docs/map5.png(map5 맵 위 차선 그림) 로 볼 때 1번 = 오른쪽 아래 끝, 2번 = 왼쪽 위 끝,
+#   3번 = 왼쪽 중간 끝(횡단보도 1곳이 이 가지에 있다). 좌표는 vision_course.yaml (관제 화면 위치 표시용).
+#   경로별 교차로 방향은 routes (로봇 진행 방향 기준).
+# 로봇: 빨간 테이프(색 검출 red_line) 앞에서 1 s 정지 → 관제 통행권(시나리오 로봇 2대일 때만. 먼저 선 로봇, 같은 순간이면
+#       domain_id 작은 쪽. 1대면 허가 없이 출발) → 교차로 동작(seek: 새 빨간 선 찾아 그 앞까지) → 빨간 선 1 s 정지 →
+#       차선 주행 복귀(통행권 반납) →
+#       도착 지점 앞 벽 ArUco 마커(1→40, 2→41, 3→42) 15 cm 앞에서 도착. 같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤 장애물 정지가 도착.
+# 장애물: 초음파 10 cm 에서 정지, 치워지면 1 s 뒤 재출발. 횡단보도 3 s 정지.
+#
+# 교차로 동작 단계: seek: left|right|straight — 각도·거리 없이 새 빨간 선을 찾아 그 앞까지 (로봇 lane_agent.yaml maneuver.seek_*)
+#   좌·우 = 20 cm 전진 → 천천히 제자리 회전하며 화면 가운데 새 빨간 선 → 그 선으로 접근. 직진 = 입구 선 10 cm 지난 뒤 앞의 새 빨간 선으로.
+# 고정 동작(odom): straight: m (+ 전진), turn: deg (+ 좌회전) — maneuvers: 에 남겨 둠. 되돌리려면 routes 에 maneuver: 를 다시 넣는다.
+# 값을 바꾸면 관제(게이트웨이)만 다시 띄운다. 웹에서 만든 시나리오 중 저장한 것은 옆 파일 vision_mission_user.yaml.
+
+speeds:
+  linear: 0.08                    # 고정 동작 직진 m/s
+  angular: 0.5                    # 고정 동작 회전 rad/s
+tie_window: 0.5                   # 이 시간(s) 안에 들어온 교차로 정지 보고는 '같은 순간' — domain_id 작은 쪽이 먼저
+
+robots:                           # domain_id 는 통행 우선순위 동점 처리용 (작을수록 먼저)
+  pinky1: {domain_id: 10}
+  pinky2: {domain_id: 11}
+
+arrival:
+  mode: marker                    # marker: 벽 ArUco 마커 · stop_line: 흰 정지선 개수 (예전 방식)
+  arrive_distance: 0.15           # 카메라 ~ 벽 마커 거리 (m) 이하면 도착
+  markers: {1: 40, 2: 41, 3: 42}  # 지점 → ArUco id (DICT_4X4_50, 한 변 4 cm — 현장 ANCHOR A1·A2·A3 · detector_yolo.yaml aruco:)
+
+directions:                       # 방향별 기본 동작 — routes 에 maneuver 가 없거나 웹에서 방향을 바꾸면 이것
+  straight: [{seek: straight}]
+  left:     [{seek: left}]
+  right:    [{seek: right}]
+
+maneuvers:                        # 경로별로 따로 잰 고정 동작 (선택, 지금은 routes 에서 안 씀 — 되돌릴 때 routes 에 maneuver: 로)
+  straight_2_to_1: [{straight: 0.35}]
+  right_3_to_1:    [{straight: 0.18}, {turn: -90}, {straight: 0.10}]
+  straight_1_to_2: [{straight: 0.35}]
+  left_1_to_3:     [{straight: 0.18}, {turn: 90}, {straight: 0.10}]
+
+routes:                           # "출발>목적": 교차로 방향 (+ 선택: 경로 전용 maneuver)
+  "2>1": {direction: straight}    # 고정 동작으로 되돌리려면 {direction: straight, maneuver: straight_2_to_1}
+  "1>2": {direction: straight}    #   maneuver: straight_1_to_2
+  "3>1": {direction: right}       #   maneuver: right_3_to_1
+  "1>3": {direction: left}        #   maneuver: left_1_to_3
+  "2>3": {direction: right}       # 2 에서 올라와 교차로 오른쪽 가지로 (맵 그림 기준 추정 — 현장 확인)
+  "3>2": {direction: left}        # 3 에서 가지로 들어와 교차로에서 왼쪽(아래)으로
+
+scenarios:
+  s1:
+    label: "시나리오 1 — 2·3번 → 1번 (교차로에서 만남, 먼저 선 로봇 먼저)"
+    # 먼저 도착한 로봇은 벽 마커 앞, 나중 로봇은 앞 로봇 뒤에서 장애물로 선 곳이 도착
+    # (arrival.mode: stop_line 이면 먼저 지난 로봇은 둘째(앞) 정지선, 나중 로봇은 첫째(뒤) 정지선)
+    stop_lines_by_order: [2, 1]
+    robots:
+      pinky1: {start: 2, goal: 1, depart_delay: 0}
+      pinky2: {start: 3, goal: 1, depart_delay: 0}
+  s2:
+    label: "시나리오 2 — 1번 → 2·3번 (순차 출발, 10 s 간격)"
+    robots:
+      pinky1: {start: 1, goal: 2, depart_delay: 0, stop_lines: 1}
+      pinky2: {start: 1, goal: 3, depart_delay: 10, stop_lines: 1}

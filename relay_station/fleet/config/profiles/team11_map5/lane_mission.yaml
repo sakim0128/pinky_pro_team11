@@ -1,0 +1,42 @@
+# 좌표 프로파일 team11_map5 — 임시 미션(2026-09-29): pinky1 BL→TR, pinky2 BR→BL
+# 도로망: 이 레포의 정본 pinky_lane_station/config/road_graph.yaml 을 **그대로** 읽는다(복사본 없음 — 아래 graph 상대경로).
+#   좌표 = map5(pinky_fleet_station/config/map5.yaml): 원점 좌하단 [-0.01, -0.01], 236×128 셀 × 0.01 m → x 0..2.36, y 0..1.28.
+#   노드는 자리표시 좌표다 — 새 맵 위에서 graph_editor 로 다시 찍는다(road_graph.yaml 머리 주석).
+# 로봇은 lane_agent_node 하나(차선 카메라, drive_mode: lane). 시작·목적지는 여기 값이 기본이고 중계 웹의
+#   /api/fleet/assign(V2 "미션 배정" 카드)이 바꾼다 — endpoint 노드(BL·BR·TR)만 고를 수 있다.
+# ⚠️ 두 목표는 서로 달라야 하고 어느 목표도 다른 로봇 경로 **안**(중간 노드)에 있으면 안 된다(코디네이터 assign 규칙 L3).
+
+graph: ../../../../../pinky_lane_station/config/road_graph.yaml
+
+reservation:
+  reserve_ahead: 0.40             # 다음 엣지 시작 이 거리 안에서 예약 요청 (m)
+  release_behind: 0.25            # 노드/엣지 끝을 이만큼 지나면 해제 (m)
+  node_stop_margin: 0.20          # 분기점/교차로 앞 정지 여유 마진 (m)
+
+coordinator:
+  tick_rate: 10.0                 # 10Hz 예약 루프 및 LaneCommand 발행 주기 (하트비트 겸용)
+  state_timeout: 2.0              # RobotState 수신 타임아웃 (초)
+  start_retry_max: 5              # START 명령 최대 재시도 횟수
+  start_retry_interval: 1.0       # START 명령 재시도 간격 (초)
+  goal_event_timeout: 3.0         # Goal zone 비전 이벤트 유효 시간 (초)
+  auto_start: false
+
+defaults:
+  max_linear_vel: 0.15
+  max_angular_vel: 1.2
+
+robots:
+  - name: pinky1
+    drive_mode: lane
+    domain_id: 10
+    start: BL
+    goal: TR
+    depart_delay: 0.0
+    color: "#ff5a7a"
+  - name: pinky2
+    drive_mode: lane
+    domain_id: 11
+    start: BR
+    goal: BL
+    depart_delay: 0.0
+    color: "#38bdf8"

@@ -1,0 +1,30 @@
+# domain_bridge 템플릿 — pinky1 다운링크 (관제 → 로봇). 도메인 번호는 파일에 없다:
+#   ros2 run pinky_lane_station bridge_runner --from <관제 도메인> --to <로봇 도메인> <이 파일>
+# lane_bridge.launch.xml 이 station_domain / pinky1_domain 인수로 넘긴다. QoS 는 노드와 동일하게 고정.
+name: pinky1_bridge_down
+mode: normal
+
+topics:
+  /pinky1/command:                            # 코디네이터·웹 → lane_agent_node (SET_INITIAL_POSE 등)
+    type: pinky_fleet_msgs/msg/FleetCommand
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}   # transient_local 이면 재시작 때 옛 STOP 이 되살아난다
+
+  /pinky1/lane_command:                       # 코디네이터 → lane_agent_node (START·CLEARANCE 10 Hz)
+    type: pinky_lane_msgs/msg/LaneCommand
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky1/route:                              # 코디네이터 → lane_agent_node (늦게 뜬 로봇도 받게 transient_local)
+    type: pinky_lane_msgs/msg/Route
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+
+  /pinky1/lane_path:                          # lane_pipeline_node → lane_agent_node (0.3 s, 낡은 건 버린다)
+    type: pinky_lane_msgs/msg/LanePath
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
+
+  /pinky1/overhead_pose:                      # overhead_tracker_node(항공뷰 ArUco) → pose_fuser_node
+    type: geometry_msgs/msg/PoseStamped
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky1/junction_plan:                     # 관제 → lane_agent_node (비전 미션 교차로 동작·도착 정지선 수, 늦게 떠도 받게 transient_local)
+    type: pinky_lane_msgs/msg/JunctionPlan
+    qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}

@@ -1,0 +1,41 @@
+# =============================================================================
+# 🌉 Pinky 도메인 브릿지 (인스턴스 = configs/<이름>.yaml)
+#
+#   설치: relay_station/domain_bridge/install_bridge.sh
+#   예시: systemctl --user start pinky-domain-bridge@pinky1_control
+#
+#   브릿지는 관제 대시보드와 팀원 미러(도메인 9)를 동시에 먹여살리는
+#   단일 장애점이다. 죽으면 웹 대시보드와 팀원 관측이 함께 실명하므로
+#   Restart=always 로 무조건 되살린다.
+# =============================================================================
+[Unit]
+Description=Pinky Domain Bridge (%i)
+Documentation=file://%h/pinky_pro/src/pinky_pro_team11/docs/DOMAIN_ARCHITECTURE.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=%h/pinky_pro/src/pinky_pro_team11
+
+# 브릿지는 설정 파일에 적힌 도메인들에 직접 참여한다.
+# ROS_DOMAIN_ID 를 세팅하면 오히려 혼선을 부르므로 의도적으로 비워 둔다.
+# DDS 프로파일은 **박아 두지 않는다.** bridge_env.sh 가 런처와 같은 방식으로
+# (현장 NIC 유무를 보고) field/offsite 를 고르고, 고른 이유를 로그에 남긴다.
+# 박아 두면 현장 밖에서 도메인 생성에 실패하고 조용한 재시작 루프가 된다(D-3).
+# 레포 install/(pinky_lane_msgs 등 우리 메시지)은 **있으면** 얹는다 — PoseFix 를 나르려면 필요하다(R-1).
+# ⚠️ `[ -f X ] && source X && exec …` 로 쓰면 install/ 이 없는 장비에서 exec 까지 못 가 브리지가 아예 안 뜬다
+#    (D-3 과 같은 조용한 재시작 루프). 없으면 건너뛰고 나머지 토픽은 계속 나른다.
+ExecStart=/bin/bash -lc 'source %h/pinky_pro/src/pinky_pro_team11/relay_station/domain_bridge/bridge_env.sh >/dev/null && source /opt/ros/jazzy/setup.bash && { [ ! -f %h/pinky_pro/src/pinky_pro_team11/install/setup.bash ] || source %h/pinky_pro/src/pinky_pro_team11/install/setup.bash; } && exec ros2 run domain_bridge domain_bridge %h/pinky_pro/src/pinky_pro_team11/relay_station/domain_bridge/configs/%i.yaml'
+
+Restart=always
+RestartSec=3
+# ⭐ 설정 오류(78 = EX_CONFIG)는 재시작해도 같은 결과다 — 루프 대신 failed 로 세운다.
+#    일시적 실패는 그대로 Restart=always 가 받는다. 재시작을 끄는 게 아니다.
+RestartPreventExitStatus=78
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
