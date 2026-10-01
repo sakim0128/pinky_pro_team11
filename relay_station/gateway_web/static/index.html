@@ -1962,6 +1962,25 @@
       if (p2) p2.src = `/robot_camera_feed?id=pinky2&t=${now}`;
     }
 
+    // 플릿 주행 제어 명령 (start, stop, resume, estop)
+    async function fleetCmd(action) {
+      try {
+        const res = await fetch('/api/fleet/' + action, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        const data = await res.json();
+        console.log(`[fleetCmd] ${action}:`, data);
+        if (!data.success && data.message) {
+          alert(`플릿 명령 (${action}): ${data.message}`);
+        }
+      } catch (e) {
+        console.error(`[fleetCmd] ${action} error:`, e);
+        alert(`플릿 명령 실패: ${e}`);
+      }
+    }
+
     // 관제 위치 차단 / 복구 테스트 토글 (Fault Injection)
     let faultPoseFixBlocked = false;
     async function toggleFaultPoseFix() {
@@ -2130,29 +2149,52 @@
     let robot2Trail = [];
     let simTrail = [];
 
-    // 팀11 map5 아레나 4개 핵심 노드 (road_graph.yaml)
+    // 팀11 map5 아레나 핵심 지점 및 정지선 (vision_course.yaml & road_graph.yaml)
     const FLEET_NODES = [
-      { id: 'BL', name: 'BL (왼쪽 하단)', x: 0.20, y: 0.20, color: '#ff9900' },
-      { id: 'BR', name: 'BR (오른쪽 하단)', x: 2.15, y: 0.20, color: '#a371f7' },
-      { id: 'TR', name: 'TR (오른쪽 상단)', x: 2.15, y: 1.08, color: '#2ea043' },
-      { id: 'J',  name: 'J (중앙 교차로)', x: 1.18, y: 0.64, color: '#eab308' }
+      { id: '1', name: '1번 (우하단 종착지)', x: 2.228, y: 0.149, color: '#e63b50' },
+      { id: '2', name: '2번 (좌상단 종착지)', x: 0.127, y: 1.061, color: '#2563eb' },
+      { id: '3', name: '3번 (좌측 횡단보도)', x: 0.214, y: 0.733, color: '#18a36f' },
+      { id: 'A', name: '정지선 A (교차로 진입 2)', x: 0.908, y: 1.054, color: '#d29922' },
+      { id: 'B', name: '정지선 B (교차로 진입 1)', x: 1.464, y: 1.060, color: '#d29922' },
+      { id: 'C', name: '정지선 C (교차로 진입 3)', x: 1.133, y: 0.669, color: '#d29922' },
+      { id: 'J', name: 'J (중앙 교차로)', x: 1.18, y: 0.64, color: '#eab308' }
     ];
 
-    // 네비게이션 주행 정답 경로 (Ground Truth Waypoint Sequences)
+    // 네비게이션 주행 정답 경로 (Ground Truth Waypoint Sequences - vision_course.yaml 100% 정합)
     const MISSION_REFERENCE_PATHS = [
       {
         id: 'p1_path',
         robot: 'pinky1',
-        label: 'P1: BL → J → TR',
-        color: 'rgba(255, 153, 0, 0.65)',
-        points: [{x: 0.20, y: 0.20}, {x: 1.18, y: 0.64}, {x: 2.15, y: 1.08}]
+        label: 'P1: 2번 → J(A-B) → 1번 (S자 곡선)',
+        color: 'rgba(230, 59, 80, 0.75)',
+        points: [
+          {x: 0.127, y: 1.061}, {x: 0.272, y: 1.060}, {x: 0.396, y: 1.060}, {x: 0.521, y: 1.057},
+          {x: 0.645, y: 1.055}, {x: 0.770, y: 1.054}, {x: 0.908, y: 1.054}, {x: 1.044, y: 1.055},
+          {x: 1.194, y: 1.056}, {x: 1.343, y: 1.057}, {x: 1.464, y: 1.060}, {x: 1.543, y: 1.062},
+          {x: 1.692, y: 1.065}, {x: 1.842, y: 1.067}, {x: 1.925, y: 1.029}, {x: 1.973, y: 0.962},
+          {x: 1.995, y: 0.886}, {x: 1.985, y: 0.789}, {x: 1.930, y: 0.726}, {x: 1.809, y: 0.662},
+          {x: 1.726, y: 0.567}, {x: 1.667, y: 0.465}, {x: 1.660, y: 0.327}, {x: 1.707, y: 0.230},
+          {x: 1.789, y: 0.166}, {x: 1.867, y: 0.146}, {x: 2.016, y: 0.148}, {x: 2.141, y: 0.151},
+          {x: 2.228, y: 0.149}
+        ]
       },
       {
         id: 'p2_path',
         robot: 'pinky2',
-        label: 'P2: BR → J → BL',
-        color: 'rgba(163, 113, 247, 0.65)',
-        points: [{x: 2.15, y: 0.20}, {x: 1.18, y: 0.64}, {x: 0.20, y: 0.20}]
+        label: 'P2: 3번 → J(C-B) → 1번 (횡단보도·S자 곡선)',
+        color: 'rgba(37, 99, 235, 0.75)',
+        points: [
+          {x: 0.214, y: 0.733}, {x: 0.218, y: 0.614}, {x: 0.224, y: 0.490}, {x: 0.229, y: 0.366},
+          {x: 0.258, y: 0.253}, {x: 0.335, y: 0.193}, {x: 0.446, y: 0.178}, {x: 0.581, y: 0.179},
+          {x: 0.721, y: 0.180}, {x: 0.851, y: 0.186}, {x: 0.940, y: 0.260}, {x: 1.011, y: 0.382},
+          {x: 1.070, y: 0.520}, {x: 1.133, y: 0.669}, {x: 1.186, y: 0.780}, {x: 1.241, y: 0.892},
+          {x: 1.259, y: 0.962}, {x: 1.269, y: 1.011}, {x: 1.306, y: 1.046}, {x: 1.368, y: 1.059},
+          {x: 1.464, y: 1.060}, {x: 1.543, y: 1.062}, {x: 1.692, y: 1.065}, {x: 1.842, y: 1.067},
+          {x: 1.925, y: 1.029}, {x: 1.973, y: 0.962}, {x: 1.995, y: 0.886}, {x: 1.985, y: 0.789},
+          {x: 1.930, y: 0.726}, {x: 1.809, y: 0.662}, {x: 1.726, y: 0.567}, {x: 1.667, y: 0.465},
+          {x: 1.660, y: 0.327}, {x: 1.707, y: 0.230}, {x: 1.789, y: 0.166}, {x: 1.867, y: 0.146},
+          {x: 2.016, y: 0.148}, {x: 2.141, y: 0.151}, {x: 2.228, y: 0.149}
+        ]
       }
     ];
 

@@ -2439,7 +2439,9 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                                        allow_nan=False).encode('utf-8'))
             return
         elif parsed.path == '/api/fleet/profile_map.png':
-            annotated_map = os.path.join(STATIC_DIR, "map5_with_lanes_hi.png")
+            annotated_map = os.path.join(STATIC_DIR, "map5_arena_texture.png")
+            if not os.path.isfile(annotated_map):
+                annotated_map = os.path.join(STATIC_DIR, "map5_with_lanes_hi.png")
             if os.path.isfile(annotated_map):
                 img = cv2.imread(annotated_map, cv2.IMREAD_COLOR)
             else:

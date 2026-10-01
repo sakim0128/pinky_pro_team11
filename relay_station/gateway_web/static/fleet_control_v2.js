@@ -785,6 +785,15 @@
     };
   }
 
+  let v2MapImg = null;
+  function getV2MapImg() {
+    if (!v2MapImg) {
+      v2MapImg = new Image();
+      v2MapImg.src = "/api/fleet/profile_map.png";
+    }
+    return v2MapImg;
+  }
+
   function drawMap(canvas, detailed) {
     if (!canvas || canvas.offsetParent === null) return;
     const rect = canvas.getBoundingClientRect();
