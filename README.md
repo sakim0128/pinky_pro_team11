@@ -301,7 +301,7 @@ cd relay_station && python3 -m pytest tests -q          # rclpy 가 있어야 �
 
 - **정지선 클래스**: 차선 세그 vs 주행가능영역 세그 미결 → 재학습 뒤 `detector_yolo.yaml` `stop_line: [<id>]`.
 - **새 맵**: map5 규격으로 다시 저장하고 `road_graph.yaml` 좌표를 편집기로 다시 찍는다(지금은 임시 4노드).
-- **DDS 통일**: Fast DDS(기본)로 통일 완료. 5GHz 공유기 재배치로 멀티캐스트 안정화되어 CycloneDDS 사용을 배제하고 팀11 기본 RMW(rmw_fastrtps_cpp)로 일치시킴.
+- **DDS(RMW) 는 한쪽으로 통일돼 있지 않다**: 게이트웨이의 RMW 는 기동 방법에 따라 갈린다 — `launch_master_gateway.sh` 경유는 `rmw_cyclonedds_cpp`, `RMW_IMPLEMENTATION` 을 주지 않는 수동 기동은 ROS 기본 `rmw_fastrtps_cpp` 다(실행 프로세스의 `/proc/<pid>/environ` 과 로드된 `librmw_*.so` 로 확인한다). 도메인 브리지(`bridge_env.sh`)와 로봇 컨테이너 이미지는 CycloneDDS 를 쓴다. 통일하려면 기동 경로에서 `RMW_IMPLEMENTATION` 을 명시한다.
 - **항공뷰 캘리브레이션**: `tools/overhead_calib.py` 로 map5 좌표 호모그래피를 `overhead_tracker.yaml` 에 기록. 마커 id (로봇 1/2, 꼭짓점 40~43) 확정.
 - **rclpy 시험 재측정**: relay 시험 중 rclpy/ROS msgs 가 필요한 것은 이번 정리에서 컴파일만 했다 — 중계 PC 에서 `cd relay_station && pytest tests -q`.
 - **live 웹(:8080)** 은 조회 전용으로 남겼다 — 둘 중 하나를 지울지는 나중에.
