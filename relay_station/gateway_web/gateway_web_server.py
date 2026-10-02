@@ -299,6 +299,21 @@ def latched_robots(coord):
     return out
 
 
+def fleet_resume_target(coord):
+    """플릿 재개(resume_fleet)를 지금 누르면 갈 상태 — 코디네이터의 규칙(L7)을 읽기만 한다(통합 검토 OPS-6).
+
+    STOPPED 는 정지 직전 상태로 돌아간다: 달리던 플릿(RUNNING)만 다시 달리고, IDLE·ASSIGNED·DONE 은 그대로, 모르면
+    (재시작 뒤 복원한 STOPPED 등) 경로가 있으면 ASSIGNED 아니면 IDLE. DONE 은 DONE 에 남는다.
+    """
+    with getattr(coord, '_coord_lock', None) or threading.RLock():
+        back = coord.mission_state
+        if back == 'STOPPED':
+            back = getattr(coord, '_pre_stop_state', None)
+        if back in ('RUNNING', 'IDLE', 'ASSIGNED', 'DONE'):
+            return back
+        return 'ASSIGNED' if any(c.route is not None for c in coord.robots.values()) else 'IDLE'
+
+
 # R-5: 진단을 받는 로봇 (브리지 업링크 /pinkyN/diag 가 있는 로봇 — pinky1/2 한정)
 OPS_ROBOTS = FLEET_ROBOT_NAMES
 
