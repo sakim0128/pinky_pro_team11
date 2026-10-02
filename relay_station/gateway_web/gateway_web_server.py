@@ -1363,6 +1363,13 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
 
         # 1-B. 관제 위치 전송 차단 / 복구 테스트 (Fault Injection)
         elif parsed.path == '/api/fault/toggle_pose_fix':
+            client_ip = self.client_address[0]
+            if client_ip not in LOCAL_CONTROL_IPS:
+                app_log(f"[SECURITY] Blocked remote fault toggle from {client_ip}")
+                self._send_json(json.dumps({'success': False, 'error': 'Forbidden',
+                                            'message': '안전 정책: 고장 주입은 현장 중계 노트북(로컬)에서만 할 수 있습니다.'},
+                                           ensure_ascii=False).encode('utf-8'), code=403)
+                return
             if GLOBAL_ROBOT_SUB_NODE:
                 GLOBAL_ROBOT_SUB_NODE.fault_block_pose_fix = not getattr(GLOBAL_ROBOT_SUB_NODE, 'fault_block_pose_fix', False)
                 blocked = GLOBAL_ROBOT_SUB_NODE.fault_block_pose_fix

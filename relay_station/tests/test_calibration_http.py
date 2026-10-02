@@ -94,6 +94,20 @@ def _attrs_in(node):
     return {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)}
 
 
+def _branch_nodes(branch):
+    """If 가지 하나의 **몸통**만 걷는다. `branch.orelse`(= 뒤따르는 elif 사슬 전부)를 걷으면 뒤 가지의 게이트가 앞 가지의 것으로 센다."""
+    for stmt in branch.body:
+        yield from ast.walk(stmt)
+
+
+def _branch_names(branch):
+    return {n.id for n in _branch_nodes(branch) if isinstance(n, ast.Name)}
+
+
+def _branch_attrs(branch):
+    return {n.attr for n in _branch_nodes(branch) if isinstance(n, ast.Attribute)}
+
+
 # ---- 게이트 -------------------------------------------------------------------
 
 def test_로컬_게이트가_한_곳에_정의돼_있다():
@@ -108,7 +122,7 @@ def test_캘리브레이션_POST_는_주행_명령과_같은_게이트를_쓴다
     for paths, branch in _post_branches():
         if not any(p.startswith('/api/calibration') for p in paths):
             continue
-        assert "LOCAL_CONTROL_IPS" in _names_in(branch), \
+        assert "LOCAL_CONTROL_IPS" in _branch_names(branch), \
             "%s 에 로컬 게이트가 없다 - 원격에서 좌표계를 바꿀 수 있다" % paths
         return
     pytest.fail("캘리브레이션 POST 가지를 못 찾았다")
@@ -118,14 +132,14 @@ def test_게이트_없는_POST_경로가_새로_생기지_않았다():
     """⭐ 이 시험의 값은 **새 경로**에 있다. 알려진 예외는 위에 근거와 함께 등재한다."""
     ungated = set()
     for paths, branch in _post_branches():
-        if "LOCAL_CONTROL_IPS" in _names_in(branch):
+        if "LOCAL_CONTROL_IPS" in _branch_names(branch):
             continue
         # 2026-09-28 제어권 정책: 움직이는 경로(플릿 start/resume/assign · 목표 · 미션 · 재개 · 좌표 전환)는
         # `self._deny_if_cannot_move(...)` 가, /api/control/acquire·release 는 `CONTROL_POLICY` 가 문이다
         # (허용 목록 주소·로컬만 — 기본 목록은 비어 있어 예전 LOCAL_CONTROL_IPS 와 같다). test_control_policy.py ·
         # test_control_0928_control_policy_wiring.py 가 그 문을 잰다. 정지 계열이 같은 가지 안에서 문 뒤에 있지 않은 것은
         # 예전(LOCAL_CONTROL_IPS 시절)과 같다 — R-4 는 아래 시험이 따로 기록한다.
-        if "CONTROL_POLICY" in _names_in(branch) or "_deny_if_cannot_move" in _attrs_in(branch):
+        if "CONTROL_POLICY" in _branch_names(branch) or "_deny_if_cannot_move" in _branch_attrs(branch):
             continue
         ungated.update(paths)
     new = ungated - UNGATED_KNOWN
@@ -227,3 +241,19 @@ def test_상태_API_가_문구를_내지_않는다():
     block = src.split("if parsed.path == '/api/calibration':", 1)[1][:900]
     for word in ("정합", "완료", "실패했습니다", "하세요"):
         assert word not in block, "상태 API 가 문구(%s)를 내고 있다" % word
+
+
+def test_do_POST_가지를_충분히_읽어낸다():
+    """⭐ 양성 대조군 — 가지를 못 읽으면 위 시험은 구조적으로 통과한다(기대 경로가 읽혔는지 센다)."""
+    seen = {p for paths, _ in _post_branches() for p in paths}
+    assert {'/api/observe', '/api/fault/toggle_pose_fix', '/api/calibration/masks',
+            '/api/vision/world', '/api/vision/pose_fix'} <= seen, sorted(seen)
+    assert len(_post_branches()) >= 12, len(_post_branches())      # 삭제 전 13, /api/vision/pose 삭제 후 12
+
+
+def test_고장주입_토글은_로컬_게이트_뒤에_있다():
+    for paths, branch in _post_branches():
+        if '/api/fault/toggle_pose_fix' in paths:
+            assert "LOCAL_CONTROL_IPS" in _branch_names(branch), "원격에서 고장 주입이 가능하다"
+            return
+    pytest.fail("toggle_pose_fix 가지를 못 찾았다")

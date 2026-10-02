@@ -52,7 +52,7 @@ def test_U1_움직이는_조작에만_data_moving_이_있고_멈추는_조작에
         return m.group(0)
     assert "data-moving" in btn("start") and "data-moving" in btn("resume")
     assert "data-moving" not in btn("stop") and "data-moving" not in btn("estop")
-    for i in ("profile-select", "profile-switch", "profile-robot-maps", "profile-initial-poses"):
+    for i in ("profile-select", "profile-switch", "profile-robot-maps", "profile-initial-poses", "btn-fault-pose-block"):
         assert re.search(r'id="%s"[^>]*data-moving' % i, html) or re.search(r'data-moving[^>]*id="%s"' % i, html), i
     cards = _fn(_code(), "function renderDashboardRobots")
     assert 'data-robot-cmd="resume" data-robot="${i}" data-moving="1"' in cards
