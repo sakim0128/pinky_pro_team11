@@ -196,7 +196,7 @@ python3 tools/mixed_fleet/scenario_check.py --gateway http://127.0.0.1:8889 --do
 | 핑키2 위치가 튄다 | 영상에 마커 31 이 있어 태블릿도 핑키2 좌표를 보낸다 | 그 구간을 자른다 |
 | V2 ② · ③ 이 500 (NameError `latched_robots`) | 함수 누락 결함 | 팀 브랜치 반영 완료 (수정됨) |
 | 핑키2 컨테이너가 안 뜬다 | `nav2_msgs` 없는 이미지 | 기본 `pinky-robot-farm:jazzy` |
-| 컨테이너가 중계 토픽을 못 본다 | 방화벽 / 도메인 브리지 / RMW 불일치 | `RELAY_HOST_IP`, 양쪽 `RMW_IMPLEMENTATION` 일치 확인(컨테이너 이미지는 CycloneDDS, 게이트웨이는 기동 방법에 따라 Cyclone 또는 Fast DDS), `ros2 topic list` 를 도메인 10 · 11 · 8 에서 각각 |
+| 컨테이너가 중계 토픽을 못 본다 | 방화벽 / 도메인 브리지 / RMW 불일치 | `RELAY_HOST_IP`, 양쪽 RMW 가 표준(Fast DDS)인지 확인(런처·`bridge_env.sh`·브리지 도커 이미지는 아직 `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` 를 지정 — 그 경로로 뜬 쪽은 Cyclone, §8 참조), `ros2 topic list` 를 도메인 10 · 11 · 8 에서 각각 |
 
 ## 7. 이 시험이 보지 않는 것
 
@@ -215,4 +215,5 @@ python3 tools/mixed_fleet/scenario_check.py --gateway http://127.0.0.1:8889 --do
 - [ ] 브리지(도메인 8 ↔ 10 · 11)와 컨테이너 ↔ 중계 DDS 를 실제로 돌려 본다.
 - [ ] 진짜 Nav2 로 핑키2 를 돌릴 때의 지도 프레임 정합(map5 ↔ 농장 월드).
 - [x] 팀 브랜치의 `latched_robots` 누락 반영 완료 (게이트웨이 V2 ②·③ 버튼 500 오류 해결).
-- [ ] DDS RMW 일치 확인 — 게이트웨이 프로세스의 RMW 를 `/proc/<pid>/environ` 과 로드된 `librmw_*.so` 로 확인하고 컨테이너와 맞춘다(아직 통일되지 않았다).
+- [x] DDS 표준 = Fast DDS 결정 (5GHz 공유기 환경에 맞춰 CycloneDDS 사용 배제).
+- [ ] Fast DDS 통일 적용(별도 PR, 게이트웨이·브리지 재기동 동반) — RMW 지정 3곳 + 매핑 스크립트 2곳을 걷어낸다: `git grep -n 'RMW_IMPLEMENTATION=rmw_cyclonedds_cpp' -- relay_station` 이 가리키는 런처 `relay_station/launch_master_gateway.sh` · `relay_station/domain_bridge/bridge_env.sh` · 브리지 도커 이미지 `relay_station/domain_bridge/docker/Dockerfile`(`ENV`) + SLAM 매핑 스크립트 `relay_station/scripts/map_pinky1.sh` · `map_pinky2.sh`. 그 줄만이 아니다 — 런처(와 `bridge_env.sh`)의 `CYCLONEDDS_URI` 프로파일 선택(field/offsite/tailnet)·xml 부재 시 종료·`FIELD_NIC` 대조, Dockerfile 의 `ros-jazzy-rmw-cyclonedds-cpp` 설치도 범위다(RMW 줄만 지우면 런처가 Cyclone xml 검사로 멈출 수 있다).

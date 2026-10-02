@@ -271,7 +271,7 @@ export ROS_DOMAIN_ID=8
 ros2 run domain_bridge domain_bridge relay_station/domain_bridge/configs/pinky1_control.yaml &   # 브리지 8↔10
 ros2 run domain_bridge domain_bridge relay_station/domain_bridge/configs/pinky2_control.yaml &   # 브리지 8↔11
 python3 relay_station/gateway_web/gateway_web_server.py --port 8889 --map-yaml pinky_fleet_station/config/map5.yaml --no-camera   # 웹 :8889 (코디네이터 포함)
-#   (relay_station/launch_master_gateway.sh 는 위 셋을 CycloneDDS 로 한 번에 띄운다 — 핑키도 Cyclone 일 때만)
+#   (relay_station/launch_master_gateway.sh 는 위 셋을 한 번에 띄운다 — 현재 런처는 Cyclone 을 지정한다(표준 Fast DDS 적용 미완, 아래 "미결" 의 DDS 통일 참조))
 ROS_DOMAIN_ID=8 ros2 launch pinky_lane_station lane_station.launch.xml use_bridge:=False    # 차선 인식 (브리지는 위가 나른다)
 #   relay 브리지 대신 팀11 브리지로 갈 때(관제 0 · 로봇 45/46 등): 도메인은 인수다 — yaml 을 고치지 않는다
 #   ROS_DOMAIN_ID=0 ros2 launch pinky_lane_station lane_station.launch.xml pinky1_domain:=45 pinky2_domain:=46
@@ -301,7 +301,7 @@ cd relay_station && python3 -m pytest tests -q          # rclpy 가 있어야 �
 
 - **정지선 클래스**: 차선 세그 vs 주행가능영역 세그 미결 → 재학습 뒤 `detector_yolo.yaml` `stop_line: [<id>]`.
 - **새 맵**: map5 규격으로 다시 저장하고 `road_graph.yaml` 좌표를 편집기로 다시 찍는다(지금은 임시 4노드).
-- **DDS(RMW) 는 한쪽으로 통일돼 있지 않다**: 게이트웨이의 RMW 는 기동 방법에 따라 갈린다 — `launch_master_gateway.sh` 경유는 `rmw_cyclonedds_cpp`, `RMW_IMPLEMENTATION` 을 주지 않는 수동 기동은 ROS 기본 `rmw_fastrtps_cpp` 다(실행 프로세스의 `/proc/<pid>/environ` 과 로드된 `librmw_*.so` 로 확인한다). 도메인 브리지(`bridge_env.sh`)와 로봇 컨테이너 이미지는 CycloneDDS 를 쓴다. 통일하려면 기동 경로에서 `RMW_IMPLEMENTATION` 을 명시한다.
+- **DDS 통일(결정)**: 팀11 표준 RMW 는 Fast DDS(`rmw_fastrtps_cpp`, ROS 기본) — 5GHz 공유기 재배치로 멀티캐스트가 안정화돼 CycloneDDS 를 배제했다. **적용은 아직 미완**: RMW 지정 3곳 + 매핑 스크립트 2곳이 아직 `rmw_cyclonedds_cpp` 를 지정해 그 경로로 띄운 프로세스는 Cyclone 으로 뜬다 — `git grep -n 'RMW_IMPLEMENTATION=rmw_cyclonedds_cpp' -- relay_station` 이 가리키는 런처 `relay_station/launch_master_gateway.sh` · `relay_station/domain_bridge/bridge_env.sh` · 브리지 도커 이미지 `relay_station/domain_bridge/docker/Dockerfile`(`ENV`), SLAM 매핑 스크립트 `relay_station/scripts/map_pinky1.sh` · `map_pinky2.sh`. 적용 PR 은 그 줄만이 아니라 런처(와 `bridge_env.sh`)의 `CYCLONEDDS_URI` 프로파일 선택(field/offsite/tailnet)·xml 부재 시 종료·`FIELD_NIC` 대조, Dockerfile 의 `ros-jazzy-rmw-cyclonedds-cpp` 설치까지 다룬다(RMW 줄만 지우면 런처가 Cyclone xml 검사로 멈출 수 있다). 실행 중 프로세스의 RMW 는 `/proc/<pid>/environ` 과 로드된 `librmw_*.so` 로 확인한다.
 - **항공뷰 캘리브레이션**: `tools/overhead_calib.py` 로 map5 좌표 호모그래피를 `overhead_tracker.yaml` 에 기록. 마커 id (로봇 1/2, 꼭짓점 40~43) 확정.
 - **rclpy 시험 재측정**: relay 시험 중 rclpy/ROS msgs 가 필요한 것은 이번 정리에서 컴파일만 했다 — 중계 PC 에서 `cd relay_station && pytest tests -q`.
 - **live 웹(:8080)** 은 조회 전용으로 남겼다 — 둘 중 하나를 지울지는 나중에.

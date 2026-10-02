@@ -189,7 +189,7 @@ rclpy/ROS msgs 가 필요한 relay 시험은 이름 변경 뒤 컴파일만 했�
 
 확인할 사항:
 
-- 정지선 모델 id · 새 맵 `road_graph.yaml` 좌표 · 항공뷰 호모그래피(map5) · DDS Cyclone 통일(핑키 rmw 확인) — README "미결".
+- 정지선 모델 id · 새 맵 `road_graph.yaml` 좌표 · 항공뷰 호모그래피(map5) · DDS 표준 Fast DDS(결정 — 적용 미완) — README "미결".
 - `docs/integration/live_web.md`·`pr_live_web.md` 는 첫 PR 시점 문서라 relay 없는 도메인 0 배치를 말한다(이력).
 
 ## 2026-09-28 저녁 — 제어권 정책: 팀원 노트북도 중계를 거쳐 움직이는 명령을 낸다 (rkd1rjs2 팀원)
