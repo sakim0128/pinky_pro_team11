@@ -26,11 +26,6 @@ UNGATED_KNOWN = {
     # 프레임 수신·주소 변경. 앱이 무인증으로 밀어넣는 경로라 원래 열려 있다(UNTRUSTED).
     '/api/camera/url', '/api/camera/upload', '/upload', '/camera', '/image',
     '/video', '/frame', '/shot.jpg',
-    # 2026-09-19 신설. 연산 노드(태블릿)가 **원격에서** 좌표를 밀어넣는 경로라
-    # `LOCAL_CONTROL_IPS` 로 막으면 그 자리에서 죽는다. 대가는 무인증 주입이다.
-    # 🔴 **회수 조건**: `/pinkyN/vision_pose` 의 소비자가 생기는 순간(지금 0) 인증을
-    #    붙이고 여기서 지운다 — 그때부터는 주입이 관제 판단을 바꾼다.
-    '/api/vision/pose',
     # 2026-09-22 신설 (Track R): 태블릿에서 전송하는 비전 구역 진입/도착 이벤트 수신구
     '/api/vision/zone_event',
     # 2026-09-22 신설 (Track R: R-D1): 태블릿 canonical PoseFix 수신구 (원격 비전 연산 노드)
@@ -257,3 +252,9 @@ def test_고장주입_토글은_로컬_게이트_뒤에_있다():
             assert "LOCAL_CONTROL_IPS" in _branch_names(branch), "원격에서 고장 주입이 가능하다"
             return
     pytest.fail("toggle_pose_fix 가지를 못 찾았다")
+
+
+def test_폐기한_무인증_좌표_주입_경로가_다시_생기지_않았다():
+    src = _source()
+    assert "'/api/vision/pose'" not in src and '"/api/vision/pose"' not in src
+    assert "'/api/vision/pose_fix'" in src            # 정본 경로는 남아 있다(양성 대조군)

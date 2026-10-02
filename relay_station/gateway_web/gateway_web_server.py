@@ -54,8 +54,6 @@ except Exception:
 from stream_ingest import TabletStreamIngest
 import ops_view
 import control_policy            # 관제 2026-09-28: 움직이는 명령의 출처 정책(허용 목록 파일 + 제어권 한 사람)
-from vision_path import (BRIDGE_NODE_PREFIX, classify_receivers,  # noqa: F401
-                         downstream_contract as vision_downstream_contract)
 from mjpeg_serving import (STREAM_KEEPALIVE_SEC, should_send_frame,  # noqa: F401
                            write_mjpeg_frame)
 from source_registry import (
@@ -392,34 +390,8 @@ GLOBAL_CENSORSHIP_POLICY = censorship.load_policy()
 _jpeg_only_provider = jpeg_only_provider
 GLOBAL_ROBOT_SUB_NODE = None
 GLOBAL_FLEET_COORDINATOR = None
-# 연산 노드(태블릿)가 낸 좌표를 받는 자리. 신선도 판정은 이 저장소가 한다 —
-# 낡은 좌표를 화면에 계속 보여 주지 않는 것이 목적이다(vision_ingest 독스트링).
-GLOBAL_VISION = vision_ingest.VisionPoseStore()
-VISION_ROBOT_IDS = FLEET_ROBOT_NAMES
 LOG_BUFFER = []
 LOG_LOCK = threading.Lock()
-
-
-def _with_vision_path(report):
-    """신선도 보고에 `receivers`·`downstream` 을 덧붙인다.
-
-    ⭐ 신선도("값이 왔나")와 경로("어디까지 갔나")는 **다른 사실**이다. 화면이 둘을 같이
-       봐야 "보냈는데 아무도 안 듣는다" 와 "아무도 안 보낸다" 를 가른다.
-    ⚠️ 못 잰 자리는 `null` 로 둔다 — 0 으로 채우지 않는다.
-    """
-    if not isinstance(report, dict):
-        return report
-    for rid, item in report.items():
-        if not isinstance(item, dict):
-            continue
-        item['downstream'] = vision_downstream_contract(rid)
-        item['receivers'] = None
-        if GLOBAL_ROBOT_SUB_NODE:
-            try:
-                item['receivers'] = GLOBAL_ROBOT_SUB_NODE.vision_pose_receivers(rid)
-            except Exception:
-                item['receivers'] = None
-    return report
 
 
 def app_log(msg):
@@ -1611,59 +1583,6 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._send_json(json.dumps(body, ensure_ascii=False).encode('utf-8'), code=code)
             return
 
-        # 3-B. 연산 노드(태블릿) 좌표 수신구 (/api/vision/pose)
-        #  영상 → 좌표 → **중계** → 관제 평면. 이 엔드포인트가 그 가운데 토막이다.
-        #  ⭐ 응답은 '받았다'(accepted)와 '올렸다'(published)를 **따로** 말한다 —
-        #     ROS 노드가 없으면 받기는 해도 아무 데도 안 간다. 둘을 한 낱말로 묶으면
-        #     정지 API 가 그랬던 것처럼 거짓 초록이 된다.
-        #  🔴 **로컬 게이트를 의도적으로 걸지 않는다.** 연산 노드(태블릿)는 원격이라
-        #     `LOCAL_CONTROL_IPS` 로 막으면 이 경로가 통째로 죽는다. 대가는 **무인증
-        #     좌표 주입**이다 — 지금은 이 토픽의 소비자가 0 이라 주입이 아무것도 바꾸지
-        #     못하지만, **소비자가 생기는 순간 인증을 붙여야 한다**(회수 조건).
-        #     `tests/test_calibration_http.py` 의 `UNGATED_KNOWN` 에 같은 근거로 등재.
-        elif parsed.path == '/api/vision/pose':
-            ok, reason, norm = vision_ingest.validate(
-                req_json, robot_ids=set(VISION_ROBOT_IDS))
-            if not ok:
-                self._send_json(json.dumps({
-                    'accepted': False, 'reason': reason,
-                    'message': '좌표를 받지 않았다 — 빠진 값을 0 으로 채우지 않는다'
-                }, ensure_ascii=False).encode('utf-8'), code=400)
-                return
-            now_ms = int(time.time() * 1000)
-            rec = GLOBAL_VISION.accept(norm, now_ms)
-            published, subs = False, None
-            _recv = None
-            if GLOBAL_ROBOT_SUB_NODE:
-                published, subs = GLOBAL_ROBOT_SUB_NODE.publish_vision_pose(
-                    norm['robotId'], norm['x'], norm['y'], norm['yaw'])
-                try:
-                    _recv = GLOBAL_ROBOT_SUB_NODE.vision_pose_receivers(norm['robotId'])
-                except Exception:
-                    _recv = None
-            self._send_json(json.dumps({
-                'accepted': True,
-                # 받았다 / 올렸다 / 수신자가 있다 — 셋을 따로 말한다.
-                'published': bool(published),
-                'subscribersMeasured': subs is not None,
-                # 🔴 `hasReceiver` 는 **도메인 8** 구독자가 있다는 뜻뿐이다. 지금 그 1 은
-                #    브리지다 — "로봇이 받는다" 로 읽으면 안 된다. 종단은 아래 둘로 판정한다:
-                #    `receivers.consumer`(브리지가 아닌 구독자)와 `downstream`(도메인 N).
-                #    2026-09-20 관제·연산 노드 합의: 이 필드를 어느 수락의 근거로도 쓰지 않는다.
-                'hasReceiver': bool((subs or 0) > 0),
-                'hasReceiverMeans': 'DOMAIN_8_SUBSCRIBER_EXISTS_INCLUDING_BRIDGE',
-                'receivers': _recv,
-                'downstream': vision_downstream_contract(norm['robotId']),
-                'robotId': norm['robotId'],
-                'subscribers': subs,
-                'topic': '/%s/vision_pose' % norm['robotId'],
-                'receivedAtMs': rec['receivedAtMs'],
-                'clockOffsetMs': rec['clockOffsetMs'],
-                'clockSuspect': rec['clockSuspect'],
-                'staleAfterMs': GLOBAL_VISION.stale_after_ms
-            }, ensure_ascii=False).encode('utf-8'))
-            return
-
         # 3-B2. 연산 노드(태블릿) canonical PoseFix 수신구 (/api/vision/pose_fix) [Track R: R-D1]
         #  입력: JSON (PoseFix.msg 와 1:1 의미 보존)
         #  검증: frame_id == map, robot_name in {pinky1, pinky2}, finite x/y/yaw, required types
@@ -2411,12 +2330,6 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     'current_url': GLOBAL_INGEST.current_url
                 },
                 'robots': robot_data,
-                # 연산 노드 좌표의 **신선도**. 좌표는 신선할 때만 실린다 —
-                # 낡으면 키 자체가 없다(vision_ingest.report).
-                # ⭐ 신선도(vision_ingest, 순수 로직)에 **경로 사실**을 덧붙인다.
-                #    vision_ingest 는 ROS 를 모르므로 여기서 합친다 — 그 모듈을 순수하게 둔다.
-                'visionPose': _with_vision_path(
-                    GLOBAL_VISION.report(VISION_ROBOT_IDS, int(time.time() * 1000))),
                 'discrepancy': GLOBAL_ROBOT_SUB_NODE.get_discrepancy() if GLOBAL_ROBOT_SUB_NODE else {},
                 # ⚠️ 이 값들은 **하드코딩**이고 화면(index.html)·렌더러 기본값과
                 #    서로 다른 좌표계다(U-11). `source` 는 렌더러가 실제로 읽은 것을
@@ -2667,26 +2580,6 @@ class RobotDataSubscriberNode(Node):
         self.sub_gz_cam = self.create_subscription(
             RosImage, '/camera', self._cb_gz_cam, 5)
 
-        # 연산 노드가 낸 좌표를 관제 평면으로 올리는 발행자 (로봇별 이름).
-        # ⭐ 이름을 `vision_pose` 로 따로 둔다 — `amcl_pose`(로봇이 스스로 믿는 값)와
-        #    `odom`(추측항법)과 **다른 출처**이고, 화면이 셋을 섞으면 어느 것을 보고
-        #    있는지 말할 수 없게 된다.
-        #
-        # 🔴 이름을 **리터럴로** 적는다. 포맷 문자열(`'/%s/vision_pose' % rid`)로 쓰면
-        #    두 가지가 깨진다 — 2026-09-19 에 `test_control_topic_naming` 이 잡았다:
-        #      1) `grep '/pinky1/vision_pose'` 에 안 걸린다. 이 레포는 "검색 가능한
-        #         식별자" 를 규율로 두고 있고 토픽 이름도 그 대상이다.
-        #      2) 정적 검사가 브리지 설정과 대사할 수 없다.
-        #    ⚠️ 아래 dict 의 키는 `VISION_ROBOT_IDS` 와 **반드시 같아야** 한다.
-        #       어긋나면 검증·발행이 서로 다른 로봇 집합을 보게 되므로 즉시 죽인다.
-        self.pub_vision_pose = {
-            'pinky1': self.create_publisher(PoseStamped, '/pinky1/vision_pose', 10),
-            'pinky2': self.create_publisher(PoseStamped, '/pinky2/vision_pose', 10),
-        }
-        assert set(self.pub_vision_pose) == set(VISION_ROBOT_IDS), (
-            "VISION_ROBOT_IDS 와 발행자 목록이 어긋났다: %s vs %s"
-            % (sorted(VISION_ROBOT_IDS), sorted(self.pub_vision_pose)))
-
         # Track R (R-D1): Canonical PoseFix 발행자 (/pinky1/pose_fix, /pinky2/pose_fix)
         # QoS: Reliable, Volatile, Depth 5
         self.pub_pose_fix = {}
@@ -2825,56 +2718,6 @@ class RobotDataSubscriberNode(Node):
             'r1_real': r1,
             'gz_sim': gz
         }
-
-    def vision_pose_receivers(self, robot_id):
-        """도메인 8 의 `pinkyN/vision_pose` 구독자를 **누구인지까지** 센다.
-
-        🔴 `get_subscription_count()` 는 **수만** 준다. 그 수의 1 이 브리지면
-           "로봇이 받는다" 가 아니라 "중간 다리까지 갔다" 다. 2026-09-19 에 그 오해가
-           실제로 났고, 연산 노드가 `hasReceiver: true` 를 종단 근거로 쓸 뻔했다.
-
-        ⭐ 그래서 **노드 이름을 함께 돌려준다.** `bridge`/`consumer` 분류는 이름 접두어로
-           하는 **편의**이고, 진실은 `nodes` 목록이다 — 소비자는 그것을 봐야 한다.
-        ⚠️ 못 셌으면 `measured: False` 이고 수는 **`None`** 이다. 0 이 아니다.
-        """
-        topic = '/%s/vision_pose' % robot_id
-        try:
-            infos = self.get_subscriptions_info_by_topic(topic)
-        except Exception:
-            # 못 쟀다. 판정은 순수 함수에 맡긴다 — 0 으로 떨어뜨리지 않는다.
-            return classify_receivers(None, topic=topic)
-        names = []
-        for info in infos:
-            space = info.node_namespace
-            if not space.endswith('/'):
-                space += '/'
-            names.append(space + info.node_name)
-        return classify_receivers(names, topic=topic)
-
-    def publish_vision_pose(self, robot_id, x, y, yaw):
-        """연산 노드 좌표를 관제 평면에 올리고 **그 순간의 구독자 수**를 돌려준다.
-
-        🔴 구독자 수를 함께 돌려준다 — 발행은 수신을 뜻하지 않는다(옛 mission_cmd API 가 그 함정이었다).
-           호출자가 이 값을 응답에 실어야 "보냈다" 가 검증 가능해진다.
-        """
-        pub = self.pub_vision_pose.get(robot_id)
-        if pub is None:
-            return False, None
-        msg = PoseStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = 'map'
-        msg.pose.position.x = float(x)
-        msg.pose.position.y = float(y)
-        msg.pose.orientation.z = math.sin(float(yaw) / 2.0)
-        msg.pose.orientation.w = math.cos(float(yaw) / 2.0)
-        pub.publish(msg)
-        # ⭐ 셋은 **다른 사실**이다: 발행 호출이 돌았다 / 구독자 수를 쟀다 / 수신자가 있다.
-        #    하나로 묶으면 같은 커밋의 정지 API 와 정직 기준이 갈린다(정지는 구독자 0 을
-        #    실패로 본다). 호출자가 셋을 따로 응답에 실을 수 있게 튜플로 돌려준다.
-        try:
-            return True, int(pub.get_subscription_count())
-        except Exception:
-            return True, None
 
     def publish_pose_fix(self, norm: dict):
         """Canonical PoseFix 메시지를 관제 도메인 8에 발행한다 (Track R: R-D1).

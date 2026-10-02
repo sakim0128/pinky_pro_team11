@@ -2,7 +2,7 @@
 """`/api/ops/overview` · `/api/ops/diagnostics` (R-5) — 관제 화면이 "어느 구간이 끊겼나" 에 답하게 한다.
 
 순수 로직이다(ROS 무의존). 게이트웨이 본체는 rclpy 를 module-level 에서 import 하므로 본체 안에 두면
-유닛시험이 닿지 못한다(`mjpeg_serving.py`·`vision_path.py` 를 가른 것과 같은 이유).
+유닛시험이 닿지 못한다(`mjpeg_serving.py` 를 가른 것과 같은 이유).
 
 ## 정직성 규칙 (지시서 R-5 ④: 데이터 없는 칸은 "미수신", 초록 기본값 금지)
 - 로봇 진단(`/pinkyN/diag`)을 받은 적이 없거나 `STALE_AFTER_SEC` 넘게 끊겼으면 그 로봇의 칸은 **전부

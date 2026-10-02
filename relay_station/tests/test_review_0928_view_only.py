@@ -25,9 +25,6 @@ def g(monkeypatch):
     control.map_source = "synthetic"
     control.map_w, control.map_h, control.resolution, control.origin = 0, 0, 0.0, [0.0, 0.0, 0.0]
     control.get_robot_data.return_value = {}
-    vision = MagicMock()
-    vision.report.return_value = {}
-    monkeypatch.setattr(gws, "GLOBAL_VISION", vision)
     monkeypatch.setattr(gws, "GLOBAL_INGEST", ingest)
     monkeypatch.setattr(gws, "GLOBAL_CONTROL", control)
     cpu = MagicMock()

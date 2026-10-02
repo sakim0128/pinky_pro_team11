@@ -98,9 +98,10 @@ def test_브리지_화이트리스트를_읽어낸다():
     keys, commands = _bridge_downlink_names()
     assert commands, "브리지 설정에서 다운링크 명령을 하나도 못 읽었다"
     # 2026-09-29: goal_pose·mission_cmd·cmd_vel 다운링크는 없다(로봇은 lane_agent_node 뿐) — 남은 명령이 화이트리스트다
-    assert {"vision_pose", "route", "lane_command", "command", "pose_fix"} <= commands, commands
+    assert {"route", "lane_command", "command", "pose_fix"} <= commands, commands
+    assert "vision_pose" not in commands, commands          # 2026-10: 소비자 0 인 /api/vision/pose 와 함께 지웠다
     assert not {"goal_pose", "cmd_vel", "mission_cmd"} & commands, commands
-    assert "/pinky1/vision_pose" in keys, keys
+    assert "/pinky1/pose_fix" in keys and "/pinky1/vision_pose" not in keys, keys
 
 
 def test_볼_발행자가_있다():

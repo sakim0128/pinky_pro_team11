@@ -703,23 +703,6 @@
         <span class="badge" id="drive-ready-state-diag" style="background:#21262d;">⚪ 상태 동기화 중</span>
       </div>
       <div style="padding: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
-        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #3fb950;">
-          <div style="font-size:0.75rem; color:#3fb950; margin-bottom:4px;">📍 Robot #1 Vision Pose</div>
-          <div id="vision-r1-state" style="font-size:1.05rem; font-weight:700;">VISION_NEVER</div>
-          <div id="vision-r1-pos" style="font-size:0.82rem; color:#c9d1d9; margin-top:4px;">좌표 없음</div>
-          <div id="vision-r1-age" style="font-size:0.75rem; color:#8b949e; margin-top:3px;">age: 미측정</div>
-        </div>
-        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #39d0d8;">
-          <div style="font-size:0.75rem; color:#39d0d8; margin-bottom:4px;">📍 Robot #2 Vision Pose</div>
-          <div id="vision-r2-state" style="font-size:1.05rem; font-weight:700;">VISION_NEVER</div>
-          <div id="vision-r2-pos" style="font-size:0.82rem; color:#c9d1d9; margin-top:4px;">좌표 없음</div>
-          <div id="vision-r2-age" style="font-size:0.75rem; color:#8b949e; margin-top:3px;">age: 미측정</div>
-        </div>
-        <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
-          <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">🔗 Vision 하류 경로</div>
-          <div id="vision-r1-path" style="font-size:0.9rem; font-weight:600; color:#f0f6fc;">Robot #1: 미측정</div>
-          <div id="vision-r2-path" style="font-size:0.9rem; font-weight:600; color:#f0f6fc; margin-top:4px;">Robot #2: 미측정</div>
-        </div>
         <div style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d;">
           <div style="font-size:0.75rem; color:#8b949e; margin-bottom:4px;">🚦 Drive Stack Readiness</div>
           <div id="drive-ready-detail" style="font-size:0.95rem; font-weight:700; color:#8b949e;">미측정 — Drive Stack 통합 상태 API 미연결</div>
@@ -2148,7 +2131,6 @@
     let realRobotPose = null;
     let robot2Pose = null;
     let simRobotPose = null;
-    let visionRobotPoses = { pinky1: null, pinky2: null };
     let realTrail = [];
     let robot2Trail = [];
     let simTrail = [];
@@ -2412,39 +2394,6 @@
         navCtx.fillText('Pinky #2', p2.x, p2.y + 16);
       }
 
-      // 8. 상부 비전 관제 위치 Fix (Overhead Tracker 마커 및 오차 라인)
-      [['pinky1', '#3fb950', realRobotPose], ['pinky2', '#39d0d8', robot2Pose]].forEach(([rid, color, odomPose]) => {
-        const vp = visionRobotPoses[rid];
-        if (!vp) return;
-        const p = worldToCanvas(vp.x, vp.y);
-
-        // 조준선(Target Reticle) 마커
-        navCtx.strokeStyle = color;
-        navCtx.lineWidth = 2;
-        navCtx.beginPath();
-        navCtx.arc(p.x, p.y, 11, 0, Math.PI * 2);
-        navCtx.stroke();
-
-        // 십자선
-        navCtx.beginPath();
-        navCtx.moveTo(p.x - 15, p.y); navCtx.lineTo(p.x + 15, p.y);
-        navCtx.moveTo(p.x, p.y - 15); navCtx.lineTo(p.x, p.y + 15);
-        navCtx.stroke();
-
-        // 오도메트리 위치와의 실시간 편차 연결선
-        if (odomPose) {
-          const op = worldToCanvas(odomPose.x, odomPose.y);
-          navCtx.strokeStyle = 'rgba(234, 179, 8, 0.6)';
-          navCtx.setLineDash([3, 3]);
-          navCtx.lineWidth = 1.5;
-          navCtx.beginPath();
-          navCtx.moveTo(p.x, p.y);
-          navCtx.lineTo(op.x, op.y);
-          navCtx.stroke();
-          navCtx.setLineDash([]);
-        }
-      });
-
       // 10. 과거 드래그 상태 호환 표시 (현재 입력 이벤트 없음)
       if (isNavDragging && dragStartWorld && dragCurrentCanvas) {
         const sp = worldToCanvas(dragStartWorld.x, dragStartWorld.y);
@@ -2521,36 +2470,7 @@
             _setText('hud-sim-yaw', '—');
           }
 
-          // 3. Vision pose / downstream / Drive readiness 갱신
-          const vision = data.visionPose || {};
-          function updateVisionRobot(rid, prefix, color) {
-            const v = vision[rid] || {};
-            const stateEl = document.getElementById(prefix + '-state');
-            const posEl = document.getElementById(prefix + '-pos');
-            const ageEl = document.getElementById(prefix + '-age');
-            const fresh = v.state === 'VISION_FRESH' && v.observed === true
-                       && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.yaw);
-            if (stateEl) {
-              stateEl.textContent = v.state || 'VISION_NEVER';
-              stateEl.style.color = fresh ? color : (v.state === 'VISION_STALE' ? '#f2cc60' : '#8b949e');
-            }
-            if (posEl) posEl.textContent = fresh
-              ? `X ${v.x.toFixed(2)}m · Y ${v.y.toFixed(2)}m · Yaw ${(v.yaw * 180 / Math.PI).toFixed(1)}°`
-              : '좌표 없음 — stale/never 값은 표시하지 않음';
-            if (ageEl) ageEl.textContent = (typeof v.ageMs === 'number') ? `age: ${v.ageMs} ms` : 'age: 미측정';
-            visionRobotPoses[rid] = fresh ? {x:v.x, y:v.y, yaw:v.yaw} : null;
-            const pathEl = document.getElementById(rid === 'pinky1' ? 'vision-r1-path' : 'vision-r2-path');
-            if (pathEl) {
-              const d = v.downstream || {};
-              const sub = (d.subscribers === null || d.subscribers === undefined) ? '미측정' : d.subscribers;
-              const hz = (d.flowHz === null || d.flowHz === undefined) ? '미측정' : d.flowHz;
-              pathEl.textContent = `${rid === 'pinky1' ? 'Pinky 1' : 'Pinky 2'}: D${d.domain ?? '?'} ${d.topic || '/vision_pose'} · consumer ${sub} · flow ${hz}`;
-            }
-          }
-          updateVisionRobot('pinky1', 'vision-r1', '#3fb950');
-          updateVisionRobot('pinky2', 'vision-r2', '#39d0d8');
-
-          // Drive Stack API는 아직 계약되지 않았다. 필드가 생기기 전에는 READY를 추정하지 않는다.
+          // 3. Drive readiness 갱신 — Drive Stack API는 아직 계약되지 않았다. 필드가 생기기 전에는 READY를 추정하지 않는다.
           const drive = data.driveStack || data.drive_stack || data.driveStatus || null;
           const driveBadge = document.getElementById('drive-ready-state');
           const driveDetail = document.getElementById('drive-ready-detail');
@@ -2568,7 +2488,7 @@
           }
 
           // Localization Error Meter 필드가 생기면 기존 /api/status 아래 값을 그대로 소비한다.
-          const residual = (vision.pinky1 && vision.pinky1.residual) || null;
+          const residual = null;   // 서버는 residual 을 낸 적이 없다 — 필드가 생기면 다시 연다
           const rs = document.getElementById('residual-summary');
           const rf = document.getElementById('residual-floor');
           if (residual) {

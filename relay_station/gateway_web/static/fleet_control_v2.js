@@ -198,7 +198,7 @@
     const runtime = gRobot.runtime || gComm.runtime || "OFFLINE";
     const poseFuser = gRobot.pose_fuser || (diagRobot(index) || {}).detail?.fix_status || null;
     const fixWord = gRobot.fix_status_word || (diagRobot(index) || {}).pose_fuser || "미수신";
-    const extVision = (state.gateway?.visionPose || {})[key] || n.external_vision || null;
+    const extVision = n.external_vision || null;
 
     let runtimeBadge = "";
     if (runtime === "PHYSICAL") {

@@ -12,7 +12,7 @@
 #
 #   ⚠️ 비대칭 원칙 — 이 설계의 안전 근간
 #     10~13 -> 8 : 센서/상태 전량 (업링크)
-#     8 -> 10~13 : 제어 화이트리스트만 (vision_pose / route / lane_command / pose_fix / overhead_pose / command)
+#     8 -> 10~13 : 제어 화이트리스트만 (route / lane_command / pose_fix / overhead_pose / command)
 #     8 -> 9     : 읽기 전용 미러
 #     9 -> 8     : **teleop 이름만** (2026-09-12 사용자 지시로 신설 · 기본 꺼짐)
 #
@@ -118,31 +118,6 @@ topics:
   # 전부에게 동시에 전달되는 사고가 발생하지 않는다.
   # (goal_pose·mission_cmd·cmd_vel 다운링크는 2026-09-29 에 지웠다 — 로봇은 lane_agent_node 뿐이다.)
 
-EOF
-    cat >> "$OUT/pinky${n}_control.yaml" <<EOF
-
-  # 🔴 2026-09-19 신설 — 사용자 결정 "로봇까지".
-  #
-  # 연산 노드(태블릿)가 영상에서 뽑은 좌표를 게이트웨이가 POST /api/vision/pose 로 받아
-  # 도메인 ${RELAY_DOMAIN} 에 발행한다. 이 줄이 없으면 그 좌표는 **관제 도메인에서 멈춘다**
-  # — 2026-09-19 이전이 그 상태였고, 발행자만 있고 구독자·브리지 등재가 0이었다.
-  #
-  # ⭐ 이름을 vision_pose 로 둔다. 로봇이 **스스로 믿는** 값(amcl_pose)과 밖에서
-  #    **관측한** 값을 같은 이름에 담으면, 둘이 어긋날 때 어느 쪽을 고쳐야 하는지
-  #    이름이 말해 주지 못한다.
-  #
-  # ⚠️ QoS 를 reliable 로 둔 이유 (best_effort 가 아니다):
-  #    게이트웨이는 create_publisher(PoseStamped, ..., 10) 즉 **reliable** 로 낸다.
-  #    브리지가 best_effort 로 내보내면 로봇 쪽 reliable 구독자와 **안 맞는다**
-  #    (제공 best_effort < 요구 reliable). reliable 로 내면 양쪽 구독자가 다 붙는다.
-  #    대신 depth: 1 로 큐를 막는다 — 낡은 좌표를 재전송하는 것은 없느니만 못하다
-  #    (신선도 문턱 500 ms 는 gateway_web/vision_ingest.py 가 강제한다).
-  pinky${n}/vision_pose:
-    type: geometry_msgs/msg/PoseStamped
-    from_domain: ${RELAY_DOMAIN}
-    to_domain: ${d}
-    remap: vision_pose
-    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 1}
 EOF
 
     # ══ Track R (Mini Project 2) 신규 5대 계약 토픽은 오직 pinky1 & pinky2 에만 적용 ══
