@@ -1986,6 +1986,10 @@
     async function toggleFaultPoseFix() {
       try {
         const res = await fetch('/api/fault/toggle_pose_fix', { method: 'POST' });
+        if (!res.ok) {   // 403(원격 출처) 등 — 거절된 요청을 '꺼짐'으로 읽어 화면을 되돌리지 않는다
+          console.error('toggleFaultPoseFix 거부:', res.status);
+          return;
+        }
         const data = await res.json();
         faultPoseFixBlocked = !!data.blocked;
         const btn = document.getElementById('btn-fault-toggle');
@@ -2660,12 +2664,14 @@
           }
           // 태블릿 상태 갱신
           const badge = document.getElementById('tablet-badge');
-          if (data.tablet_camera && data.tablet_camera.connected) {
-            badge.textContent = 'INGEST LIVE';
-            badge.className = 'badge green';
-          } else {
-            badge.textContent = 'CONNECTING...';
-            badge.className = 'badge gold';
+          if (badge) {   // 요소가 지워졌는데 가드가 없으면 매 폴링 TypeError 로 이후 갱신(호스트·지연·fleet_comm)이 멎는다
+            if (data.tablet_camera && data.tablet_camera.connected) {
+              badge.textContent = 'INGEST LIVE';
+              badge.className = 'badge green';
+            } else {
+              badge.textContent = 'CONNECTING...';
+              badge.className = 'badge gold';
+            }
           }
           // 호스트 리소스 갱신
           if (data.host_resources) {
@@ -2706,6 +2712,36 @@
                 p2pEl.style.color = (fc.p2p_link.physical_lan === 'CONNECTED') ? '#3fb950' : '#d29922';
               }
             }
+            // 정적이던 배지를 API 값으로 그린다(V2 deriveRobot 과 같은 runtime 매핑). 'SECURED' 같은 보증 단어는 쓰지 않는다.
+            const RT = {
+              PHYSICAL: ['🤖 실물', '#238636', '#fff'],
+              DOCKER: ['🐳 도커 가상', '#9e6a03', '#fff'],
+              OFFLINE: ['미연결', '#21262d', '#c9d1d9']
+            };
+            [['pinky1', 'p1-runtime-badge'], ['pinky2', 'p2-runtime-badge']].forEach(([k, id]) => {
+              const el = document.getElementById(id);
+              if (!el || !fc[k]) return;
+              const spec = RT[fc[k].runtime] || RT.OFFLINE;
+              el.textContent = spec[0]; el.style.background = spec[1]; el.style.color = spec[2];
+            });
+            [['pinky1', 'fleet-r1-badge'], ['pinky2', 'fleet-r2-badge']].forEach(([k, id]) => {
+              const el = document.getElementById(id);
+              if (!el || !fc[k]) return;
+              const spec = RT[fc[k].runtime] || RT.OFFLINE;
+              el.textContent = spec[0]; el.className = 'badge';
+              el.style.background = spec[1]; el.style.color = spec[2];
+            });
+            if (fc.p2p_link) {
+              const pb = document.getElementById('fleet-p2p-badge');
+              if (pb) {
+                const seen = fc.p2p_link.status === 'OBSERVED_SHARED_PLANE';
+                pb.textContent = seen ? '공유 평면 관측됨' : '미검증';
+                pb.className = seen ? 'badge green' : 'badge gold';
+              }
+            }
+            // 보기 전용 출처(PROD·원격 보기)에서는 고장 주입 버튼을 숨긴다 — 서버가 403 으로 거부하는 조작을 보여 주지 않는다.
+            const fb = document.getElementById('btn-fault-toggle');
+            if (fb) fb.hidden = (data.view_only === true);
           }
 
           }
