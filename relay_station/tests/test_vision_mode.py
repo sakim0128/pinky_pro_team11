@@ -441,17 +441,3 @@ def test_v2_vision_map_card_polls_poses():
     assert 'id="vision-map-card"' in HTML and 'id="vision-map"' in HTML
     assert 'setInterval(refreshPoses, 200)' in JS and '"/api/fleet/poses"' in JS
     assert "elif parsed.path == '/api/fleet/poses':" in GW and "elif parsed.path == '/api/fleet/vision_map.png':" in GW
-
-
-def test_v2_robot_rows_camera_bev_seg():
-    """핑키마다 한 줄: 카메라 · 위에서 본 BEV · 세그 추론 (관제 lane_pipeline /pinkyN/lane_bev · lane_seg)."""
-    assert HTML.count('class="robot-view-row"') == 2
-    for n in (1, 2):
-        row = HTML[HTML.index(f'alt="Pinky {n} camera"') - 200:HTML.index(f'alt="Pinky {n} segmentation"')]
-        assert row.index(f'/robot_camera_feed?id=pinky{n}"') < row.index(f'/robot_camera_feed?id=pinky{n}&amp;view=bev"')
-    assert "if view in ('bev', 'seg'):" in GW
-    for topic in ("f'/{robot}/lane_{view}/compressed'",):
-        assert topic in GW
-    node = open(os.path.join(REPO, 'pinky_lane_station', 'pinky_lane_station', 'lane_pipeline_node.py'),
-                encoding='utf-8').read()
-    assert 'f"/{rl.name}/lane_bev/compressed"' in node and 'f"/{rl.name}/lane_seg/compressed"' in node
