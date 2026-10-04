@@ -94,15 +94,3 @@ def test_draw_debug_lost_has_no_target_point():
     dbg = draw_debug(img, [], r, mask_frac=0.0)
     assert not (dbg[int(r.target_y)] == np.array(TARGET_COLOR)).all(axis=1).any()
     assert not (dbg == 128).all(axis=2).any()                # mask_frac 0 → 경계선 없음
-
-
-def test_draw_segmentation_fills_masks_and_darkens_masked_rows():
-    from pinky_lane_station.pipeline_image import draw_segmentation
-    img = np.full((480, 640, 3), 120, np.uint8)
-    inst = Instance('crosswalk', 0.9, [(200, 300), (440, 300), (440, 420), (200, 420)])
-    out = draw_segmentation(img, [inst], mask_frac=0.5, infer_ms=12.0)
-    assert out.shape == img.shape and img.max() == 120                     # 원본은 그대로
-    c = out[360, 320].astype(int)
-    expect = 0.45 * np.array(CLASS_COLORS['crosswalk']) + 0.55 * 120
-    assert np.abs(c - expect).max() <= 2                                    # 클래스 색 반투명
-    assert out[100, 600].max() < 60                                         # 마스킹(모델이 못 보는) 영역은 어둡게

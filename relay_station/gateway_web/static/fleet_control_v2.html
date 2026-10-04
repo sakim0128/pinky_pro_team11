@@ -148,35 +148,14 @@
               <img src="/video_feed?src=relay-cam" alt="Relay top-view camera" data-media="중계 탑뷰(USB 웹캠)" data-missing-why="중계 웹캠 신호 없음(--no-camera 또는 미연결)">
               <span class="media-label">Relay top-view (USB webcam)</span>
             </div>
-            <!-- 로봇마다 한 줄: 핑키 카메라 · 위에서 본 BEV · 세그 추론 결과 (관제 lane_pipeline /pinkyN/lane_bev · lane_seg) -->
-            <div class="robot-view-grid">
-              <div class="robot-view-row">
-                <div class="camera-mini">
-                  <img src="/robot_camera_feed?id=pinky1" alt="Pinky 1 camera" data-media="Pinky 1 카메라" data-missing-why="로봇 카메라 미발행">
-                  <span>Pinky 1 Camera</span>
-                </div>
-                <div class="camera-mini bev">
-                  <img src="/robot_camera_feed?id=pinky1&amp;view=bev" alt="Pinky 1 BEV" data-media="Pinky 1 BEV" data-missing-why="관제 인식(lane_pipeline) 미실행 또는 BEV 꺼짐">
-                  <span>Pinky 1 BEV</span>
-                </div>
-                <div class="camera-mini">
-                  <img src="/robot_camera_feed?id=pinky1&amp;view=seg" alt="Pinky 1 segmentation" data-media="Pinky 1 세그" data-missing-why="관제 인식(lane_pipeline) 미실행">
-                  <span>Pinky 1 Segmentation</span>
-                </div>
+            <div class="camera-mini-grid">
+              <div class="camera-mini">
+                <img src="/robot_camera_feed?id=pinky1" alt="Pinky 1 camera" data-media="Pinky 1 카메라" data-missing-why="로봇 카메라 미발행">
+                <span>Pinky 1 Camera</span>
               </div>
-              <div class="robot-view-row">
-                <div class="camera-mini">
-                  <img src="/robot_camera_feed?id=pinky2" alt="Pinky 2 camera" data-media="Pinky 2 카메라" data-missing-why="로봇 카메라 미발행">
-                  <span>Pinky 2 Camera</span>
-                </div>
-                <div class="camera-mini bev">
-                  <img src="/robot_camera_feed?id=pinky2&amp;view=bev" alt="Pinky 2 BEV" data-media="Pinky 2 BEV" data-missing-why="관제 인식(lane_pipeline) 미실행 또는 BEV 꺼짐">
-                  <span>Pinky 2 BEV</span>
-                </div>
-                <div class="camera-mini">
-                  <img src="/robot_camera_feed?id=pinky2&amp;view=seg" alt="Pinky 2 segmentation" data-media="Pinky 2 세그" data-missing-why="관제 인식(lane_pipeline) 미실행">
-                  <span>Pinky 2 Segmentation</span>
-                </div>
+              <div class="camera-mini">
+                <img src="/robot_camera_feed?id=pinky2" alt="Pinky 2 camera" data-media="Pinky 2 카메라" data-missing-why="로봇 카메라 미발행">
+                <span>Pinky 2 Camera</span>
               </div>
             </div>
           </article>
