@@ -36,6 +36,10 @@ class MemoryParams:
     max_range: float = 0.80         # 이보다 먼 점은 버린다 (odom 누적 오차가 커지기 전에)
     keep_behind: float = -0.02      # 로봇 좌표 x 가 이보다 작으면(지나간 점) 버린다
     min_spacing: float = 0.005      # 직전 점과 이보다 가까우면 추가하지 않는다 (서 있을 때)
+    jump_reject: float = 0.06       # 같은 전방 거리(± jump_window)의 기억 경로와 옆으로 이만큼 넘게 다르면 바로 넣지 않고 보류 (m)
+    jump_window: float = 0.05       # 비교할 기억 점의 전방 거리 범위 (m). 그 범위에 기억이 없으면(처음·공백 뒤) 그냥 받는다
+    jump_confirm: float = 0.04      # 보류한 점과 다음 점이 이만큼 안이면 장면이 바뀐 것 — 그 앞의 예전 점을 지우고 받는다 (m)
+    clear_on_stop: bool = True      # 정지(횡단보도·빨간 선·장애물 …) 중에는 기억을 비운다 — 출발은 서서 새로 본 점부터 (lane_driver)
 
 
 class GroundView:
@@ -94,19 +98,47 @@ class LaneMemory:
     def __init__(self, params=None):
         self.p = params or MemoryParams()
         self.points = deque(maxlen=self.p.max_points)     # odom 좌표 (오래된 = 가까운 순)
+        self._pending = None                              # 한 프레임 튄 점 — 다음 점이 확인하면 받는다
 
     def clear(self):
         self.points.clear()
+        self._pending = None
 
     def __len__(self):
         return len(self.points)
 
     def add(self, pt_robot, pose_at_capture):
-        """로봇 좌표의 차선 중앙점을 그 사진을 찍은 순간의 odom 자세로 odom 좌표에 저장."""
+        """로봇 좌표의 차선 중앙점을 그 사진을 찍은 순간의 odom 자세로 odom 좌표에 저장. 넣었으면 True.
+
+        한 프레임만 옆으로 튄 점(검출이 다른 차선 조각을 잡음)은 넣지 않는다: 같은 전방 거리의 기억 경로와
+        옆으로 jump_reject 넘게 다르면 보류하고, 다음 점이 jump_confirm 안에서 같은 자리를 보면 그때 받는다
+        (장면이 정말 바뀜 — 그 앞쪽의 예전 점은 지운다). 2026-10-04 pinky2 횡단보도: 튄 점 2개가 남아 출발 직후 급우회전.
+        """
+        p = self.p
         w = _to_world(pose_at_capture, pt_robot)
-        if self.points and math.hypot(w[0] - self.points[-1][0], w[1] - self.points[-1][1]) < self.p.min_spacing:
-            return
+        if self.points and math.hypot(w[0] - self.points[-1][0], w[1] - self.points[-1][1]) < p.min_spacing:
+            return False
+        dev = self._lateral_deviation(pt_robot, pose_at_capture)
+        if dev is not None and dev > p.jump_reject:
+            pend = self._pending
+            if pend is None or math.hypot(w[0] - pend[0], w[1] - pend[1]) > p.jump_confirm:
+                self._pending = w
+                return False
+            x_from = min(pt_robot[0], _to_local(pose_at_capture, pend)[0]) - p.jump_window
+            self.points = deque((q for q in self.points if _to_local(pose_at_capture, q)[0] < x_from),
+                                maxlen=p.max_points)
+            self.points.append(pend)
+        self._pending = None
         self.points.append(w)
+        return True
+
+    def _lateral_deviation(self, pt_robot, pose):
+        """pt_robot 과 같은 전방 거리(± jump_window)에 있는 기억 점들의 옆 위치와의 차이 (m). 비교할 점이 없으면 None."""
+        x, y = pt_robot
+        near = [loc for loc in (_to_local(pose, q) for q in self.points) if abs(loc[0] - x) <= self.p.jump_window]
+        if not near:
+            return None
+        return min(abs(y - ly) for _, ly in near)
 
     def prune(self, pose_now):
         p = self.p

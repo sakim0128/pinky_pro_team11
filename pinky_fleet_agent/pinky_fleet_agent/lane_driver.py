@@ -597,6 +597,8 @@ class LaneDriver:
             self.controller.reset()
             self._last_cmd = (0.0, 0.0)
             self._lost_since = None
+            if p.memory.clear_on_stop:
+                self.memory.clear()          # 서 있는 동안 본 점만 남긴다 — 정지 전 기억(커브·튄 점)으로 출발하지 않게
             out.v, out.omega = 0.0, 0.0
             return out
         if not lane_visible and kappa is None:

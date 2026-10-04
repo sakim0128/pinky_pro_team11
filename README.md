@@ -146,6 +146,9 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
   `memory.lookahead` 0.12 m). 커브 안쪽을 미리 자르지 않고, 차선이 잠깐 안 보여도 본 곳까지는 간다.
   화면 → 바닥 거리는 실측 두 점(화면 맨 아래 10 cm · 50 % 행 43 cm, `view.bottom_m`·`view.mid_m`)으로, 옆 거리는 차선 폭 15 cm 로 잰다.
   `view.axle_to_camera_m`(구동 바퀴 축 → 카메라) 은 pinky_pro URDF 값 0.033 m (바퀴 joint x=0, front_camera_link x≈33 mm). 예전 방식은 `follow_memory: false`.
+  기억 보호(2026-10-04 pinky2 횡단보도 로그): 같은 전방 거리의 기억 경로와 옆으로 6 cm 넘게 다른 점은 한 프레임 보류하고 다음 프레임이
+  확인해야 넣는다(`memory.jump_*`). 정지(횡단보도·빨간 선·장애물) 중에는 기억을 비워 출발은 서서 새로 본 점부터 따라간다(`memory.clear_on_stop`).
+  — 커브 출구에서 한 프레임 튄 목표점 2개가 정지 3 s 동안 남아 있다가 출발 직후 급우회전(−0.4 rad/s)을 만들었다.
 - BEV 차로 중앙(관제 `ground_bev`, `detector_yolo.yaml` `bev:`): 위의 화면 → 바닥 근사 대신 렌즈·바닥 캘리브레이션(`config/pinky_cam.yaml`)으로
   차선 마스크 픽셀을 바닥 mm 로 옮긴다. 차선 조각마다 진행 방향과 도로 쪽(로봇이 있는 쪽)을 바닥에서 정하고 반폭(87 mm)만큼 옮겨 중앙 경로를
   만든다 — 선이 하나든 둘이든, 직선이든 커브든 같은 방식이라 좌/우 라벨이 필요 없고 쌍↔단일 전환에서 옆으로 튀지 않는다.

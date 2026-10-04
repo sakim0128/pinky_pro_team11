@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pinky_fleet_agent.drive_fsm import CRUISE, LANE_SEARCH  # noqa: E402
+from pinky_fleet_agent.drive_fsm import CROSSWALK_CLEAR, CROSSWALK_STOP, CRUISE, LANE_SEARCH  # noqa: E402
 from pinky_fleet_agent.lane_control import QUALITY_BOTH, QUALITY_LOST  # noqa: E402
 from pinky_fleet_agent.lane_driver import DriverParams, LaneDriver  # noqa: E402
 from pinky_fleet_agent.lane_memory import (  # noqa: E402
@@ -221,3 +221,123 @@ def test_memory_follows_curve_from_bev_floor_targets():
             break
     assert y > 0.6                                  # 커브를 돌아 나갔다
     assert max(errs[60:]) < 0.03 and errs[-1] < 0.01   # 2 cm 치우친 출발에서 수렴
+
+
+# ---------------------------------------------------------------- 튄 점 거르기 · 정지 중 기억 비우기 (2026-10-04 pinky2 횡단보도)
+
+def straight_memory(n=6, y=0.0):
+    m = LaneMemory(MemoryParams())
+    for i in range(n):                                   # 로봇은 원점에 서 있고 앞 10~25 cm 에 중앙선
+        assert m.add((0.10 + 0.03 * i, y), (0.0, 0.0, 0.0))
+    return m
+
+
+def test_single_frame_lateral_spike_is_not_remembered():
+    m = straight_memory()
+    assert not m.add((0.15, -0.15), (0.0, 0.0, 0.0))     # 같은 전방 거리의 기억보다 15 cm 오른쪽 — 보류
+    assert m.add((0.26, 0.0), (0.0, 0.0, 0.0))           # 다음 프레임은 원래 자리 — 받고, 보류한 점은 버린다
+    assert all(abs(q[1]) < 0.01 for q in m.points)
+    assert m.target((0.0, 0.0, 0.0))[1] == pytest.approx(0.0, abs=0.01)
+
+
+def test_jump_confirmed_by_next_frame_replaces_points_ahead():
+    m = straight_memory()
+    assert not m.add((0.15, 0.10), (0.0, 0.0, 0.0))
+    assert m.add((0.17, 0.10), (0.0, 0.0, 0.0))           # 두 프레임 연속 같은 자리 — 장면이 바뀌었다
+    ahead = [q for q in m.points if q[0] >= 0.10]
+    assert ahead and all(abs(q[1] - 0.10) < 0.01 for q in ahead)
+
+
+def test_point_without_memory_at_that_distance_is_accepted():
+    m = straight_memory(n=2)                               # 10·13 cm 에만 기억
+    assert m.add((0.30, 0.08), (0.0, 0.0, 0.0))            # 30 cm 엔 비교할 기억이 없다 (공백 뒤 등) — 그냥 받는다
+
+
+def test_driver_clears_memory_while_stopped_at_crosswalk():
+    p = DriverParams()
+    p.lane_only = True
+    d = LaneDriver(p)
+    d.started = True
+    t = 0.0
+    for _ in range(10):
+        t += DT
+        d.update_odom(t, 0.0, 0.0, 0.0, stamp=t)
+        d.set_lane_path(t, t, QUALITY_BOTH, 0.0, floor=(0.20 + 0.01 * _, 0.0))
+        d.tick(t, 0.0, 0.0, 0.0)
+    assert len(d.memory) > 0
+    t += DT
+    d.update_odom(t, 0.0, 0.0, 0.0, stamp=t)
+    d.set_lane_path(t, t, QUALITY_BOTH, 0.0, crosswalk=True, floor=(0.30, 0.0))
+    out = d.tick(t, 0.0, 0.0, 0.0)
+    assert out.state == CROSSWALK_STOP and out.v == 0.0 and len(d.memory) == 0
+
+
+def replay_crosswalk_restart(params):
+    """실제 로그(2026-10-04 pinky2): 오른쪽 커브 → 횡단보도 3 s 정지 → 출발. 기록된 odom·LanePath 를 그대로 넣는다(개루프).
+    -> [(t, state, omega)]"""
+    import json
+    doc = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'crosswalk_restart_pinky2.json')))
+    d = LaneDriver(params)
+    d.started = True
+    lps = list(doc['lane_path_rows'])
+    out, tick_t = [], None
+    for stamp, x, y, yaw in doc['odom_rows']:
+        d.update_odom(stamp, x, y, yaw, stamp=stamp)
+        while lps and lps[0][0] <= stamp:
+            recv, src, q, e, cw, fv, fx, fy = lps.pop(0)
+            d.set_lane_path(recv, src, q, e if q in (0, 1) else None, bool(cw), floor=(fx, fy) if fv else None)
+        if tick_t is None or stamp - tick_t >= 0.05:
+            d.set_command(0, stamp)                           # 하트비트
+            o = d.tick(stamp, 0.0, 0.0, 0.0)
+            tick_t = stamp
+            out.append((stamp, o.state, o.omega))
+    return out
+
+
+def restart_omegas(log, seconds=0.6):
+    t_go = next(t for t, s, _ in log if s == CROSSWALK_CLEAR)
+    return [w for t, s, w in log if t_go <= t < t_go + seconds]
+
+
+def before_stop_omegas(log, seconds=0.6):
+    t_stop = next(t for t, s, _ in log if s == CROSSWALK_STOP)
+    return [w for t, s, w in log if t_stop - seconds <= t < t_stop]
+
+
+def log_params(**memory):
+    """현장과 같은 파라미터: params/lane_agent.yaml (예: fsm.search_on_single=false) + lane_only. memory 키워드로 덮어쓴다."""
+    import yaml
+    p = DriverParams()
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'params', 'lane_agent.yaml')
+    ros = yaml.safe_load(open(path))['pinky_lane_agent']['ros__parameters']
+    groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard, 'maneuver': p.maneuver,
+              'view': p.view, 'memory': p.memory, '': p}
+    for prefix, obj in groups.items():
+        src = ros.get(prefix, {}) if prefix else ros
+        for k, v in vars(obj).items():
+            if isinstance(v, (int, float, bool)) and k in src:
+                setattr(obj, k, type(v)(src[k]))
+    p.lane_only = True
+    p.guard.use_lidar = False
+    for k, v in memory.items():
+        setattr(p.memory, k, v)
+    return p
+
+
+def test_log_crosswalk_restart_old_behaviour_turns_hard_right():
+    """수정 전 재현: 정지 직전 튄 점 2개(차로 중앙 14~16 cm 오른쪽)가 기억에 남아 출발 직후 급우회전."""
+    log = replay_crosswalk_restart(log_params(jump_reject=10.0, clear_on_stop=False))
+    assert any(s == CROSSWALK_STOP for _, s, _ in log)
+    assert min(restart_omegas(log)) < -0.3
+    assert min(before_stop_omegas(log)) < -0.4                # 정지 직전에도 튄 점 쪽으로 한 번 꺾인다
+
+
+def test_log_crosswalk_restart_follows_what_it_sees():
+    """수정 후: 서서 본 '정면 직진' 을 따라 출발한다 (튄 점 거르기 + 정지 중 기억 비우기, 각각만으로도)."""
+    for p in (log_params(), log_params(clear_on_stop=False), log_params(jump_reject=10.0)):
+        assert min(restart_omegas(replay_crosswalk_restart(p))) > -0.05
+
+
+def test_log_spike_before_stop_is_filtered():
+    """튄 점 거르기: 정지 직전 튄 점 쪽으로 꺾던 것(−0.56 rad/s)이 없어진다 (현장 기록 −0.16~−0.18 과 비슷)."""
+    assert min(before_stop_omegas(replay_crosswalk_restart(log_params()))) > -0.3

@@ -82,6 +82,10 @@ pinky_lane_agent:
       max_range: 0.80            # 이보다 먼 점은 버린다 (m)
       keep_behind: -0.02
       min_spacing: 0.005
+      jump_reject: 0.06          # 같은 전방 거리의 기억 경로와 옆으로 6 cm 넘게 다른 점은 한 프레임 보류 (튄 검출 거르기)
+      jump_window: 0.05
+      jump_confirm: 0.04         # 다음 프레임도 그 자리면(4 cm 안) 장면이 바뀐 것으로 보고 받는다
+      clear_on_stop: true        # 정지(횡단보도·빨간 선·장애물) 중 기억을 비워 출발은 서서 새로 본 점부터 (2026-10-04 pinky2 횡단보도 로그)
     maneuver:                    # 비전 미션 교차로 고정 동작 (maneuver.ManeuverParams). 속도는 관제 JunctionPlan 이 주면 그 값
       linear_speed: 0.08
       angular_speed: 0.5
