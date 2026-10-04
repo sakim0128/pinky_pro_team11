@@ -22,10 +22,10 @@ from pinky_lane_msgs.msg import LanePath, SceneState
 from .aruco_detector import ArucoMarkerDetector
 from .aruco_detector import params_from_dict as aruco_params
 from .detectors import create_detector
-from .ground_bev import BevLaneFollower, BevParams, GroundCamera, apply_bev, draw_bev, lane_mask_from_instances
+from .ground_bev import BevLaneFollower, BevParams, BevView, GroundCamera, apply_bev, draw_bev, lane_mask_from_instances
 from .lane_mission import LaneMissionError, load_lane_mission
 from .lane_target import LANE_CLASSES, QUALITY_STALE, LaneTargetEstimator, TargetParams
-from .pipeline_image import draw_debug, mask_top
+from .pipeline_image import draw_debug, draw_segmentation, mask_top
 from .red_line_detector import RedLineColorDetector
 from .red_line_detector import params_from_dict as red_line_params
 from .stop_line_detector import WhiteStopLineDetector
@@ -122,7 +122,15 @@ class LanePipeline(Node):
         self._path_pubs = {}
         self._scene_pubs = {}
         self._debug_pubs = {}
+        self._seg_pubs = {}                         # 관제 웹: 세그 추론 화면 /<robot>/lane_seg/compressed
+        self._bev_pubs = {}                         # 관제 웹: 위에서 본 BEV 화면 /<robot>/lane_bev/compressed
         debug = bool(self.get_parameter('publish_debug_image').value)
+        self._bev_view = None
+        if debug and self._bev_cam is not None:
+            try:
+                self._bev_view = BevView(self._bev_cam, self._bev_params)
+            except Exception as exc:                # noqa: BLE001 — 화면용이다, 주행은 계속
+                self.get_logger().warn(f'BEV 화면 끔 — {exc}')
         for spec in mission.robots:
             bev = BevLaneFollower(self._bev_cam, self._bev_params) if self._bev_cam is not None else None
             rl = RobotLane(spec, target_params, pipe['stop_line'], pipe['aruco'], bev)
@@ -136,6 +144,10 @@ class LanePipeline(Node):
             if debug:
                 self._debug_pubs[rl.name] = self.create_publisher(
                     CompressedImage, f"/{rl.name}/lane_debug/compressed", BEST_EFFORT_1)
+                self._seg_pubs[rl.name] = self.create_publisher(
+                    CompressedImage, f"/{rl.name}/lane_seg/compressed", BEST_EFFORT_1)
+                self._bev_pubs[rl.name] = self.create_publisher(
+                    CompressedImage, f"/{rl.name}/lane_bev/compressed", BEST_EFFORT_1)
             self.create_subscription(CompressedImage, spec['image_topic'],
                                      lambda msg, n=rl.name: self._on_image(n, msg), BEST_EFFORT_1)
         self.create_timer(self._stale_period, self._stale_tick)
@@ -253,14 +265,26 @@ class LanePipeline(Node):
             draw_bev(dbg, self._bev_cam, bev)
             cv2.putText(dbg, f'BEV {bev.mode}' + (f' k={bev.robot_curvature():+.1f}/m' if bev.valid else ''),
                         (8, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-        ok, buf = cv2.imencode('.jpg', dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+        self._publish_jpeg(self._debug_pubs.get(name), dbg, stamp)
+        # 관제 웹 화면: 세그 추론 결과만 · 위에서 본 BEV
+        if name in self._seg_pubs:
+            self._publish_jpeg(self._seg_pubs[name],
+                               draw_segmentation(img, instances, self._mask_frac, infer_ms), stamp)
+        if name in self._bev_pubs and self._bev_view is not None:
+            self._publish_jpeg(self._bev_pubs[name], self._bev_view.render(img, bev, self._mask_frac), stamp)
+
+    @staticmethod
+    def _publish_jpeg(pub, image, stamp, quality=60):
+        if pub is None:
+            return
+        ok, buf = cv2.imencode('.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
         if not ok:
             return
         out = CompressedImage()
         out.header.stamp = stamp
         out.format = 'jpeg'
         out.data = buf.tobytes()
-        self._debug_pubs[name].publish(out)
+        pub.publish(out)
 
     # ------------------------------------------------------------------ STALE
 

@@ -161,6 +161,11 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
   위 기억에 넣는다. `error_x`·`target_x` 는 같은 점을 영상에 투영한 값이라 `follow_memory: false` 와 lane_debug 에서도 같은 점을 본다.
   lane_debug: 빨간 선 = 차로 중앙 경로, 빨간 원 = 목표점, 자홍 = 바닥에서 찾은 차선. 관제 PC CPU 에서 프레임당 약 37 ms 추가.
   **캘리브레이션은 `record_drive.py`(picamera2 preview 설정) 영상으로 만들었다. `camera_node` 는 video 설정이라 센서 모드·화각이 같은지 로봇에서 한 번 확인한다.**
+- 관제 화면 카메라 칸: 핑키마다 한 줄 — 핑키 카메라 · 위에서 본 BEV · 세그 추론 결과. 관제 `lane_pipeline` 이
+  `/pinkyN/lane_bev/compressed`(카메라 영상을 바닥 위에서 내려다본 그림 + 찾은 차선(자홍) · 차로 중앙 경로(빨강) · 목표점 · 로봇 몸통, 격자 10 cm)와
+  `/pinkyN/lane_seg/compressed`(클래스별 세그 마스크·라벨, 마스킹 영역은 어둡게)를 낸다(`publish_debug_image` 켜졌을 때). 웹은
+  `/robot_camera_snapshot?id=pinkyN&view=bev|seg` 스냅숏을 차례로(0.25 s) 새로 받는다 — 브라우저 동시 연결(서버당 6)을
+  MJPEG 스트림이 다 쓰면 /api 요청이 막혀 시나리오 칸이 안 뜨기 때문(스트림은 4 개 이하 유지). 화면용이라 주행에는 영향 없다.
 - 관제 화면 위치 표시(천장 카메라 없음, 표시 전용): 핑키가 odom 자세를 `/pinkyN/state`(frame_id `odom`) 로 보내면 관제
   `vision_pose` 가 코스(`pinky_lane_station/config/vision_course.yaml`, map5.png px 좌표) 위 위치로 바꾼다. 차선 주행 중에는 odom 이동거리만큼
   코스 중심선 위를 나아가고, 교차로 동작 중에는 2D odom 으로 그리며, 교차로 입구·나가는 빨간 선 정지 · 횡단보도 정지 · 벽 마커 도착에서

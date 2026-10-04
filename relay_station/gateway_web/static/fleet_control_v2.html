@@ -148,14 +148,37 @@
               <img src="/video_feed?src=relay-cam" alt="Relay top-view camera" data-media="중계 탑뷰(USB 웹캠)" data-missing-why="중계 웹캠 신호 없음(--no-camera 또는 미연결)">
               <span class="media-label">Relay top-view (USB webcam)</span>
             </div>
-            <div class="camera-mini-grid">
-              <div class="camera-mini">
-                <img src="/robot_camera_feed?id=pinky1" alt="Pinky 1 camera" data-media="Pinky 1 카메라" data-missing-why="로봇 카메라 미발행">
-                <span>Pinky 1 Camera</span>
+            <!-- 로봇마다 한 줄: 핑키 카메라 · 위에서 본 BEV · 세그 추론 결과 (관제 lane_pipeline /pinkyN/lane_bev · lane_seg).
+                 BEV·세그는 MJPEG 스트림이 아니라 스냅숏을 차례로 갱신한다(data-snapshot) — 브라우저는 한 서버에 동시 연결을
+                 6 개까지만 연다. 끝나지 않는 스트림이 6 개를 넘으면 /api 요청이 막혀 시나리오 칸이 안 뜬다. -->
+            <div class="robot-view-grid">
+              <div class="robot-view-row">
+                <div class="camera-mini">
+                  <img src="/robot_camera_feed?id=pinky1" alt="Pinky 1 camera" data-media="Pinky 1 카메라" data-missing-why="로봇 카메라 미발행">
+                  <span>Pinky 1 Camera</span>
+                </div>
+                <div class="camera-mini bev">
+                  <img src="/robot_camera_snapshot?id=pinky1&amp;view=bev" data-snapshot="/robot_camera_snapshot?id=pinky1&amp;view=bev" alt="Pinky 1 BEV" data-media="Pinky 1 BEV" data-missing-why="관제 인식(lane_pipeline) 미실행 또는 BEV 꺼짐">
+                  <span>Pinky 1 BEV</span>
+                </div>
+                <div class="camera-mini">
+                  <img src="/robot_camera_snapshot?id=pinky1&amp;view=seg" data-snapshot="/robot_camera_snapshot?id=pinky1&amp;view=seg" alt="Pinky 1 segmentation" data-media="Pinky 1 세그" data-missing-why="관제 인식(lane_pipeline) 미실행">
+                  <span>Pinky 1 Segmentation</span>
+                </div>
               </div>
-              <div class="camera-mini">
-                <img src="/robot_camera_feed?id=pinky2" alt="Pinky 2 camera" data-media="Pinky 2 카메라" data-missing-why="로봇 카메라 미발행">
-                <span>Pinky 2 Camera</span>
+              <div class="robot-view-row">
+                <div class="camera-mini">
+                  <img src="/robot_camera_feed?id=pinky2" alt="Pinky 2 camera" data-media="Pinky 2 카메라" data-missing-why="로봇 카메라 미발행">
+                  <span>Pinky 2 Camera</span>
+                </div>
+                <div class="camera-mini bev">
+                  <img src="/robot_camera_snapshot?id=pinky2&amp;view=bev" data-snapshot="/robot_camera_snapshot?id=pinky2&amp;view=bev" alt="Pinky 2 BEV" data-media="Pinky 2 BEV" data-missing-why="관제 인식(lane_pipeline) 미실행 또는 BEV 꺼짐">
+                  <span>Pinky 2 BEV</span>
+                </div>
+                <div class="camera-mini">
+                  <img src="/robot_camera_snapshot?id=pinky2&amp;view=seg" data-snapshot="/robot_camera_snapshot?id=pinky2&amp;view=seg" alt="Pinky 2 segmentation" data-media="Pinky 2 세그" data-missing-why="관제 인식(lane_pipeline) 미실행">
+                  <span>Pinky 2 Segmentation</span>
+                </div>
               </div>
             </div>
           </article>

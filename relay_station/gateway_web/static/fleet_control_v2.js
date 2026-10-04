@@ -1322,6 +1322,25 @@
     document.title = "[DEMO] " + document.title;
   }
 
+  // 핑키별 BEV·세그 칸 (data-snapshot): 한 번에 한 장씩 차례로 새로 받는다 — 브라우저 동시 연결(서버당 6) 을
+  // MJPEG 스트림이 다 쓰면 /api 요청이 막힌다(시나리오 칸이 안 뜬다). 스냅숏은 짧게 끝나는 요청이라 한 칸만 잠깐 쓴다.
+  const SNAPSHOT_MS = 250;
+  async function pollSnapshots() {
+    try {
+      const imgs = [...document.querySelectorAll("img[data-snapshot]")].filter(i => i.isConnected && i.offsetParent !== null);
+      for (const img of imgs) {
+        await new Promise(res => {
+          let finished = false;
+          const done = () => { if (finished) return; finished = true; img.onload = img.onerror = null; res(); };
+          img.onload = done; img.onerror = done;
+          setTimeout(done, 2000);
+          img.src = `${img.dataset.snapshot}&t=${Date.now()}`;
+        });
+      }
+    } catch (e) { console.error("snapshot poll failed", e); }
+    setTimeout(pollSnapshots, SNAPSHOT_MS);
+  }
+
   initTabs();
   initControls();
   initProfileControls();
@@ -1343,4 +1362,5 @@
   window.addEventListener("resize",()=>requestAnimationFrame(drawMaps));
   refresh();
   setInterval(refresh, 2000);
+  pollSnapshots();
 })();
