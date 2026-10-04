@@ -14,7 +14,7 @@
 
 | # | 요구 | 구현 |
 |---|---|---|
-| 1 | **차선 추종** | YOLO-seg `left_lane`/`right_lane` → 샘플 행에서 좌/우 x → 중점 (차선 ≥ 3 이면 클래스 기준 가장 바깥 쌍) |
+| 1 | **차선 추종** | YOLO-seg 차선 마스크 → 바닥 좌표(BEV)로 옮겨 차선을 반폭만큼 도로 쪽으로 민 중앙 경로 → 구동축 25 cm 앞 목표점 → 로봇이 odom 에 기억해 pure pursuit (`bev.enabled: false` 면 예전 샘플 행 중점) |
 | 2 | **중앙 정렬** | `error_x = (target_x − W/2)/(W/2)` 를 각속도 보정항으로, 20 Hz. 좌우 위치는 100 % 카메라 |
 | 3 | **횡단보도 정지** 후 재주행 | `crosswalk` 하단 y ≥ 0.8·H, 3 프레임 확정 → 3 s 정지 → 0.6 m 재래치 방지 |
 | 4 | **장애물 정지**, 제거 시 **자동 재개** | 라이다 전방 섹터 + 초음파 → 1 s 비면 복귀. `barricade` 클래스도 정지 트리거 |
@@ -99,8 +99,8 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 | 경로 | 교차로 방향 | 교차로 동작 (`directions:`, 각도·거리 값 없음) |
 |---|---|---|
 | 2 → 1 · 1 → 2 | 직진 | `seek: straight` — 입구 선 10 cm 지난 뒤 천천히 전진, 앞의 새 빨간 선 앞까지 |
-| 3 → 1 · 2 → 3 | 우회전 | `seek: right` — 20 cm 전진 → 제자리에서 천천히 오른쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
-| 1 → 3 · 3 → 2 | 좌회전 | `seek: left` — 20 cm 전진 → 제자리에서 천천히 왼쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
+| 3 → 1 · 2 → 3 | 우회전 | `seek: right` — 35 cm 전진 → 제자리에서 천천히 오른쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
+| 1 → 3 · 3 → 2 | 좌회전 | `seek: left` — 35 cm 전진 → 제자리에서 천천히 왼쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
 
 예전 고정 동작(odom `straight`/`turn`)은 `vision_mission.yaml` `maneuvers:` 에 남아 있다. 되돌리려면 `routes:` 에 `maneuver:` 를 다시 넣는다.
 
@@ -133,7 +133,7 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
   로봇은 **화면 가운데(± 0.25·W)** 에 있고 **아직 앞에 있는(하단 < 0.80·H)** 덩어리가 2 프레임 이어지면 새 선으로 확정한다
   (발밑의 입구 선은 하단이 이미 0.80·H 아래라 후보가 아니다. 좌·우는 30° 돈 뒤부터 본다). 확정한 선을 프레임마다 추적해
   선 중심으로 0.05 m/s 접근, 하단이 0.80·H 에 오면 끝. 150° 를 돌거나(좌·우) 0.80 m 를 가도(직진) 못 찾으면 멈춘다.
-  값은 `lane_agent.yaml` `maneuver.seek_*` (`seek_forward` 0.20 · `seek_omega` 0.3 · `seek_min_turn_deg` 30 · `seek_max_turn_deg` 150 ·
+  값은 `lane_agent.yaml` `maneuver.seek_*` (`seek_forward` 0.35 · `seek_omega` 0.3 · `seek_min_turn_deg` 30 · `seek_max_turn_deg` 150 ·
   `seek_ignore_distance` 0.10 · `seek_center_frac` 0.25 · `seek_speed` 0.05 · `seek_arrive_row_frac` 0.80). 나갈 가지의 선이
   회전 중 화면 아래 45 %(색 검출 ROI) 에 안 들어오면 `seek_forward` 를 늘리거나 `red_line_color.roi_top_frac` 을 낮춘다.
 - 빨간 선 판정: 검출이 꺼졌다 켜지는 순간(상승 에지)마다 한 번 선다. 서 있는 동안 같은 선이 계속 보여도 다시 서지 않고,
@@ -145,7 +145,17 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
   읽는다. 본 차선 중앙을 **그 사진을 찍은 순간의 odom 자세** 로 기억해 두고, 핑키 구동축이 그 자리에 올 때 따라간다(기억 점 pure pursuit,
   `memory.lookahead` 0.12 m). 커브 안쪽을 미리 자르지 않고, 차선이 잠깐 안 보여도 본 곳까지는 간다.
   화면 → 바닥 거리는 실측 두 점(화면 맨 아래 10 cm · 50 % 행 43 cm, `view.bottom_m`·`view.mid_m`)으로, 옆 거리는 차선 폭 15 cm 로 잰다.
-  **현장에서 `view.axle_to_camera_m`(구동 바퀴 축 → 카메라, 기본 0.04 m) 을 재서 고친다.** 예전 방식은 `follow_memory: false`.
+  `view.axle_to_camera_m`(구동 바퀴 축 → 카메라) 은 pinky_pro URDF 값 0.033 m (바퀴 joint x=0, front_camera_link x≈33 mm). 예전 방식은 `follow_memory: false`.
+  기억 보호(2026-10-04 pinky2 횡단보도 로그): 같은 전방 거리의 기억 경로와 옆으로 6 cm 넘게 다른 점은 한 프레임 보류하고 다음 프레임이
+  확인해야 넣는다(`memory.jump_*`). 정지(횡단보도·빨간 선·장애물) 중에는 기억을 비워 출발은 서서 새로 본 점부터 따라간다(`memory.clear_on_stop`).
+  — 커브 출구에서 한 프레임 튄 목표점 2개가 정지 3 s 동안 남아 있다가 출발 직후 급우회전(−0.4 rad/s)을 만들었다.
+- BEV 차로 중앙(관제 `ground_bev`, `detector_yolo.yaml` `bev:`): 위의 화면 → 바닥 근사 대신 렌즈·바닥 캘리브레이션(`config/pinky_cam.yaml`)으로
+  차선 마스크 픽셀을 바닥 mm 로 옮긴다. 차선 조각마다 진행 방향과 도로 쪽(로봇이 있는 쪽)을 바닥에서 정하고 반폭(87 mm)만큼 옮겨 중앙 경로를
+  만든다 — 선이 하나든 둘이든, 직선이든 커브든 같은 방식이라 좌/우 라벨이 필요 없고 쌍↔단일 전환에서 옆으로 튀지 않는다.
+  구동축 25 cm 앞 경로 위 점을 `LanePath.floor_x/floor_y`(카메라 바로 아래 바닥 기준, 전방·왼쪽 m)로 보내고, 로봇은 구동축 오프셋만 더해
+  위 기억에 넣는다. `error_x`·`target_x` 는 같은 점을 영상에 투영한 값이라 `follow_memory: false` 와 lane_debug 에서도 같은 점을 본다.
+  lane_debug: 빨간 선 = 차로 중앙 경로, 빨간 원 = 목표점, 자홍 = 바닥에서 찾은 차선. 관제 PC CPU 에서 프레임당 약 37 ms 추가.
+  **캘리브레이션은 `record_drive.py`(picamera2 preview 설정) 영상으로 만들었다. `camera_node` 는 video 설정이라 센서 모드·화각이 같은지 로봇에서 한 번 확인한다.**
 - 관제 화면 위치 표시(천장 카메라 없음, 표시 전용): 핑키가 odom 자세를 `/pinkyN/state`(frame_id `odom`) 로 보내면 관제
   `vision_pose` 가 코스(`pinky_lane_station/config/vision_course.yaml`, map5.png px 좌표) 위 위치로 바꾼다. 차선 주행 중에는 odom 이동거리만큼
   코스 중심선 위를 나아가고, 교차로 동작 중에는 2D odom 으로 그리며, 교차로 입구·나가는 빨간 선 정지 · 횡단보도 정지 · 벽 마커 도착에서
