@@ -23,7 +23,7 @@ class ViewParams:
     bottom_m: float = 0.10          # 화면 맨 아래 행이 보는 바닥 — 카메라(핑키 앞면)에서의 거리 (실측)
     mid_m: float = 0.43             # mid_row_frac 행이 보는 바닥까지 거리 (실측)
     mid_row_frac: float = 0.50
-    axle_to_camera_m: float = 0.04  # 구동 바퀴 축(제자리 회전 중심) → 카메라(앞면) 거리 (실측해서 고친다)
+    axle_to_camera_m: float = 0.033  # 구동 바퀴 축(제자리 회전 중심) → 카메라 거리 (pinky_pro URDF). BEV 바닥 좌표에도 이 값을 더한다
     sample_row_frac: float = 0.72   # 관제 lane_target 의 샘플 행 (half_lane_px 를 잰 행)
     lane_half_m: float = 0.075      # 도로 폭 15 cm 의 절반
 

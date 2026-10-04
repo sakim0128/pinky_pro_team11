@@ -22,8 +22,9 @@ from pinky_lane_msgs.msg import LanePath, SceneState
 from .aruco_detector import ArucoMarkerDetector
 from .aruco_detector import params_from_dict as aruco_params
 from .detectors import create_detector
+from .ground_bev import BevLaneFollower, BevParams, GroundCamera, apply_bev, draw_bev, lane_mask_from_instances
 from .lane_mission import LaneMissionError, load_lane_mission
-from .lane_target import QUALITY_STALE, LaneTargetEstimator, TargetParams
+from .lane_target import LANE_CLASSES, QUALITY_STALE, LaneTargetEstimator, TargetParams
 from .pipeline_image import draw_debug, mask_top
 from .red_line_detector import RedLineColorDetector
 from .red_line_detector import params_from_dict as red_line_params
@@ -55,14 +56,20 @@ def load_detector_config(path):
     pipeline['stop_line'] = stop_line_params(data.get('stop_line'))
     pipeline['aruco'] = aruco_params(data.get('aruco'))
     pipeline['red_line_color'] = red_line_params(data.get('red_line_color'))
+    bev = BevParams(**{k: v for k, v in (data.get('bev') or {}).items() if k in BevParams.__dataclass_fields__})
+    calib = os.path.expandvars(os.path.expanduser(str(bev.calib)))
+    bev.calib = calib if os.path.isabs(calib) else os.path.join(os.path.dirname(os.path.abspath(path)), calib)
+    pipeline['bev'] = bev
     return det, target, pipeline
 
 
 class RobotLane:
-    def __init__(self, spec, target_params, stop_params=None, aruco_params=None):
+    def __init__(self, spec, target_params, stop_params=None, aruco_params=None, bev=None):
         self.spec = spec
         self.name = spec['name']
         self.est = LaneTargetEstimator(target_params)
+        self.bev = bev                  # BevLaneFollower (bev.enabled) — 로봇마다 회전 방향 hint 를 따로 기억
+        self.last_bev = None
         self.stop_line = WhiteStopLineDetector(stop_params)
         self.aruco = ArucoMarkerDetector(aruco_params)
         self.seq = 0
@@ -93,6 +100,12 @@ class LanePipeline(Node):
         self._mask_fill = int(pipe['mask_fill'])
         self._debug_polygons = bool(pipe['debug_polygons'])
         self.detector = create_detector(det_cfg)
+        bp = pipe['bev']
+        self._bev_cam = GroundCamera.from_yaml(bp.calib) if bp.enabled else None   # 없으면 시작 실패 (FileNotFoundError)
+        self._bev_params = bp
+        self.get_logger().info(
+            '차선 중앙: ' + (f'BEV 바닥 좌표 (calib={bp.calib}, Ld={bp.lookahead_mm:.0f} mm, 차선 폭 {bp.lane_width_mm:.0f} mm, '
+                            f'구동축 {bp.axle_mm:.0f} mm)' if bp.enabled else '영상 샘플 행 (lane_target)'))
         if pipe.get('warmup', True):
             self.detector.warmup()
         self._det_name = f'lane={self.detector.name}'
@@ -111,7 +124,8 @@ class LanePipeline(Node):
         self._debug_pubs = {}
         debug = bool(self.get_parameter('publish_debug_image').value)
         for spec in mission.robots:
-            rl = RobotLane(spec, target_params, pipe['stop_line'], pipe['aruco'])
+            bev = BevLaneFollower(self._bev_cam, self._bev_params) if self._bev_cam is not None else None
+            rl = RobotLane(spec, target_params, pipe['stop_line'], pipe['aruco'], bev)
             if pipe['aruco'].enabled and not rl.aruco.available:
                 self.get_logger().error('ArUco 검출 불가 — cv2.aruco 가 없다 (opencv-contrib). 비전 미션 도착 판정이 안 된다')
             self._robots[rl.name] = rl
@@ -153,6 +167,11 @@ class LanePipeline(Node):
         # 교차로 빨간 테이프 — 모델 클래스가 아니라 색(HSV)으로, 원본 영상에서. lane_target 이 폭·하단 행·확정 프레임을 본다
         instances = list(instances) + self.red_line.detect(img)
         r = rl.est.update(instances, W, H)
+        b = None
+        if rl.bev is not None:
+            b = rl.bev.update(lane_mask_from_instances(instances, img.shape, LANE_CLASSES), img)
+            apply_bev(r, b, self._bev_cam, W, H)
+        rl.last_bev = b
         sl = rl.stop_line.update(img)            # 목적지 흰 정지선 — 원본(마스킹 전) 영상에서
         mk = rl.aruco.update(img)                # 도착 지점 벽 ArUco — 원본 영상에서 (마스킹된 위쪽에 있다)
 
@@ -184,6 +203,11 @@ class LanePipeline(Node):
         lp.stop_line_bottom_y = int(sl.bottom_y)
         lp.marker_ids = [int(i) for i in mk.markers]
         lp.marker_distances = [float(d) for d in mk.markers.values()]
+        if b is not None and b.valid:
+            fx, fy = b.robot_target_m()
+            lp.floor_valid = True
+            lp.floor_x, lp.floor_y = float(fx), float(fy)
+            lp.floor_curvature = float(b.robot_curvature())
         lp.pipeline_latency = float(self._now() - t_in)
         self._path_pubs[name].publish(lp)
         rl.last_msg = lp
@@ -219,12 +243,16 @@ class LanePipeline(Node):
         self._scene_pubs[name].publish(sc)
 
         if name in self._debug_pubs:
-            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms, sl, mk)
+            self._publish_debug(name, img, instances, r, msg.header.stamp, infer_ms, sl, mk, b)
 
-    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0, stop_line=None, aruco=None):
+    def _publish_debug(self, name, img, instances, r, stamp, infer_ms=0.0, stop_line=None, aruco=None, bev=None):
         dbg = draw_debug(img, instances, r, mask_frac=self._mask_frac, infer_ms=infer_ms,
                          stop_row_frac=self._stop_row_frac, draw_polygons=self._debug_polygons,
                          stop_line=stop_line, aruco=aruco)
+        if bev is not None:                       # 바닥 경로를 영상에 투영: 빨강 = 차로 중앙 경로 · 원 = 목표점, 자홍 = 차선
+            draw_bev(dbg, self._bev_cam, bev)
+            cv2.putText(dbg, f'BEV {bev.mode}' + (f' k={bev.robot_curvature():+.1f}/m' if bev.valid else ''),
+                        (8, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
         ok, buf = cv2.imencode('.jpg', dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
         if not ok:
             return

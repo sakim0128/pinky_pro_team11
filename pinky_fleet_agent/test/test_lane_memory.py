@@ -171,3 +171,53 @@ def test_short_blackout_is_bridged_by_remembered_points():
 def test_follow_memory_off_keeps_old_behaviour():
     _, _, _, log = drive(False, seconds=1.0)
     assert all('기억' not in o.reason for _, o in log)
+
+
+def bev_floor_target(pts, pose, axle, lookahead=0.25):
+    """관제 BEV 가 주는 바닥 좌표 목표점: 구동축에서 lookahead 떨어진 차로 중앙 (전방, 왼쪽) m — 원점은 카메라 바로 아래 바닥."""
+    x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    for px, py in pts:
+        lx, ly = (px - x) * c + (py - y) * s, -(px - x) * s + (py - y) * c
+        if lx > 0 and math.hypot(lx, ly) >= lookahead:
+            return lx - axle, ly
+    return None
+
+
+def test_floor_target_is_remembered_with_axle_offset():
+    p = DriverParams()
+    p.lane_only = True
+    d = LaneDriver(p)
+    d.update_odom(1.0, 0.0, 0.0, 0.0, stamp=1.0)
+    d.set_lane_path(1.0, 1.0, QUALITY_BOTH, 0.0, target=(320, 346, W, H, HALF_PX), floor=(0.20, -0.03))
+    assert len(d.memory) == 1
+    assert d.memory.points[0] == pytest.approx((0.20 + p.view.axle_to_camera_m, -0.03))
+
+
+def test_memory_follows_curve_from_bev_floor_targets():
+    """화면 픽셀 대신 BEV 바닥 좌표만 받아도 같은 커브를 돈다 (floor 가 있으면 GroundView 를 안 쓴다)."""
+    p = DriverParams()
+    p.lane_only = True
+    p.control.v_max = 0.12
+    d = LaneDriver(p)
+    d.started = True
+    pts = course()
+    x, y, yaw, t, errs = 0.0, 0.02, 0.0, 0.0, []
+    for k in range(int(14.0 / DT)):
+        t += DT
+        d.update_odom(t, x, y, yaw, stamp=t)
+        if k % 2 == 0:
+            fl = bev_floor_target(pts, (x, y, yaw), p.view.axle_to_camera_m)
+            if fl is None:
+                d.set_lane_path(t, t, QUALITY_LOST, None)
+            else:
+                d.set_lane_path(t, t, QUALITY_BOTH, 0.0, target=None, floor=fl)   # error_x 는 쓰이지 않는다
+        out = d.tick(t, 0.0, 0.0, 0.0)
+        x += out.v * math.cos(yaw) * DT
+        y += out.v * math.sin(yaw) * DT
+        yaw += out.omega * DT
+        errs.append(lateral_error(pts, x, y))
+        if y > 1.0:
+            break
+    assert y > 0.6                                  # 커브를 돌아 나갔다
+    assert max(errs[60:]) < 0.03 and errs[-1] < 0.01   # 2 cm 치우친 출발에서 수렴

@@ -72,7 +72,7 @@ pinky_lane_agent:
       bottom_m: 0.10             # 화면 맨 아래 행이 보는 바닥 — 카메라(핑키 앞면)에서의 거리
       mid_m: 0.43                # 화면 50 % 행이 보는 바닥까지 거리
       mid_row_frac: 0.50
-      axle_to_camera_m: 0.04     # 구동 바퀴 축(제자리 회전 중심) → 카메라 거리 — 실측해서 고친다
+      axle_to_camera_m: 0.033    # 구동 바퀴 축(제자리 회전 중심) → 카메라 거리 — pinky_pro URDF (바퀴 joint x=0, front_camera_link x≈33 mm). 관제 bev.axle_mm 과 같게
       sample_row_frac: 0.72      # 관제 detector_yolo.yaml target.sample_row_frac 와 같게
       lane_half_m: 0.075         # 도로 폭 15 cm 의 절반 (옆 거리 m/px 기준)
     memory:                      # 본 차선 중앙 기억·따라가기 (lane_memory.MemoryParams)

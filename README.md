@@ -14,7 +14,7 @@
 
 | # | 요구 | 구현 |
 |---|---|---|
-| 1 | **차선 추종** | YOLO-seg `left_lane`/`right_lane` → 샘플 행에서 좌/우 x → 중점 (차선 ≥ 3 이면 클래스 기준 가장 바깥 쌍) |
+| 1 | **차선 추종** | YOLO-seg 차선 마스크 → 바닥 좌표(BEV)로 옮겨 차선을 반폭만큼 도로 쪽으로 민 중앙 경로 → 구동축 25 cm 앞 목표점 → 로봇이 odom 에 기억해 pure pursuit (`bev.enabled: false` 면 예전 샘플 행 중점) |
 | 2 | **중앙 정렬** | `error_x = (target_x − W/2)/(W/2)` 를 각속도 보정항으로, 20 Hz. 좌우 위치는 100 % 카메라 |
 | 3 | **횡단보도 정지** 후 재주행 | `crosswalk` 하단 y ≥ 0.8·H, 3 프레임 확정 → 3 s 정지 → 0.6 m 재래치 방지 |
 | 4 | **장애물 정지**, 제거 시 **자동 재개** | 라이다 전방 섹터 + 초음파 → 1 s 비면 복귀. `barricade` 클래스도 정지 트리거 |
@@ -145,7 +145,14 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
   읽는다. 본 차선 중앙을 **그 사진을 찍은 순간의 odom 자세** 로 기억해 두고, 핑키 구동축이 그 자리에 올 때 따라간다(기억 점 pure pursuit,
   `memory.lookahead` 0.12 m). 커브 안쪽을 미리 자르지 않고, 차선이 잠깐 안 보여도 본 곳까지는 간다.
   화면 → 바닥 거리는 실측 두 점(화면 맨 아래 10 cm · 50 % 행 43 cm, `view.bottom_m`·`view.mid_m`)으로, 옆 거리는 차선 폭 15 cm 로 잰다.
-  **현장에서 `view.axle_to_camera_m`(구동 바퀴 축 → 카메라, 기본 0.04 m) 을 재서 고친다.** 예전 방식은 `follow_memory: false`.
+  `view.axle_to_camera_m`(구동 바퀴 축 → 카메라) 은 pinky_pro URDF 값 0.033 m (바퀴 joint x=0, front_camera_link x≈33 mm). 예전 방식은 `follow_memory: false`.
+- BEV 차로 중앙(관제 `ground_bev`, `detector_yolo.yaml` `bev:`): 위의 화면 → 바닥 근사 대신 렌즈·바닥 캘리브레이션(`config/pinky_cam.yaml`)으로
+  차선 마스크 픽셀을 바닥 mm 로 옮긴다. 차선 조각마다 진행 방향과 도로 쪽(로봇이 있는 쪽)을 바닥에서 정하고 반폭(87 mm)만큼 옮겨 중앙 경로를
+  만든다 — 선이 하나든 둘이든, 직선이든 커브든 같은 방식이라 좌/우 라벨이 필요 없고 쌍↔단일 전환에서 옆으로 튀지 않는다.
+  구동축 25 cm 앞 경로 위 점을 `LanePath.floor_x/floor_y`(카메라 바로 아래 바닥 기준, 전방·왼쪽 m)로 보내고, 로봇은 구동축 오프셋만 더해
+  위 기억에 넣는다. `error_x`·`target_x` 는 같은 점을 영상에 투영한 값이라 `follow_memory: false` 와 lane_debug 에서도 같은 점을 본다.
+  lane_debug: 빨간 선 = 차로 중앙 경로, 빨간 원 = 목표점, 자홍 = 바닥에서 찾은 차선. 관제 PC CPU 에서 프레임당 약 37 ms 추가.
+  **캘리브레이션은 `record_drive.py`(picamera2 preview 설정) 영상으로 만들었다. `camera_node` 는 video 설정이라 센서 모드·화각이 같은지 로봇에서 한 번 확인한다.**
 - 관제 화면 위치 표시(천장 카메라 없음, 표시 전용): 핑키가 odom 자세를 `/pinkyN/state`(frame_id `odom`) 로 보내면 관제
   `vision_pose` 가 코스(`pinky_lane_station/config/vision_course.yaml`, map5.png px 좌표) 위 위치로 바꾼다. 차선 주행 중에는 odom 이동거리만큼
   코스 중심선 위를 나아가고, 교차로 동작 중에는 2D odom 으로 그리며, 교차로 입구·나가는 빨간 선 정지 · 횡단보도 정지 · 벽 마커 도착에서
