@@ -38,8 +38,11 @@ class MemoryParams:
     min_spacing: float = 0.005      # 직전 점과 이보다 가까우면 추가하지 않는다 (서 있을 때)
     jump_reject: float = 0.06       # 같은 전방 거리(± jump_window)의 기억 경로와 옆으로 이만큼 넘게 다르면 바로 넣지 않고 보류 (m)
     jump_window: float = 0.05       # 비교할 기억 점의 전방 거리 범위 (m). 그 범위에 기억이 없으면(처음·공백 뒤) 그냥 받는다
-    jump_confirm: float = 0.04      # 보류한 점과 다음 점이 이만큼 안이면 장면이 바뀐 것 — 그 앞의 예전 점을 지우고 받는다 (m)
+    jump_confirm: float = 0.04      # 보류한 점과 다음 점이 이만큼 안이면 같은 자리를 본 것 (m)
+    jump_confirm_count: int = 2     # 보류한 점 뒤로 이만큼 더 같은 자리를 보면(합 3 프레임) 장면이 바뀐 것 — 그 앞의 예전 점을 지우고 받는다.
+                                    # 2026-10-04 pinky2 S자: 급커브 꼭짓점에서 BEV 가 2 프레임 연속 반대쪽(왼쪽 14 cm)을 내 차로를 벗어났다
     clear_on_stop: bool = True      # 정지(횡단보도·빨간 선·장애물 …) 중에는 기억을 비운다 — 출발은 서서 새로 본 점부터 (lane_driver)
+    max_target_angle_deg: float = 45.0  # 따라갈 점은 로봇 정면 ± 이 각도 안만. 옆에 남은 옛 점(급커브·저속)을 목표로 삼아 제자리 급회전하지 않게
 
 
 class GroundView:
@@ -98,11 +101,11 @@ class LaneMemory:
     def __init__(self, params=None):
         self.p = params or MemoryParams()
         self.points = deque(maxlen=self.p.max_points)     # odom 좌표 (오래된 = 가까운 순)
-        self._pending = None                              # 한 프레임 튄 점 — 다음 점이 확인하면 받는다
+        self._pending = []                                # 튄 점들 (odom 좌표) — 다음 점들이 확인하면 받는다
 
     def clear(self):
         self.points.clear()
-        self._pending = None
+        self._pending = []
 
     def __len__(self):
         return len(self.points)
@@ -110,8 +113,8 @@ class LaneMemory:
     def add(self, pt_robot, pose_at_capture):
         """로봇 좌표의 차선 중앙점을 그 사진을 찍은 순간의 odom 자세로 odom 좌표에 저장. 넣었으면 True.
 
-        한 프레임만 옆으로 튄 점(검출이 다른 차선 조각을 잡음)은 넣지 않는다: 같은 전방 거리의 기억 경로와
-        옆으로 jump_reject 넘게 다르면 보류하고, 다음 점이 jump_confirm 안에서 같은 자리를 보면 그때 받는다
+        잠깐 옆으로 튄 점(검출이 다른 차선 조각을 잡음)은 넣지 않는다: 같은 전방 거리의 기억 경로와
+        옆으로 jump_reject 넘게 다르면 보류하고, 그 뒤 jump_confirm_count 프레임이 jump_confirm 안에서 같은 자리를 보면 그때 받는다
         (장면이 정말 바뀜 — 그 앞쪽의 예전 점은 지운다). 2026-10-04 pinky2 횡단보도: 튄 점 2개가 남아 출발 직후 급우회전.
         """
         p = self.p
@@ -121,14 +124,18 @@ class LaneMemory:
         dev = self._lateral_deviation(pt_robot, pose_at_capture)
         if dev is not None and dev > p.jump_reject:
             pend = self._pending
-            if pend is None or math.hypot(w[0] - pend[0], w[1] - pend[1]) > p.jump_confirm:
-                self._pending = w
+            if pend and math.hypot(w[0] - pend[-1][0], w[1] - pend[-1][1]) <= p.jump_confirm:
+                pend.append(w)
+            else:
+                self._pending = [w]
+                pend = self._pending
+            if len(pend) <= max(0, int(p.jump_confirm_count)):
                 return False
-            x_from = min(pt_robot[0], _to_local(pose_at_capture, pend)[0]) - p.jump_window
+            x_from = min(pt_robot[0], _to_local(pose_at_capture, pend[0])[0]) - p.jump_window
             self.points = deque((q for q in self.points if _to_local(pose_at_capture, q)[0] < x_from),
                                 maxlen=p.max_points)
-            self.points.append(pend)
-        self._pending = None
+            self.points.extend(pend[:-1])
+        self._pending = []
         self.points.append(w)
         return True
 
@@ -148,13 +155,20 @@ class LaneMemory:
             self.points = deque(keep, maxlen=p.max_points)
 
     def target(self, pose_now):
-        """따라갈 점 (로봇 좌표). 구동축에서 lookahead 이상 떨어진 첫 기억 점부터 average 개 평균. 없으면 None."""
+        """따라갈 점 (로봇 좌표). 구동축에서 lookahead 이상 떨어지고 정면 ± max_target_angle_deg 안의 첫 기억 점부터
+        average 개 평균. 없으면 None.
+
+        각도 제한: 2026-10-04 pinky2 S자 — 저속으로 급커브를 돌면 예전에 저장한 점이 로봇 바로 옆(전방 3 cm·오른쪽 14 cm)에
+        남는데, x > 0 이고 거리 ≥ lookahead 라 목표가 되어 곡률 −14 /m 로 3 s 동안 제자리 우회전했다 (카메라는 왼쪽).
+        """
         self.prune(pose_now)
         p = self.p
+        cos_max = math.cos(math.radians(p.max_target_angle_deg))
         local = [_to_local(pose_now, q) for q in self.points]
         for i, (x, y) in enumerate(local):
-            if x > 0.0 and math.hypot(x, y) >= p.lookahead:
-                sel = local[i:i + max(1, p.average)]
+            r = math.hypot(x, y)
+            if r >= p.lookahead and x >= cos_max * r:
+                sel = [q for q in local[i:i + max(1, p.average)] if q[0] >= cos_max * math.hypot(*q)]
                 return (sum(a for a, _ in sel) / len(sel), sum(b for _, b in sel) / len(sel))
         return None
 

@@ -240,10 +240,20 @@ def test_single_frame_lateral_spike_is_not_remembered():
     assert m.target((0.0, 0.0, 0.0))[1] == pytest.approx(0.0, abs=0.01)
 
 
-def test_jump_confirmed_by_next_frame_replaces_points_ahead():
+def test_two_frame_jump_is_still_rejected():
+    """급커브 꼭짓점에서 BEV 가 2 프레임 연속 반대쪽을 낸 경우 (2026-10-04 pinky2 S자) — 받지 않는다."""
+    m = straight_memory()
+    assert not m.add((0.15, 0.14), (0.0, 0.0, 0.0))
+    assert not m.add((0.16, 0.15), (0.0, 0.0, 0.0))
+    assert m.add((0.26, 0.0), (0.0, 0.0, 0.0))
+    assert all(abs(q[1]) < 0.01 for q in m.points)
+
+
+def test_jump_confirmed_by_three_frames_replaces_points_ahead():
     m = straight_memory()
     assert not m.add((0.15, 0.10), (0.0, 0.0, 0.0))
-    assert m.add((0.17, 0.10), (0.0, 0.0, 0.0))           # 두 프레임 연속 같은 자리 — 장면이 바뀌었다
+    assert not m.add((0.17, 0.10), (0.0, 0.0, 0.0))
+    assert m.add((0.19, 0.10), (0.0, 0.0, 0.0))           # 세 프레임 연속 같은 자리 — 장면이 바뀌었다
     ahead = [q for q in m.points if q[0] >= 0.10]
     assert ahead and all(abs(q[1] - 0.10) < 0.01 for q in ahead)
 
@@ -272,11 +282,11 @@ def test_driver_clears_memory_while_stopped_at_crosswalk():
     assert out.state == CROSSWALK_STOP and out.v == 0.0 and len(d.memory) == 0
 
 
-def replay_crosswalk_restart(params):
-    """실제 로그(2026-10-04 pinky2): 오른쪽 커브 → 횡단보도 3 s 정지 → 출발. 기록된 odom·LanePath 를 그대로 넣는다(개루프).
-    -> [(t, state, omega)]"""
+def replay_crosswalk_restart(params, name='crosswalk_restart_pinky2.json'):
+    """실제 로그(test/data/*.json)의 odom·LanePath 를 그대로 넣는다(개루프). 기본은 2026-10-04 pinky2 오른쪽 커브 →
+    횡단보도 3 s 정지 → 출발. -> [(t, state, omega)]"""
     import json
-    doc = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'crosswalk_restart_pinky2.json')))
+    doc = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', name)))
     d = LaneDriver(params)
     d.started = True
     lps = list(doc['lane_path_rows'])
@@ -326,7 +336,7 @@ def log_params(**memory):
 
 def test_log_crosswalk_restart_old_behaviour_turns_hard_right():
     """수정 전 재현: 정지 직전 튄 점 2개(차로 중앙 14~16 cm 오른쪽)가 기억에 남아 출발 직후 급우회전."""
-    log = replay_crosswalk_restart(log_params(jump_reject=10.0, clear_on_stop=False))
+    log = replay_crosswalk_restart(log_params(jump_reject=10.0, clear_on_stop=False, max_target_angle_deg=90.0))
     assert any(s == CROSSWALK_STOP for _, s, _ in log)
     assert min(restart_omegas(log)) < -0.3
     assert min(before_stop_omegas(log)) < -0.4                # 정지 직전에도 튄 점 쪽으로 한 번 꺾인다
@@ -341,3 +351,30 @@ def test_log_crosswalk_restart_follows_what_it_sees():
 def test_log_spike_before_stop_is_filtered():
     """튄 점 거르기: 정지 직전 튄 점 쪽으로 꺾던 것(−0.56 rad/s)이 없어진다 (현장 기록 −0.16~−0.18 과 비슷)."""
     assert min(before_stop_omegas(replay_crosswalk_restart(log_params()))) > -0.3
+
+
+def scurve_omegas(params, t_from=0.5, t_to=1.4):
+    """150416 pinky2 S자 오른쪽 급커브: BEV 가 2 프레임 연속 반대쪽(왼쪽)을 낸 뒤 t_from~t_to s 동안의 조향."""
+    log = replay_crosswalk_restart(params, 'scurve_corner_pinky2.json')
+    import json
+    doc = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'scurve_corner_pinky2.json')))
+    spike = next(r[0] for r in doc['lane_path_rows'] if r[5] and r[7] > 0.12)       # 첫 '왼쪽 12 cm 넘음' 수신
+    return [w for t, s, w in log if spike + t_from <= t <= spike + t_to]
+
+
+def test_log_scurve_two_frame_wrong_side_old_behaviour_turns_left():
+    """수정 전 재현: 2 프레임 확인이면 반대쪽 점을 받아 오른쪽 커브 한가운데서 좌회전(+0.6 rad/s, 현장 기록과 같음)."""
+    assert max(scurve_omegas(log_params(jump_confirm_count=1, max_target_angle_deg=90.0))) > 0.4
+
+
+def test_log_scurve_keeps_turning_right():
+    """수정 후: 3 프레임 확인 — 2 프레임 반대쪽 점을 버리고 오른쪽 커브를 이어 돈다."""
+    assert max(scurve_omegas(log_params())) < 0.05
+
+
+def test_target_ignores_point_beside_robot():
+    """저속 급커브 뒤 로봇 바로 옆(전방 3 cm·오른쪽 14 cm)에 남은 옛 점은 목표가 아니다 (정면 ± 45° 밖)."""
+    m = LaneMemory(MemoryParams())
+    m.points.extend([(0.03, -0.14), (0.20, 0.02), (0.22, 0.03)])
+    tx, ty = m.target((0.0, 0.0, 0.0))
+    assert tx >= 0.19 and ty > 0.0
