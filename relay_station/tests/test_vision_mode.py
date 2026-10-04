@@ -448,10 +448,18 @@ def test_v2_robot_rows_camera_bev_seg():
     assert HTML.count('class="robot-view-row"') == 2
     for n in (1, 2):
         row = HTML[HTML.index(f'alt="Pinky {n} camera"') - 200:HTML.index(f'alt="Pinky {n} segmentation"')]
-        assert row.index(f'/robot_camera_feed?id=pinky{n}"') < row.index(f'/robot_camera_feed?id=pinky{n}&amp;view=bev"')
-    assert "if view in ('bev', 'seg'):" in GW
-    for topic in ("f'/{robot}/lane_{view}/compressed'",):
-        assert topic in GW
+        assert row.index(f'/robot_camera_feed?id=pinky{n}"') < row.index(f'/robot_camera_snapshot?id=pinky{n}&amp;view=bev"')
+        assert f'data-snapshot="/robot_camera_snapshot?id=pinky{n}&amp;view=seg"' in HTML
+    assert "elif parsed.path == '/robot_camera_snapshot':" in GW and "f'/{robot}/lane_{view}/compressed'" in GW
+    assert 'setTimeout(pollSnapshots, SNAPSHOT_MS)' in JS and 'pollSnapshots();' in JS
     node = open(os.path.join(REPO, 'pinky_lane_station', 'pinky_lane_station', 'lane_pipeline_node.py'),
                 encoding='utf-8').read()
     assert 'f"/{rl.name}/lane_bev/compressed"' in node and 'f"/{rl.name}/lane_seg/compressed"' in node
+
+
+def test_v2_persistent_streams_leave_room_for_api_requests():
+    """브라우저는 한 서버에 동시 연결을 6 개까지만 연다. 끝나지 않는 MJPEG 스트림(<img src=…feed>)이 그 자리를 다 쓰면
+    /api 요청이 막혀 시나리오 칸이 안 뜬다(2026-10-04 PR #20 에서 실제로 늘어나 되돌림). 지금 4 개(중계 탑뷰 2 · 핑키 카메라 2)
+    — 더 늘리지 않는다. 새 영상 칸은 스냅숏(data-snapshot)으로."""
+    streams = re.findall(r'<img[^>]+src="(/(?:robot_camera_feed|video_feed|control_feed|gazebo_feed)[^"]*)"', HTML)
+    assert len(streams) <= 4, streams

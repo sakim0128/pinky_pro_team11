@@ -4,7 +4,7 @@ Field Gateway Web Streaming Server (with Live Gazebo Stream & Fleet Coordinator)
 - 현장 태블릿 카메라 스트림 1:N 팬아웃 (/video_feed)
 - 현장 관제 화면 스트림 1:N 팬아웃 (/control_feed)
 - Gazebo 실시간 3D 탑뷰 카메라 스트림 (/gazebo_feed) - ROS 2 /camera 토픽 30fps
-- 로봇 1, 2 온보드 카메라 스트림 (/robot_camera_feed?id=pinky1 | pinky2), 관제 인식 화면 (&view=bev | seg)
+- 로봇 1, 2 온보드 카메라 스트림 (/robot_camera_feed?id=pinky1 | pinky2), 관제 인식 화면 스냅숏 (/robot_camera_snapshot?id=&view=bev | seg)
 - 로봇 1, 2 실시간 좌표 및 플릿 상태 API (/api/status · /api/fleet/status)
 - 로봇별 정지·재개 API (/api/pinkyN/stop · /api/pinkyN/resume) — 플릿 코디네이터를 거친다
 - 시작·목적지 배정은 /api/fleet/assign (V2 "미션 배정" 카드) — 로봇은 lane_agent_node 뿐이라 Nav2 직접 목표(goal_pose·mission_cmd)는 없다
@@ -1193,7 +1193,8 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 class GatewayRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        if any(k in self.path for k in ('/api/status', '/video_feed', '/control_feed', '/gazebo_feed', '/robot_camera_feed')):
+        if any(k in self.path for k in ('/api/status', '/video_feed', '/control_feed', '/gazebo_feed', '/robot_camera_feed',
+                                        '/robot_camera_snapshot', '/api/fleet/poses')):   # 초당 여러 번 — 로그에 안 남긴다
             return
         app_log(f"[HTTP] {self.client_address[0]} - {format % args}")
 
@@ -2217,6 +2218,27 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     time.sleep(0.066)
                 except (BrokenPipeError, ConnectionResetError):
                     break
+            return
+
+        # 4-B. 관제 인식 화면 스냅숏 한 장 (/robot_camera_snapshot?id=pinky1&view=bev|seg) — 웹이 차례로 새로 받는다.
+        #      MJPEG 스트림은 브라우저 동시 연결(서버당 6)을 계속 붙잡는다. 카메라·BEV·세그를 모두 스트림으로 열면
+        #      /api 요청이 막혀 화면(시나리오 칸)이 안 뜬다.
+        elif parsed.path == '/robot_camera_snapshot':
+            robot_id = query.get('id', ['pinky1'])[0]
+            view = query.get('view', [''])[0]
+            if view in ('bev', 'seg'):
+                robot_id = f'{robot_id}:{view}'
+            jpeg = GLOBAL_ROBOT_CAMERAS.get_latest_jpeg(robot_id) if GLOBAL_ROBOT_CAMERAS else None
+            if not jpeg:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(jpeg)))
+            self.end_headers()
+            self.wfile.write(jpeg)
             return
 
         # 5. 상태 JSON API (/api/status)
