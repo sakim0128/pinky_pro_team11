@@ -93,7 +93,7 @@ pinky_lane_agent:
       yaw_tolerance_deg: 1.5
       heading_kp: 1.5
       # ('seek', 좌/우/직진) — 각도·거리 대신 새 빨간 선을 찾아 그 앞까지 (관제 vision_mission.yaml directions)
-      seek_forward: 0.20         # 좌·우: 회전 전 전진 (m)
+      seek_forward: 0.35         # 좌·우: 회전 전 전진 (m). 입구 빨간 선 앞 정지 자리부터 odom 으로 잰다 (2026-10-04 현장 0.20 → 0.35)
       seek_omega: 0.3            # 찾으며 제자리 회전 (rad/s)
       seek_min_turn_deg: 30.0    # 이만큼 돈 뒤부터 빨간 선을 본다
       seek_max_turn_deg: 150.0   # 넘도록 못 찾으면 정지 ("새 빨간 선 못 찾음")

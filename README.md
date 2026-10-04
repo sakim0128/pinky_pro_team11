@@ -99,8 +99,8 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 | 경로 | 교차로 방향 | 교차로 동작 (`directions:`, 각도·거리 값 없음) |
 |---|---|---|
 | 2 → 1 · 1 → 2 | 직진 | `seek: straight` — 입구 선 10 cm 지난 뒤 천천히 전진, 앞의 새 빨간 선 앞까지 |
-| 3 → 1 · 2 → 3 | 우회전 | `seek: right` — 20 cm 전진 → 제자리에서 천천히 오른쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
-| 1 → 3 · 3 → 2 | 좌회전 | `seek: left` — 20 cm 전진 → 제자리에서 천천히 왼쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
+| 3 → 1 · 2 → 3 | 우회전 | `seek: right` — 35 cm 전진 → 제자리에서 천천히 오른쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
+| 1 → 3 · 3 → 2 | 좌회전 | `seek: left` — 35 cm 전진 → 제자리에서 천천히 왼쪽으로 돌며 새 빨간 선을 찾아 그 앞까지 |
 
 예전 고정 동작(odom `straight`/`turn`)은 `vision_mission.yaml` `maneuvers:` 에 남아 있다. 되돌리려면 `routes:` 에 `maneuver:` 를 다시 넣는다.
 
@@ -133,7 +133,7 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
   로봇은 **화면 가운데(± 0.25·W)** 에 있고 **아직 앞에 있는(하단 < 0.80·H)** 덩어리가 2 프레임 이어지면 새 선으로 확정한다
   (발밑의 입구 선은 하단이 이미 0.80·H 아래라 후보가 아니다. 좌·우는 30° 돈 뒤부터 본다). 확정한 선을 프레임마다 추적해
   선 중심으로 0.05 m/s 접근, 하단이 0.80·H 에 오면 끝. 150° 를 돌거나(좌·우) 0.80 m 를 가도(직진) 못 찾으면 멈춘다.
-  값은 `lane_agent.yaml` `maneuver.seek_*` (`seek_forward` 0.20 · `seek_omega` 0.3 · `seek_min_turn_deg` 30 · `seek_max_turn_deg` 150 ·
+  값은 `lane_agent.yaml` `maneuver.seek_*` (`seek_forward` 0.35 · `seek_omega` 0.3 · `seek_min_turn_deg` 30 · `seek_max_turn_deg` 150 ·
   `seek_ignore_distance` 0.10 · `seek_center_frac` 0.25 · `seek_speed` 0.05 · `seek_arrive_row_frac` 0.80). 나갈 가지의 선이
   회전 중 화면 아래 45 %(색 검출 ROI) 에 안 들어오면 `seek_forward` 를 늘리거나 `red_line_color.roi_top_frac` 을 낮춘다.
 - 빨간 선 판정: 검출이 꺼졌다 켜지는 순간(상승 에지)마다 한 번 선다. 서 있는 동안 같은 선이 계속 보여도 다시 서지 않고,
