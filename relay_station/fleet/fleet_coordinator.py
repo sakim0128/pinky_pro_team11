@@ -1555,9 +1555,9 @@ class RelayFleetCoordinator(Node):
         self.control_note = None            # 운영자가 확인하고 풀었다 — 복원 실패 알림은 여기까지
         self._save_control_state()          # 내보내기 전에 남긴다(쓰기 전에 죽으면 래치로 되살아난다 — 멈추는 쪽)
         if self.mission_state == MISSION_RUNNING:
-            # RUNNING 으로 돌아가면, 경로는 있는데 START 응답이 없는 로봇(비상정지 중 배정 등)은 START 재무장
+            # RUNNING 으로 돌아가면, 경로는 있는데 아직 도착하지 않고 HOLD 가 아닌 로봇은 START 재무장 (STOP 후 재개 시 재출발 보장)
             for c in self.robots.values():
-                if c.route is not None and not c.held and not c.start_acknowledged:
+                if c.route is not None and not c.held and not getattr(c, 'arrived', False):
                     self._arm_start(c)
         held = [n for n, c in self.robots.items() if c.held]
         if held:
