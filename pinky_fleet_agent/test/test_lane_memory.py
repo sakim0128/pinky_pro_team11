@@ -258,6 +258,45 @@ def test_jump_confirmed_by_three_frames_replaces_points_ahead():
     assert ahead and all(abs(q[1] - 0.10) < 0.01 for q in ahead)
 
 
+def moving_memory(params=None):
+    """로봇이 x 축을 따라 가며 차로 중앙(y=0)을 본 기억 (0.10~0.40 m)."""
+    m = LaneMemory(params or MemoryParams())
+    for i in range(11):
+        assert m.add((0.10 + 0.03 * i, 0.0), (0.0, 0.0, 0.0), stamp=0.0)
+    return m
+
+
+def test_jump_confirmed_while_robot_moves_6cm_per_frame():
+    """목표점은 '로봇 앞 15 cm' 라 로봇이 6 cm 가면 6 cm 앞으로 간다 — 고정 4 cm 였으면 확인 실패. 이동 거리만큼 허용한다."""
+    m = moving_memory()
+    assert not m.add((0.15, 0.12), (0.00, 0.0, 0.0), stamp=0.0)
+    assert not m.add((0.15, 0.12), (0.06, 0.0, 0.0), stamp=0.2)
+    assert m.add((0.15, 0.12), (0.12, 0.0, 0.0), stamp=0.4)
+    ahead = [q for q in m.points if q[0] >= 0.15]
+    assert ahead and all(abs(q[1] - 0.12) < 0.01 for q in ahead)
+    old = moving_memory(MemoryParams(jump_confirm=0.04))
+    old._confirms = lambda a, b: math.hypot(b[0][0] - a[0][0], b[0][1] - a[0][1]) <= 0.04   # 예전 규칙 (고정 4 cm)
+    for x, t in ((0.00, 0.0), (0.06, 0.2), (0.12, 0.4)):
+        accepted = old.add((0.15, 0.12), (x, 0.0, 0.0), stamp=t)
+    assert not accepted
+
+
+def test_two_frame_spike_still_rejected_while_moving():
+    m = moving_memory()
+    assert not m.add((0.15, 0.14), (0.00, 0.0, 0.0), stamp=0.0)
+    assert not m.add((0.15, 0.15), (0.03, 0.0, 0.0), stamp=0.2)
+    assert m.add((0.25, 0.0), (0.06, 0.0, 0.0), stamp=0.4)        # 원래 자리로 돌아옴 — 보류 점은 버린다
+    assert all(abs(q[1]) < 0.01 for q in m.points)
+
+
+def test_stale_pending_point_is_not_counted():
+    m = moving_memory()
+    assert not m.add((0.15, 0.12), (0.0, 0.0, 0.0), stamp=0.0)
+    assert not m.add((0.15, 0.12), (0.0, 0.0, 0.0), stamp=1.5)    # 1 s 넘게 지남 — 새로 센다
+    assert not m.add((0.15, 0.12), (0.0, 0.0, 0.0), stamp=1.7)
+    assert m.add((0.15, 0.12), (0.0, 0.0, 0.0), stamp=1.9)
+
+
 def test_point_without_memory_at_that_distance_is_accepted():
     m = straight_memory(n=2)                               # 10·13 cm 에만 기억
     assert m.add((0.30, 0.08), (0.0, 0.0, 0.0))            # 30 cm 엔 비교할 기억이 없다 (공백 뒤 등) — 그냥 받는다

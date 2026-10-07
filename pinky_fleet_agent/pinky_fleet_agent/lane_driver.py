@@ -266,7 +266,7 @@ class LaneDriver:
             pt = self.view.to_robot(*target)
         pose = self.odom_buf.at(source_stamp) if pt is not None else None
         if pose is not None:
-            self.memory.add(pt, pose)
+            self.memory.add(pt, pose, stamp=source_stamp)
 
     def _memory_curvature(self, now):
         """기억한 차선 중앙을 따라갈 곡률. 끔·odom 끊김·따라갈 점 없음이면 None."""

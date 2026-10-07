@@ -38,7 +38,10 @@ class MemoryParams:
     min_spacing: float = 0.005      # 직전 점과 이보다 가까우면 추가하지 않는다 (서 있을 때)
     jump_reject: float = 0.06       # 같은 전방 거리(± jump_window)의 기억 경로와 옆으로 이만큼 넘게 다르면 바로 넣지 않고 보류 (m)
     jump_window: float = 0.05       # 비교할 기억 점의 전방 거리 범위 (m). 그 범위에 기억이 없으면(처음·공백 뒤) 그냥 받는다
-    jump_confirm: float = 0.04      # 보류한 점과 다음 점이 이만큼 안이면 같은 자리를 본 것 (m)
+    jump_confirm: float = 0.04      # 보류한 점과 다음 점이 (이만큼 + 두 사진 사이 로봇 이동 거리) 안이면 같은 자리를 본 것 (m).
+                                    # 목표점은 매번 '로봇 앞 25 cm' 라 로봇이 간 만큼 앞으로 간다 — 고정 4 cm 면 빠르거나 프레임이 늦을 때
+                                    # 진짜 바뀐 장면도 확인을 못 한다 (10-04 로그: 정상 연속 점 간격의 11 % 가 4 cm 초과)
+    jump_confirm_seconds: float = 1.0  # 보류한 점이 이보다 오래되면 버리고 새로 센다 (s)
     jump_confirm_count: int = 2     # 보류한 점 뒤로 이만큼 더 같은 자리를 보면(합 3 프레임) 장면이 바뀐 것 — 그 앞의 예전 점을 지우고 받는다.
                                     # 2026-10-04 pinky2 S자: 급커브 꼭짓점에서 BEV 가 2 프레임 연속 반대쪽(왼쪽 14 cm)을 내 차로를 벗어났다
     clear_on_stop: bool = True      # 정지(횡단보도·빨간 선·장애물 …) 중에는 기억을 비운다 — 출발은 서서 새로 본 점부터 (lane_driver)
@@ -101,7 +104,7 @@ class LaneMemory:
     def __init__(self, params=None):
         self.p = params or MemoryParams()
         self.points = deque(maxlen=self.p.max_points)     # odom 좌표 (오래된 = 가까운 순)
-        self._pending = []                                # 튄 점들 (odom 좌표) — 다음 점들이 확인하면 받는다
+        self._pending = []                                # 튄 점들 [(odom 좌표 점, 그 사진의 odom 자세, 촬영 시각)] — 다음 점들이 확인하면 받는다
 
     def clear(self):
         self.points.clear()
@@ -110,12 +113,14 @@ class LaneMemory:
     def __len__(self):
         return len(self.points)
 
-    def add(self, pt_robot, pose_at_capture):
+    def add(self, pt_robot, pose_at_capture, stamp=None):
         """로봇 좌표의 차선 중앙점을 그 사진을 찍은 순간의 odom 자세로 odom 좌표에 저장. 넣었으면 True.
 
         잠깐 옆으로 튄 점(검출이 다른 차선 조각을 잡음)은 넣지 않는다: 같은 전방 거리의 기억 경로와
-        옆으로 jump_reject 넘게 다르면 보류하고, 그 뒤 jump_confirm_count 프레임이 jump_confirm 안에서 같은 자리를 보면 그때 받는다
+        옆으로 jump_reject 넘게 다르면 보류하고, 그 뒤 jump_confirm_count 프레임이 같은 자리를 보면 그때 받는다
         (장면이 정말 바뀜 — 그 앞쪽의 예전 점은 지운다). 2026-10-04 pinky2 횡단보도: 튄 점 2개가 남아 출발 직후 급우회전.
+        '같은 자리' = 직전 보류 점과 jump_confirm + (두 사진 사이 odom 이동 거리) 안, jump_confirm_seconds 안.
+        stamp: 촬영 시각 (s). 없으면 시간 만료를 보지 않는다.
         """
         p = self.p
         w = _to_world(pose_at_capture, pt_robot)
@@ -124,20 +129,30 @@ class LaneMemory:
         dev = self._lateral_deviation(pt_robot, pose_at_capture)
         if dev is not None and dev > p.jump_reject:
             pend = self._pending
-            if pend and math.hypot(w[0] - pend[-1][0], w[1] - pend[-1][1]) <= p.jump_confirm:
-                pend.append(w)
+            entry = (w, tuple(pose_at_capture), stamp)
+            if pend and self._confirms(pend[-1], entry):
+                pend.append(entry)
             else:
-                self._pending = [w]
+                self._pending = [entry]
                 pend = self._pending
             if len(pend) <= max(0, int(p.jump_confirm_count)):
                 return False
-            x_from = min(pt_robot[0], _to_local(pose_at_capture, pend[0])[0]) - p.jump_window
+            x_from = min(pt_robot[0], _to_local(pose_at_capture, pend[0][0])[0]) - p.jump_window
             self.points = deque((q for q in self.points if _to_local(pose_at_capture, q)[0] < x_from),
                                 maxlen=p.max_points)
-            self.points.extend(pend[:-1])
+            self.points.extend(e[0] for e in pend[:-1])
         self._pending = []
         self.points.append(w)
         return True
+
+    def _confirms(self, prev, cur):
+        """cur 가 직전 보류 점 prev 와 같은 자리를 본 것인가. 허용 = jump_confirm + 두 사진 사이 로봇 이동 거리."""
+        p = self.p
+        (w0, pose0, t0), (w1, pose1, t1) = prev, cur
+        if t0 is not None and t1 is not None and t1 - t0 > p.jump_confirm_seconds:
+            return False
+        moved = math.hypot(pose1[0] - pose0[0], pose1[1] - pose0[1])
+        return math.hypot(w1[0] - w0[0], w1[1] - w0[1]) <= p.jump_confirm + moved
 
     def _lateral_deviation(self, pt_robot, pose):
         """pt_robot 과 같은 전방 거리(± jump_window)에 있는 기억 점들의 옆 위치와의 차이 (m). 비교할 점이 없으면 None."""

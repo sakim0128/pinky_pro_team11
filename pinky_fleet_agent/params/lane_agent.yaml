@@ -85,7 +85,8 @@ pinky_lane_agent:
       min_spacing: 0.005
       jump_reject: 0.06          # 같은 전방 거리의 기억 경로와 옆으로 6 cm 넘게 다른 점은 한 프레임 보류 (튄 검출 거르기)
       jump_window: 0.05
-      jump_confirm: 0.04         # 보류한 점과 다음 점이 4 cm 안이면 같은 자리를 본 것
+      jump_confirm: 0.04         # 보류한 점과 다음 점이 (4 cm + 두 사진 사이 로봇 이동 거리) 안이면 같은 자리를 본 것
+      jump_confirm_seconds: 1.0  # 1 s 넘게 확인 안 된 보류 점은 버린다
       jump_confirm_count: 2      # 보류 뒤 2 프레임 더(합 3 프레임) 같은 자리를 보면 장면이 바뀐 것으로 받는다 (2026-10-04 S자: 2 프레임 반대쪽 BEV)
       max_target_angle_deg: 45.0 # 따라갈 기억 점은 정면 ±45° 안만 — 저속 급커브 뒤 로봇 옆에 남은 옛 점으로 제자리 급회전하지 않게
       clear_on_stop: true        # 정지(횡단보도·빨간 선·장애물) 중 기억을 비워 출발은 서서 새로 본 점부터 (2026-10-04 pinky2 횡단보도 로그)
