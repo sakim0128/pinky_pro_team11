@@ -229,10 +229,14 @@ class FieldTestRunner:
             return False
 
         # P1: 좌표/하트비트 신선도 확인
-        p1_heard = p1_state.get('heard', 999.0)
-        p2_heard = p2_state.get('heard', 999.0)
-        self.logger.info(f"pinky1 응답 지연: {p1_heard:.3f}s | 위치: ({p1_state.get('x', 0):.2f}, {p1_state.get('y', 0):.2f})")
-        self.logger.info(f"pinky2 응답 지연: {p2_heard:.3f}s | 위치: ({p2_state.get('x', 0):.2f}, {p2_state.get('y', 0):.2f})")
+        p1_heard = p1_state.get('last_heard_sec') if p1_state.get('last_heard_sec') is not None else p1_state.get('heard', 999.0)
+        p2_heard = p2_state.get('last_heard_sec') if p2_state.get('last_heard_sec') is not None else p2_state.get('heard', 999.0)
+        p1_x = (p1_state.get('state') or {}).get('x', p1_state.get('x', 0))
+        p1_y = (p1_state.get('state') or {}).get('y', p1_state.get('y', 0))
+        p2_x = (p2_state.get('state') or {}).get('x', p2_state.get('x', 0))
+        p2_y = (p2_state.get('state') or {}).get('y', p2_state.get('y', 0))
+        self.logger.info(f"pinky1 응답 지연: {p1_heard:.3f}s | 위치: ({p1_x:.2f}, {p1_y:.2f})")
+        self.logger.info(f"pinky2 응답 지연: {p2_heard:.3f}s | 위치: ({p2_x:.2f}, {p2_y:.2f})")
 
         if p1_heard < 1.0 and p2_heard < 1.0:
             self.logger.ok("두 로봇 모두 1초 이내 신선한 하트비트/위치 정보 확인 (P1 PASS)")
@@ -564,7 +568,7 @@ def main():
     parser.add_argument("--auto", action="store_true", help="단계별 확인 없이 완전 자동 실행")
     parser.add_argument("--test-stop", action="store_true", help="주행 중 임의 STOP & RESUME 재개 시험 수행 (X1 평가)")
     parser.add_argument("--inject-zone-events", action="store_true", help="태블릿 미연결 시 로봇 도착 시 가상 구역 이벤트 자동 발행")
-    parser.add_argument("--expected-profile", default="team11_map5_mixed", help="기대 지도 프로파일 이름")
+    parser.add_argument("--expected-profile", default="team11_map5", help="기대 지도 프로파일 이름")
     parser.add_argument("--observe-seconds", type=float, default=180.0, help="최대 관측 시간(초, 기본값: 180)")
     parser.add_argument("--out-dir", default="./field_test_results", help="로그 및 결과물 저장 디렉토리")
     

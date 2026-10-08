@@ -90,6 +90,12 @@ pinky_lane_agent:
       jump_confirm_count: 2      # 보류 뒤 2 프레임 더(합 3 프레임) 같은 자리를 보면 장면이 바뀐 것으로 받는다 (2026-10-04 S자: 2 프레임 반대쪽 BEV)
       max_target_angle_deg: 45.0 # 따라갈 기억 점은 정면 ±45° 안만 — 저속 급커브 뒤 로봇 옆에 남은 옛 점으로 제자리 급회전하지 않게
       clear_on_stop: true        # 정지(횡단보도·빨간 선·장애물) 중 기억을 비워 출발은 서서 새로 본 점부터 (2026-10-04 pinky2 횡단보도 로그)
+    correction:                  # 항공뷰 이탈 보정 (overhead_correction.CorrectionParams) — 관제 /pinkyN/lane_correction, 차선 주행(CRUISE) 중에만
+      enabled: true
+      k_lat: 2.0                 # rad/s per m (옆 이탈, 왼쪽 +) — 8 cm 면 0.16 rad/s
+      k_head: 0.5                # rad/s per rad (방향 오차)
+      max_omega: 0.3             # 보정 각속도 상한 — 카메라 조향을 이기지 않게
+      timeout: 0.5               # 새 값이 이만큼 없으면 보정 안 함 (항공뷰 끊김)
     maneuver:                    # 비전 미션 교차로 고정 동작 (maneuver.ManeuverParams). 속도는 관제 JunctionPlan 이 주면 그 값
       linear_speed: 0.08
       angular_speed: 0.5

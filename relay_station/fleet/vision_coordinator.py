@@ -16,6 +16,12 @@ RelayFleetCoordinator 를 그대로 물려받아 정지·비상정지·로봇별
     로봇이 ARRIVED 를 보고하면 도착, 모두 도착하면 DONE
     위치 표시(천장 카메라 없음): RobotState(frame_id 'odom') + LaneStatus → pinky_lane_station.vision_pose 가 코스
       (vision_course.yaml) 위 위치로 바꾼다. 화면 표시 전용 — /api/fleet/poses (0.2 s 폴링)
+    항공뷰 관제 (2026-10-01): /pinkyN/overhead_pose(태블릿 → 중계, frame map) → pinky_lane_station.vision_overhead 가
+      코스 위에 겹친다. 10 Hz 로
+        * 교차로 입구 정지 지점까지 남은 거리 → 통행권(가까운 로봇 먼저, 입구에 서기 전이면 넘길 수 있다)
+        * 차선 중앙 이탈 → /pinkyN/lane_correction (geometry_msgs/Vector3Stamped: x 이탈 m · y 방향 오차 rad · z 1 보정/0 없음)
+          3 cm 이상 보정, 8 cm 이상 경고. 교차로 구간(입구 ~ 나가는 빨간 선)에서는 보정 없음
+      항공뷰가 0.5 s 넘게 끊기면 거리·보정 없음 — 통행권은 먼저 선 로봇 순서, 로봇은 카메라 차선 주행만.
     웹에서 만든 시나리오 중 저장한 것은 vision_mission_user.yaml (save_user_scenario / delete_user_scenario)
 
 경로 모드와 다른 점: Route 를 내지 않는다(AUTO_ASSIGN = False — lane_only 로봇은 받아도 무시한다), FleetCommand 는 하트비트만
@@ -24,19 +30,26 @@ RelayFleetCoordinator 를 그대로 물려받아 정지·비상정지·로봇별
 기동: gateway_web_server.py --vision [vision_mission.yaml]   (기본 pinky_lane_station/config/vision_mission.yaml)
 """
 
+import math
 import os
 from typing import Any, Dict, Optional
 
+from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from pinky_fleet_msgs.msg import FleetCommand, RobotState
 from pinky_lane_msgs.msg import JunctionPlan, LaneCommand, LaneStatus
 from pinky_lane_station.vision_mission import (CUSTOM_NAME, ScenarioRun, VisionConfigError, course_dict,
                                                default_user_path, delete_user_scenario, load_user_scenarios,
                                                load_vision_config, save_user_scenario, scenario_from_dict,
                                                scenario_summary)
+from pinky_lane_station.vision_overhead import OverheadTrack
 from pinky_lane_station.vision_pose import CourseError, PoseTracker, default_course_path, load_vision_course
+from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 
 from .fleet_coordinator import (MISSION_DONE, MISSION_ESTOP, MISSION_IDLE, MISSION_RUNNING, MISSION_STOPPED,
                                 ROUTE_QOS, RelayFleetCoordinator, _locked)
+
+CORRECTION_QOS = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
+                            reliability=QoSReliabilityPolicy.BEST_EFFORT, durability=QoSDurabilityPolicy.VOLATILE)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_VISION_CONFIG = os.path.join(REPO_ROOT, 'pinky_lane_station', 'config', 'vision_mission.yaml')
@@ -82,6 +95,15 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
             self.vision_course_error = f'{course_path}: {exc}'
             self.vision_course_image = ''
             self.get_logger().warn(f"위치 표시 끔 — 코스 파일 {self.vision_course_error}")
+        # 항공뷰 관제 — 시나리오 밖에서도 마지막 좌표는 표시한다(overhead_raw). 코스에 겹치는 것은 시나리오 경로가 있을 때
+        self.overhead_raw: Dict[str, tuple] = {}                 # name -> (x, y, yaw, t)
+        self.overhead: Dict[str, OverheadTrack] = {}
+        self.overhead_eval: Dict[str, Dict[str, Any]] = {}
+        for name in self.robots:
+            self.create_subscription(PoseStamped, f'/{name}/overhead_pose',
+                                     lambda msg, n=name: self._cb_overhead(n, msg), 10)
+        self.correction_pubs = {name: self.create_publisher(Vector3Stamped, f'/{name}/lane_correction', CORRECTION_QOS)
+                                for name in self.robots}
         self.get_logger().info(
             f"VisionFleetCoordinator: {self.vision_config_path} — 시나리오 {list(self.vision_cfg.scenarios)}")
 
@@ -170,16 +192,23 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
         return True
 
     def _start_pose_trackers(self, run: ScenarioRun, now: float) -> None:
-        """시나리오 로봇마다 출발 지점에 위치 추정기를 놓는다 (표시 전용)."""
+        """시나리오 로봇마다 출발 지점에 위치 추정기(표시 전용)와 항공뷰 코스 겹치기(통행권·이탈 보정)를 놓는다."""
         self.vision_pose = {}
+        self.overhead = {}
+        self.overhead_eval = {}
         if self.vision_course is None:
             return
         for rname, plan in run.scenario.robots.items():
             try:
-                tr = PoseTracker(self.vision_course.route(plan.start, plan.goal), now)
+                route = self.vision_course.route(plan.start, plan.goal)
+                tr = PoseTracker(route, now)
             except CourseError as exc:
                 self.get_logger().warn(f"[{rname}] 위치 표시 없음 — {exc}")
                 continue
+            self.overhead[rname] = OverheadTrack(route)
+            raw = self.overhead_raw.get(rname)
+            if raw is not None:
+                self.overhead[rname].feed(*raw)
             ctx = self.robots.get(rname)
             st = ctx.state if ctx is not None else None
             if st is not None and getattr(st.header, 'frame_id', '') == 'odom':
@@ -188,7 +217,7 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
 
     @_locked
     def vision_poses(self) -> Dict[str, Any]:
-        """/api/fleet/poses — 가벼운 위치만 (0.2 s 폴링)."""
+        """/api/fleet/poses — 가벼운 위치만 (0.2 s 폴링). robots = odom 추정, overhead = 항공뷰 실측."""
         now = self._now()
         robots = {}
         for name, tr in self.vision_pose.items():
@@ -196,7 +225,23 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
             p = tr.pose()
             p['age'] = round(now - ctx.state_time, 2) if ctx is not None and ctx.state is not None else None
             robots[name] = p
-        return {'t': now, 'robots': robots, 'error': self.vision_course_error}
+        return {'t': now, 'robots': robots, 'overhead': self._overhead_dict(now), 'error': self.vision_course_error}
+
+    def _overhead_dict(self, now: float) -> Dict[str, Any]:
+        out = {}
+        for name, (x, y, yaw, t) in self.overhead_raw.items():
+            d = {'x': round(x, 4), 'y': round(y, 4), 'yaw': round(yaw, 4), 'age': round(now - t, 2),
+                 'fresh': now - t <= 0.5}
+            if self.vision_course is not None:
+                px, py = self.vision_course.map_to_px(x, y)
+                d['px'], d['py'] = round(px, 1), round(py, 1)
+            ev = self.overhead_eval.get(name)
+            if ev is not None:
+                d.update({'lateral': round(ev['lateral'], 4) if ev['fresh'] else None,
+                          'dist_to_entry': None if ev['dist_to_entry'] is None else round(ev['dist_to_entry'], 3),
+                          'correct': ev['correct'], 'warn': ev['warn'], 'in_junction': ev['in_junction']})
+            out[name] = d
+        return out
 
     # ------------------------------------------------------------------ 저장 시나리오 (HTTP 쓰레드에서 직접 부른다)
 
@@ -281,6 +326,21 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
             tr.feed_odom(msg.x, msg.y, msg.yaw, self._now())
 
     @_locked
+    def _cb_overhead(self, name: str, msg: PoseStamped):
+        if msg.header.frame_id and msg.header.frame_id != 'map':
+            self.get_logger().warn(f"[{name}] overhead_pose frame {msg.header.frame_id!r} ≠ map — 무시",
+                                   throttle_duration_sec=10.0)
+            return
+        q = msg.pose.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        now = self._now()                                    # 신선도는 받은 쪽 시계로 (태블릿 시계를 믿지 않는다)
+        raw = (msg.pose.position.x, msg.pose.position.y, yaw, now)
+        self.overhead_raw[name] = raw
+        tr = self.overhead.get(name)
+        if tr is not None:
+            tr.feed(*raw)
+
+    @_locked
     def _cb_lane_status(self, name: str, msg: LaneStatus):
         ctx = self.robots.get(name)
         if not ctx:
@@ -324,17 +384,26 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
             ctx.is_stale = ctx.state is None or (now - ctx.state_time > self.state_timeout_sec)
         run = self.vision_run
         warnings = []
+        dist = self._evaluate_overhead(now)
         if run is not None and self.mission_state == MISSION_RUNNING:
-            for name in run.tick(now):
+            holder_before = run.arbiter.holder
+            for name in run.tick(now, dist):
                 self._publish_plan(name)                         # 통행권 순서 정지선 수 · 같은 목적지 도착 표시
                 if run.arrive_on_obstacle.get(name):
                     self.get_logger().info(f"[{name}] 같은 목적지 앞 로봇 도착 — 장애물 정지를 도착으로")
                 else:
                     self.get_logger().info(f"[{name}] 교차로 통행권 — 정지선 {run.stop_lines[name]}번째에서 도착")
+            if run.arbiter.holder is not None and run.arbiter.holder != holder_before:
+                self.get_logger().info(
+                    f"[{run.arbiter.holder}] 교차로 통행권 ({'항공뷰 남은 거리' if run.arbiter.rule == 'distance' else '먼저 정지'})"
+                    + (f" — {holder_before} 에게서 넘김" if holder_before else ''))
             for name, ctx in self.robots.items():
                 ctx.clear_until_idx = run.clearance(name) if name in run.seq else 0
                 if name in run.seq and ctx.is_stale and not ctx.arrived:
                     warnings.append(f"STALE: {name} — 상태 보고 {self.state_timeout_sec:.0f}s 끊김")
+                ev = self.overhead_eval.get(name)
+                if name in run.seq and ev is not None and ev['fresh'] and ev['warn'] and not ctx.arrived:
+                    warnings.append(f"OFF_LANE: {name} — 차선 중앙에서 {abs(ev['lateral']) * 100:.0f} cm")
             if run.done:
                 self.mission_state = MISSION_DONE
                 self.get_logger().info(f"🏁 scenario {run.scenario.name} DONE — 모두 도착")
@@ -344,6 +413,31 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
         self.last_warning = ' | '.join(warnings)
         self._save_control_state()
         self._publish_vision_commands(now)
+        self._publish_corrections()
+
+    def _evaluate_overhead(self, now: float) -> Dict[str, Optional[float]]:
+        """항공뷰를 코스에 겹친다. 통행권용 {로봇: 입구 정지 지점까지 남은 거리 또는 None}."""
+        dist = {}
+        for name, tr in self.overhead.items():
+            ctx = self.robots.get(name)
+            ls = ctx.lane_status if ctx is not None else None
+            ds = int(ls.drive_state) if ls is not None and ls.route_seq == ctx.route_seq else -1
+            ev = tr.evaluate(now, ds)
+            self.overhead_eval[name] = ev
+            dist[name] = ev['dist_to_entry']
+        return dist
+
+    def _publish_corrections(self) -> None:
+        """/pinkyN/lane_correction 10 Hz — 시나리오가 도는 동안만 보정, 그 밖에는 z=0."""
+        running = self.mission_state == MISSION_RUNNING and self.vision_run is not None
+        for name, pub in self.correction_pubs.items():
+            ev = self.overhead_eval.get(name)
+            msg = Vector3Stamped()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = 'map'
+            if running and ev is not None and ev['correct']:
+                msg.vector.x, msg.vector.y, msg.vector.z = float(ev['lateral']), float(ev['heading']), 1.0
+            pub.publish(msg)
 
     def _publish_vision_commands(self, now: float) -> None:
         self._retry_resumes(now)
@@ -414,5 +508,6 @@ class VisionFleetCoordinator(RelayFleetCoordinator):
             'map': dict(self.vision_course.to_dict(), image_url='/api/fleet/vision_map.png')
             if self.vision_course is not None else None,
             'map_error': self.vision_course_error,
+            'overhead': self._overhead_dict(now),
         }
         return out

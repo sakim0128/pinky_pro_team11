@@ -182,7 +182,16 @@ def _install_fake_ros():
     mod('rclpy.qos', QoSProfile=lambda **kw: types.SimpleNamespace(**kw), QoSDurabilityPolicy=Enum(),
         QoSHistoryPolicy=Enum(), QoSReliabilityPolicy=Enum())
     mod('geometry_msgs')
-    mod('geometry_msgs.msg', Point=lambda **kw: types.SimpleNamespace(x=0.0, y=0.0, z=0.0, **kw))
+    def _xyz(**kw):
+        return types.SimpleNamespace(**dict({'x': 0.0, 'y': 0.0, 'z': 0.0}, **kw))
+
+    def _header():
+        return types.SimpleNamespace(stamp=None, frame_id='')
+
+    mod('geometry_msgs.msg', Point=_xyz,
+        PoseStamped=lambda: types.SimpleNamespace(header=_header(), pose=types.SimpleNamespace(
+            position=_xyz(), orientation=types.SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0))),
+        Vector3Stamped=lambda: types.SimpleNamespace(header=_header(), vector=_xyz()))
     mod('std_msgs')
     mod('std_msgs.msg', Header=lambda **kw: types.SimpleNamespace(stamp=None, frame_id=''),
         String=_msg_class('std_msgs', 'String', _write_tmp_msg('string data')))
@@ -463,3 +472,67 @@ def test_v2_persistent_streams_leave_room_for_api_requests():
     — 더 늘리지 않는다. 새 영상 칸은 스냅숏(data-snapshot)으로."""
     streams = re.findall(r'<img[^>]+src="(/(?:robot_camera_feed|video_feed|control_feed|gazebo_feed)[^"]*)"', HTML)
     assert len(streams) <= 4, streams
+
+
+# ------------------------------------------------------------ 항공뷰 관제 (2026-10-01)
+
+def _overhead(coord, name, route, s, left=0.0):
+    import geometry_msgs.msg as gm
+    x, y, yaw = route.point_at(s)
+    m = gm.PoseStamped()
+    m.header.frame_id = 'map'
+    m.pose.position.x, m.pose.position.y = x - left * math.sin(yaw), y + left * math.cos(yaw)
+    m.pose.orientation.z, m.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+    coord._cb_overhead(name, m)
+
+
+def _cruise(coord, name):
+    import pinky_lane_msgs.msg as lm
+    st = lm.LaneStatus()
+    st.drive_state, st.route_seq, st.edge_id = 1, coord.robots[name].route_seq, 'vision:approach'
+    coord._cb_lane_status(name, st)
+
+
+def test_vision_coordinator_overhead_grants_closer_robot_and_corrects(vision_coordinator_cls):
+    """항공뷰: 입구까지 남은 거리가 짧은 로봇이 서기 전에 통행권을 받고, 차선 중앙 이탈 3 cm 이상이면 보정을 보낸다."""
+    coord = vision_coordinator_cls()
+    assert '/pinky1/overhead_pose' in coord._fake_subs and '/pinky1/lane_correction' in coord._fake_pubs
+    assert _scenario(coord, 's1')['ok'] is True                     # pinky1 2→1 · pinky2 3→1
+    r1, r2 = coord.overhead['pinky1'].route, coord.overhead['pinky2'].route
+    for n in ('pinky1', 'pinky2'):
+        _cruise(coord, n)
+    stop1, stop2 = coord.overhead['pinky1'].s_stop, coord.overhead['pinky2'].s_stop
+    _overhead(coord, 'pinky1', r1, stop1 - 0.40)
+    _overhead(coord, 'pinky2', r2, stop2 - 0.15, left=0.05)
+    coord._loop_tick()
+    run = coord.vision_run
+    assert run.arbiter.holder == 'pinky2' and run.arbiter.rule == 'distance'
+    assert coord.robots['pinky2'].clear_until_idx == 1 and coord.robots['pinky1'].clear_until_idx == 0
+    c2 = coord.correction_pubs['pinky2'].published[-1]
+    assert c2.vector.z == 1.0 and c2.vector.x == pytest.approx(0.05, abs=0.005)
+    assert coord.correction_pubs['pinky1'].published[-1].vector.z == 0.0      # 중앙 — 보정 없음
+    poses = coord.vision_poses()
+    assert poses['overhead']['pinky2']['correct'] and poses['overhead']['pinky2']['dist_to_entry'] == pytest.approx(0.15, abs=0.01)
+    assert 'px' in poses['overhead']['pinky1']
+    json.dumps(coord.get_fleet_status_dict())
+    # pinky2 가 막혀 있는 동안 pinky1 이 더 가까워졌다 — 아직 입구에 서기 전이라 넘긴다
+    _overhead(coord, 'pinky1', r1, stop1 - 0.05)
+    coord._loop_tick()
+    assert run.arbiter.holder == 'pinky1' and coord.robots['pinky2'].clear_until_idx == 0
+    # 8 cm 넘게 벗어나면 경고
+    _overhead(coord, 'pinky2', r2, stop2 - 0.15, left=0.09)
+    coord._loop_tick()
+    assert 'OFF_LANE: pinky2' in coord.last_warning
+
+
+def test_vision_coordinator_stale_overhead_falls_back(vision_coordinator_cls):
+    coord = vision_coordinator_cls()
+    assert _scenario(coord, 's1')['ok'] is True
+    r1 = coord.overhead['pinky1'].route
+    _cruise(coord, 'pinky1')
+    _overhead(coord, 'pinky1', r1, 0.3, left=0.06)
+    coord._fake_t += 0.6                                              # 항공뷰 끊김
+    coord._loop_tick()
+    assert coord.vision_run.arbiter.holder is None                    # 거리 없음 — 먼저 선 로봇을 기다린다
+    assert coord.correction_pubs['pinky1'].published[-1].vector.z == 0.0
+
