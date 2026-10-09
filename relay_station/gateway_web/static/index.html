@@ -471,7 +471,7 @@
           <div style="display: flex; gap: 4px; background: #0d1117; padding: 2px 4px; border-radius: 20px; border: 1px solid #30363d;">
             <button id="btn-src-phone" class="badge cyan" style="cursor: pointer; border: none;" onclick="selectCameraSource('phone')">📱 스마트폰</button>
             <button id="btn-src-relay" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('relay-cam')">💻 노트북 웹캠</button>
-            <button id="btn-src-gazebo" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('gazebo')">🏭 가제보 가상</button>
+            <button id="btn-src-gazebo" class="badge" style="cursor: pointer; border: none;" onclick="selectCameraSource('gazebo')">🏭 Isaac / Gazebo 가상</button>
           </div>
 
           <!-- AR / 영상 강화 필터 토글 그룹 -->
@@ -525,20 +525,20 @@
         </div>
       </div>
 
-      <!-- Gazebo 3D 시뮬레이션 탑뷰 -->
+      <!-- Gazebo / Isaac Sim 3D 시뮬레이션 탑뷰 -->
       <div class="stream-card">
         <div class="stream-header">
-          <h2><span>🏭</span> Gazebo 3D 시뮬레이션 실시간 탑뷰</h2>
+          <h2><span>🏭</span> Isaac Sim / Gazebo 3D 시뮬레이션 실시간 탑뷰</h2>
           <div style="display: flex; gap: 6px; align-items: center;">
             <button class="badge cyan" style="cursor: pointer; border: none;" onclick="reconnectStream('gz-main-stream-img', '/gazebo_feed')">🔄 새로고침</button>
             <span class="badge green">DIGITAL TWIN</span>
           </div>
         </div>
         <div class="video-viewport" style="height: 360px; background: #000; display: flex; align-items: center; justify-content: center;">
-          <img id="gz-main-stream-img" src="/gazebo_feed" alt="Gazebo Real-time 3D Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/gazebo_feed')">
+          <img id="gz-main-stream-img" src="/gazebo_feed" alt="Simulation Real-time 3D Stream" style="width:100%; height:100%; object-fit:contain;" onerror="handleStreamError(this, '/gazebo_feed')">
         </div>
         <div class="stream-footer">
-          <span>소스: /camera (Gazebo Harmonic 3D Digital Twin)</span>
+          <span>소스: /camera, /isaac/camera (Isaac Sim / Gazebo 3D Digital Twin)</span>
           <span>로봇 1호기 실시간 물리 위치 1:1 연동</span>
         </div>
       </div>
@@ -765,9 +765,9 @@
     <div class="stream-card" style="margin-bottom: 16px;">
       <div class="stream-header" style="padding: 10px 16px; flex-wrap: wrap; gap: 8px;">
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button class="tab-btn active" onclick="switchMapTab('dual', this)">🔲 듀얼 분할 관제 (2D 맵 + Gazebo 3D)</button>
+          <button class="tab-btn active" onclick="switchMapTab('dual', this)">🔲 듀얼 분할 관제 (2D 맵 + Isaac / Gazebo 3D)</button>
           <button class="tab-btn" onclick="switchMapTab('interactive', this)">🗺️ 2D 브라우저 관제 맵 집중 뷰</button>
-          <button class="tab-btn" onclick="switchMapTab('gazebo', this)">🏭 Gazebo 3D 탑뷰 전용</button>
+          <button class="tab-btn" onclick="switchMapTab('gazebo', this)">🏭 Isaac / Gazebo 3D 탑뷰 전용</button>
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
           <span class="badge green" id="nav-mode-badge">🔒 읽기 전용 · 브라우저 좌표 관제</span>
@@ -799,17 +799,17 @@
             </div>
           </div>
 
-          <!-- 우측: Gazebo 실시간 3D 탑뷰 스트림 -->
+          <!-- 우측: Gazebo / Isaac Sim 실시간 3D 탑뷰 스트림 -->
           <div id="col-gazebo-live" style="background: #161b22; border-radius: 10px; border: 1px solid #30363d; padding: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-weight: 600; font-size: 0.95rem; color: #3fb950;">🏭 Gazebo 3D 가상 공간 실시간 탑뷰 (/camera)</span>
+              <span style="font-weight: 600; font-size: 0.95rem; color: #3fb950;">🏭 Isaac Sim / Gazebo 3D 가상 공간 실시간 탑뷰 (/camera, /isaac/camera)</span>
               <span class="badge green">30 FPS LIVE STREAM</span>
             </div>
             <div style="position: relative; width: 100%; height: 250px; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid #21262d; display: flex; align-items: center; justify-content: center;">
-              <img id="map-gazebo-img" src="/gazebo_feed" alt="Gazebo Real-time 3D Camera Stream" style="width:100%; height:100%; object-fit:contain; display:block;">
+              <img id="map-gazebo-img" src="/gazebo_feed" alt="Simulation Real-time 3D Camera Stream" style="width:100%; height:100%; object-fit:contain; display:block;">
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.75rem; color: #8b949e;">
-              <span>Gazebo Harmonic 천장 카메라 동기화</span>
+              <span>Isaac Sim / Gazebo 천장 카메라 동기화</span>
               <span>물리 엔진 100% 실시간 연동</span>
             </div>
           </div>
@@ -1991,7 +1991,7 @@
       // 레이블 안내 갱신
       const labelSrc = document.getElementById('active-source-label');
       if (labelSrc) {
-        labelSrc.innerText = currentCamSource === 'relay-cam' ? '💻 노트북 웹캠 (LG Camera)' : (currentCamSource === 'gazebo' ? '🏭 가제보 3D 가상 카메라' : '📱 스마트폰 카메라 (phone)');
+        labelSrc.innerText = currentCamSource === 'relay-cam' ? '💻 노트북 웹캠 (LG Camera)' : (currentCamSource === 'gazebo' ? '🏭 Isaac Sim / Gazebo 3D 가상 카메라' : '📱 스마트폰 카메라 (phone)');
       }
       const labelFx = document.getElementById('active-fx-label');
       if (labelFx) {
@@ -2126,7 +2126,7 @@
         dualGrid.style.gridTemplateColumns = '1fr';
         colMap.style.display = 'none';
         colGz.style.display = 'block';
-        badge.textContent = 'GAZEBO 3D ONLY';
+        badge.textContent = 'ISAAC / GAZEBO 3D ONLY';
         badge.className = 'badge green';      }
     }
 

@@ -278,13 +278,8 @@ def robot_latch_report(ctx):
     return reason if reason.startswith(RELEASE_HOLD_PREFIX) else None
 
 
+# R-5: 진단을 받는 로봇 (브리지 업링크 /pinkyN/diag 가 있는 로봇 — pinky1/2 한정)
 def latched_robots(coord):
-    """지금 지도 교체(SET_MAP)를 보내면 에이전트가 거부할 로봇 — [(이름, 이유)] (통합 검토 OPS-3).
-
-    코디네이터가 링크유실·ESTOP 래치로 세워 둔 로봇, 또는 스스로 ESTOP·링크유실 래치를 **지금**(LATCH_REPORT_FRESH_SEC 안)
-    보고하는 로봇. 에이전트는 체인 래치(ESTOP·링크유실) 중 SET_MAP 을 REFUSED 한다 — 로봇 재개(LaneCommand RESUME)만 그
-    래치를 푼다.
-    """
     out = []
     with getattr(coord, '_coord_lock', None) or threading.RLock():
         for name, ctx in coord.robots.items():
@@ -299,7 +294,6 @@ def latched_robots(coord):
     return out
 
 
-# R-5: 진단을 받는 로봇 (브리지 업링크 /pinkyN/diag 가 있는 로봇 — pinky1/2 한정)
 OPS_ROBOTS = FLEET_ROBOT_NAMES
 
 
@@ -423,7 +417,7 @@ def app_log(msg):
 
 
 class GazeboCameraManager:
-    """Gazebo 월드 내 탑뷰 카메라(/camera 토픽) 실시간 스트리밍 관리"""
+    """Gazebo / Isaac Sim 월드 내 탑뷰 카메라(/camera, /isaac/camera 등) 실시간 스트리밍 관리"""
     def __init__(self):
         self._lock = threading.Lock()
         self._jpeg = self._make_placeholder()
@@ -433,10 +427,10 @@ class GazeboCameraManager:
     def _make_placeholder(self):
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         img[:] = (25, 30, 40)
-        cv2.putText(img, "GAZEBO LIVE CAMERA", (140, 220),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(img, "Waiting for /camera topic...", (140, 270),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 255), 1, cv2.LINE_AA)
+        cv2.putText(img, "ISAAC SIM / GAZEBO LIVE", (120, 220),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.85, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(img, "Waiting for /camera, /isaac/camera...", (110, 270),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 255), 1, cv2.LINE_AA)
         _, jpeg = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         return jpeg.tobytes()
 
@@ -446,13 +440,29 @@ class GazeboCameraManager:
         stamp = time.time()
         with self._lock:
             if not self._connected:
-                app_log("[GazeboCam] Live /camera stream connected!")
+                app_log("[SimCam] Live digital twin stream connected (raw frame)!")
                 self._connected = True
             self._jpeg = jpeg_bytes
             self._stamp = stamp
         if GLOBAL_STREAM_ENHANCER and cv_img is not None:
             try:
                 GLOBAL_STREAM_ENHANCER.update_gazebo_reference(cv_img)
+            except Exception:
+                pass
+
+    def update_jpeg(self, jpeg_bytes):
+        stamp = time.time()
+        with self._lock:
+            if not self._connected:
+                app_log("[SimCam] Live digital twin stream connected (compressed jpeg)!")
+                self._connected = True
+            self._jpeg = jpeg_bytes
+            self._stamp = stamp
+        if GLOBAL_STREAM_ENHANCER and jpeg_bytes:
+            try:
+                cv_img = cv2.imdecode(np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR)
+                if cv_img is not None:
+                    GLOBAL_STREAM_ENHANCER.update_gazebo_reference(cv_img)
             except Exception:
                 pass
 
@@ -1214,8 +1224,9 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 class GatewayRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        if any(k in self.path for k in ('/api/status', '/video_feed', '/control_feed', '/gazebo_feed', '/robot_camera_feed',
-                                        '/robot_camera_snapshot', '/api/fleet/poses')):   # 초당 여러 번 — 로그에 안 남긴다
+        if any(k in self.path for k in ('/api/status', '/video_feed', '/control_feed', '/gazebo_feed', '/isaac_feed',
+                                        '/robot_camera_feed', '/robot_camera_snapshot', '/gazebo_snapshot',
+                                        '/isaac_snapshot', '/api/fleet/poses')):   # 초당 여러 번 — 로그에 안 남긴다
             return
         app_log(f"[HTTP] {self.client_address[0]} - {format % args}")
 
@@ -1261,13 +1272,17 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         parsed = urlparse(self.path)
-        if parsed.path in ('/video_feed', '/control_feed', '/gazebo_feed', '/robot_camera_feed'):
+        if parsed.path in ('/video_feed', '/control_feed', '/gazebo_feed', '/isaac_feed', '/robot_camera_feed'):
             self.send_response(200)
             self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
             self.end_headers()
         elif parsed.path in ('/api/status', '/api/logs', '/api/sources', '/api/safety', '/api/observe', '/api/clock'):
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+        elif parsed.path in ('/gazebo_snapshot', '/isaac_snapshot', '/robot_camera_snapshot'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
             self.end_headers()
         elif parsed.path.endswith('.png'):
             self.send_response(200)
@@ -1657,11 +1672,6 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 return
 
             published, subs = GLOBAL_ROBOT_SUB_NODE.publish_pose_fix(norm)
-            try:    # 추가 경로가 실패해도 기존 PoseFix 응답은 그대로 간다
-                ov_published, ov_subs = GLOBAL_ROBOT_SUB_NODE.publish_overhead_pose(norm)
-            except Exception as e:
-                app_log(f"⚠️ overhead_pose 발행 실패: {e}")
-                ov_published, ov_subs = False, None
             if not published:
                 self._send_json(json.dumps({
                     'accepted': False,
@@ -1677,8 +1687,6 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 'robot_name': norm['robot_name'],
                 'topic': f"/{norm['robot_name']}/pose_fix",
                 'subscribers': subs,
-                'overhead_topic': f"/{norm['robot_name']}/overhead_pose" if ov_published else None,
-                'overhead_subscribers': ov_subs,
                 'seq': norm['seq']
             }, ensure_ascii=False).encode('utf-8'), code=200)
             return
@@ -2200,9 +2208,9 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     break
             return
 
-        # 3. Gazebo 탑뷰 실시간 3D 카메라 스트림 (/gazebo_feed)
-        elif parsed.path == '/gazebo_feed':
-            app_log(f"[Stream] Client {self.client_address[0]} connected to /gazebo_feed")
+        # 3. Gazebo / Isaac Sim 탑뷰 실시간 3D 카메라 스트림 (/gazebo_feed, /isaac_feed)
+        elif parsed.path in ('/gazebo_feed', '/isaac_feed'):
+            app_log(f"[Stream] Client {self.client_address[0]} connected to {parsed.path}")
             self.send_response(200)
             self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
             self.send_header('Cache-Control', 'no-cache, private')
@@ -2219,7 +2227,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                         _prev, _last = jpeg, _now
                     time.sleep(0.033)
                 except (BrokenPipeError, ConnectionResetError):
-                    app_log(f"[Stream] Client {self.client_address[0]} disconnected from /gazebo_feed")
+                    app_log(f"[Stream] Client {self.client_address[0]} disconnected from {parsed.path}")
                     break
             return
 
@@ -2257,6 +2265,21 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             if view in ('bev', 'seg'):
                 robot_id = f'{robot_id}:{view}'
             jpeg = GLOBAL_ROBOT_CAMERAS.get_latest_jpeg(robot_id) if GLOBAL_ROBOT_CAMERAS else None
+            if not jpeg:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(jpeg)))
+            self.end_headers()
+            self.wfile.write(jpeg)
+            return
+
+        # 4-C. 가상 시뮬레이션(Gazebo / Isaac Sim) 탑뷰 스냅숏 한 장 (/gazebo_snapshot, /isaac_snapshot)
+        elif parsed.path in ('/gazebo_snapshot', '/isaac_snapshot'):
+            jpeg = GLOBAL_GAZEBO_CAM.get_latest_jpeg() if GLOBAL_GAZEBO_CAM else None
             if not jpeg:
                 self.send_response(404)
                 self.end_headers()
@@ -2618,9 +2641,31 @@ class RobotDataSubscriberNode(Node):
                     CompressedImage, f'/{robot}/lane_{view}/compressed',
                     lambda msg, key=f'{robot}:{view}': self._cb_lane_view(key, msg), qos_profile_sensor_data))
 
-        # Gazebo 3D 실시간 탑뷰 카메라 구독 (/camera 토픽)
-        self.sub_gz_cam = self.create_subscription(
-            RosImage, '/camera', self._cb_gz_cam, 5)
+        # Gazebo / Isaac Sim 3D 실시간 가상 디지털 트윈 카메라 구독 (Raw & Compressed)
+        # ⚠️ '/camera/image_raw' 는 TabletCameraRelayNode 가 태블릿 카메라를 발행하는 전용 토픽이므로 제외한다.
+        self.sub_sim_cams = []
+        raw_sim_topics = [
+            '/camera',
+            '/isaac/camera',
+            '/isaac/camera/image_raw',
+            '/isaac/overhead_cam',
+        ]
+        for t in raw_sim_topics:
+            self.sub_sim_cams.append(
+                self.create_subscription(RosImage, t, self._cb_gz_cam, 5)
+            )
+
+        comp_sim_topics = [
+            '/camera/compressed',
+            '/isaac/camera/compressed',
+            '/isaac/camera/image_raw/compressed',
+            '/isaac/overhead_cam/compressed',
+        ]
+        for t in comp_sim_topics:
+            self.sub_sim_cams.append(
+                self.create_subscription(CompressedImage, t, self._cb_gz_cam_comp, qos_profile_sensor_data)
+            )
+        self.sub_gz_cam = self.sub_sim_cams[0]
 
         # 연산 노드가 낸 좌표를 관제 평면으로 올리는 발행자 (로봇별 이름).
         # ⭐ 이름을 `vision_pose` 로 따로 둔다 — `amcl_pose`(로봇이 스스로 믿는 값)와
@@ -2654,15 +2699,6 @@ class RobotDataSubscriberNode(Node):
             self.pub_pose_fix = {
                 'pinky1': self.create_publisher(RosPoseFix, '/pinky1/pose_fix', pose_fix_qos),
                 'pinky2': self.create_publisher(RosPoseFix, '/pinky2/pose_fix', pose_fix_qos),
-            }
-        # 2026-09-29 태블릿 좌표 → 팀11 로봇: 같은 좌표를 /pinkyN/overhead_pose(PoseStamped, map)로도 낸다.
-        # 팀11 로봇의 pose_fuser_node 는 PoseFix 를 받지 않고 이것만 받는다(overhead_tracker_node 와 같은 이름·QoS).
-        # 상부 추적기를 같은 로봇에 같이 띄워 두 출처가 한 토픽에 섞일 때만 그때만 RELAY_POSE_FIX_TO_OVERHEAD=0.
-        self.pub_overhead_pose = {}
-        if vision_ingest.pose_fix_to_overhead_enabled():
-            self.pub_overhead_pose = {
-                name: self.create_publisher(PoseStamped, f'/{name}/overhead_pose', 10)
-                for name in ('pinky1', 'pinky2')
             }
 
         # Gazebo 디지털 트윈 실시간 위치 동기화 워커 (메인 & 서브 2대)
@@ -2865,34 +2901,6 @@ class RobotDataSubscriberNode(Node):
             subs = None
         return True, subs
 
-    def publish_overhead_pose(self, norm: dict):
-        """검증된 태블릿 좌표를 /<robot>/overhead_pose (geometry_msgs/PoseStamped, frame map) 로 낸다.
-
-        stamp 는 **중계가 받은 시각**(중계 시계)이다 — 팀11 overhead_tracker_node 와 같은 규약이고, 받는 쪽
-        pose_fuser_node 는 stamp 를 믿지 않고 수신 시각 뒤 station_latency 로 odom 에 붙인다. 태블릿 시계는
-        어긋날 수 있어(vision_ingest 머리말 82 시간 실측) 여기 싣지 않는다. 그 stamp 는 PoseFix 쪽에 그대로 있다.
-        반환값: (published: bool, subscribers: Optional[int]). 꺼져 있으면 (False, None).
-        """
-        if getattr(self, 'fault_block_pose_fix', False):
-            return False, 0
-        pub = self.pub_overhead_pose.get(norm.get('robot_name', ''))
-        if pub is None:
-            return False, None
-        msg = PoseStamped()
-        msg.header.frame_id = 'map'
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.pose.position.x = float(norm['x'])
-        msg.pose.position.y = float(norm['y'])
-        qz, qw = vision_ingest.yaw_to_quat_zw(float(norm["yaw"]))
-        msg.pose.orientation.z = qz
-        msg.pose.orientation.w = qw
-        pub.publish(msg)
-        try:
-            subs = int(pub.get_subscription_count())
-        except Exception:
-            subs = None
-        return True, subs
-
     def _gz_sync_worker(self):
         """실물 로봇 1번(pinky) 및 로봇 2번(pinky_sub)의 위치를 Gazebo 속 3D 로봇 위치로 실시간 동기화"""
         import math, subprocess
@@ -3012,6 +3020,12 @@ class RobotDataSubscriberNode(Node):
         except Exception:
             pass
 
+    def _cb_gz_cam_comp(self, msg):
+        try:
+            self.gz_cam_mgr.update_jpeg(bytes(msg.data))
+        except Exception:
+            pass
+
 
 def run_ros_spin(executor):
     try:
@@ -3074,7 +3088,7 @@ def main():
         label='태블릿/폰 카메라 (앱 push)'), default=True)
     GLOBAL_REGISTRY.register(Source(
         'gazebo', GLOBAL_GAZEBO_CAM.get_latest, ROS, TRUSTED,
-        label='Gazebo 가상 천장'))
+        label='가상 시뮬레이션 (Isaac Sim / Gazebo)'))
     GLOBAL_REGISTRY.register(Source(
         'control', _jpeg_only_provider(GLOBAL_CONTROL.get_latest_jpeg), ROS, TRUSTED,
         # ROS transport 라 REAL_VIEWPOINT_TRANSPORTS 에서 이미 빠지지만, 그 목록이
