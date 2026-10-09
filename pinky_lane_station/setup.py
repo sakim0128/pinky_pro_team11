@@ -25,11 +25,11 @@ setup(
     entry_points={
         'console_scripts': [
             'graph_editor = pinky_lane_station.graph_editor:main',
-            'lane_coordinator_node = pinky_lane_station.lane_coordinator_node:main',
             'lane_pipeline_node = pinky_lane_station.lane_pipeline_node:main',
             'fake_lane_robot = pinky_lane_station.fake_lane_robot:main',
             'bench_detector = pinky_lane_station.bench_detector:main',
             'record_graph = pinky_lane_station.record_graph_node:main',
+            'bridge_runner = pinky_lane_station.bridge_runner:main',
         ],
     },
 )

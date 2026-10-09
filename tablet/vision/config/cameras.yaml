@@ -1,0 +1,8 @@
+status: READY
+cameras:
+  overhead:
+    role: overhead
+    device: "http://192.168.0.2:18086/video"
+    width: 1280
+    height: 720
+    fps: 15

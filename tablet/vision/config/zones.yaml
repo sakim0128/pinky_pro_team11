@@ -1,0 +1,32 @@
+# Tablet External Vision Compute - Zone Event Configuration
+# Status: FIELD_CONFIG_PENDING (Zone camera assignments and debounce frames to be verified on physical field setup)
+
+status: FIELD_CONFIG_PENDING
+
+zones:
+  - zone_id: "START_A"
+    camera_id: "CAM_START_A"
+    enter_debounce_frames: 3
+    exit_debounce_frames: 4
+    min_confidence: 0.8
+    target_markers:
+      30: "pinky1"
+      31: "pinky2"
+
+  - zone_id: "START_B"
+    camera_id: "CAM_START_B"
+    enter_debounce_frames: 3
+    exit_debounce_frames: 4
+    min_confidence: 0.8
+    target_markers:
+      30: "pinky1"
+      31: "pinky2"
+
+  - zone_id: "GOAL_C"
+    camera_id: "CAM_GOAL_C"
+    enter_debounce_frames: 3
+    exit_debounce_frames: 4
+    min_confidence: 0.8
+    target_markers:
+      30: "pinky1"
+      31: "pinky2"

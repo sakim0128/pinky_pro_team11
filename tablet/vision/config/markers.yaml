@@ -1,0 +1,45 @@
+# Tablet External Vision Compute - Marker & Field Layout Configuration
+# Status: FIELD_CONFIG_PENDING (Coordinates and placement pending physical tape measure verification on field setup)
+
+status: FIELD_CONFIG_PENDING
+
+dictionary: DICT_4X4_50
+station_latency: 0.15        # Capture -> Relay ingest latency (s)
+homography_alpha: 0.3        # EMA alpha for homography smoothing (1.0 = instant replacement)
+min_reference: 4             # Required reference markers to compute/update H
+max_reproj: 4.0              # Max reprojection error threshold (px)
+
+# Marker Plane & Height Policy (Phase 3)
+reference_height: 0.10       # Ground pedestal height in meters (Placeholder: must match robot marker height)
+robot_marker_height: 0.10    # Robot top marker height in meters
+reference_size: 0.10         # Reference marker edge length (m)
+
+field_markers:
+  tl: 40
+  tr: 41
+  br: 42
+  bl: 43
+
+# Placeholder coordinates - must be measured with physical tape relative to field origin.
+# Frame = road_graph.yaml map frame: origin at arena bottom-left, x right (2.34 m), y up (1.26 m).
+# Corners follow field_markers labels (40 tl, 41 tr, 42 br, 43 bl). Still PLACEHOLDER-COORD.
+reference:
+  size: 0.10
+  height: 0.10
+  markers:
+    - {id: 40, x: 0.00, y: 1.26, yaw: 1.5708}   # Measured on field: ~91.3 deg
+    - {id: 41, x: 2.34, y: 1.26, yaw: 0.0000}   # Measured on field: ~0.6 deg
+    - {id: 42, x: 2.34, y: 0.00, yaw: 3.1416}   # Measured on field: ~178.4 deg
+    - {id: 43, x: 0.00, y: 0.00, yaw: -3.1416}  # Measured on field: ~-179.0 deg
+
+robots:
+  - name: pinky1
+    id: 30
+    size: 0.06
+    yaw_offset: 0.0
+    offset_x: 0.0
+  - name: pinky2
+    id: 31
+    size: 0.06
+    yaw_offset: 0.0
+    offset_x: 0.0

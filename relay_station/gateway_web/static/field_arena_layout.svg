@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 620" width="100%" height="100%" style="background:#0f172a; font-family:'Pretendard', sans-serif;">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="1"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8"/>
+    </marker>
+  </defs>
+
+  <!-- Background & Grid -->
+  <rect width="1080" height="620" fill="#0b0f19"/>
+  <rect x="100" y="80" width="810" height="375" fill="#1e293b" fill-opacity="0.4"/>
+  <rect x="100" y="80" width="810" height="375" fill="url(#grid)"/>
+
+  <!-- Arena Outer Boundary (270cm x 125cm -> 810px x 375px, Scale: 1cm = 3px) -->
+  <rect x="96" y="76" width="818" height="383" fill="none" stroke="#3b82f6" stroke-width="6" rx="4"/>
+
+  <!-- Zones -->
+  <!-- Zone 1: Bedroom (Left) -->
+  <rect x="100" y="80" width="291" height="375" fill="#3b82f6" fill-opacity="0.08"/>
+  <text x="245" y="270" fill="#93c5fd" font-size="18" font-weight="bold" text-anchor="middle">Zone 1: 침실 (Bedroom)</text>
+  <text x="245" y="295" fill="#64748b" font-size="13" text-anchor="middle">(WayPoint: -0.85, -0.10)</text>
+
+  <!-- Zone 2: Dining/Living (Center) -->
+  <rect x="391" y="80" width="330" height="375" fill="#10b981" fill-opacity="0.06"/>
+  <text x="556" y="160" fill="#6ee7b7" font-size="18" font-weight="bold" text-anchor="middle">Zone 2: 거실/식당 (Living/Dining)</text>
+  <text x="556" y="185" fill="#64748b" font-size="13" text-anchor="middle">(WayPoint: +0.35, -0.25)</text>
+
+  <!-- Zone 3: Kitchen (Right) -->
+  <rect x="721" y="80" width="189" height="375" fill="#f59e0b" fill-opacity="0.08"/>
+  <text x="815" y="270" fill="#fcd34d" font-size="18" font-weight="bold" text-anchor="middle">Zone 3: 주방 (Kitchen)</text>
+  <text x="815" y="295" fill="#64748b" font-size="13" text-anchor="middle">(WayPoint: +1.00, -0.25)</text>
+
+  <!-- Central Void Block (Solid Obstacle) -->
+  <rect x="391" y="243.5" width="138" height="211.5" fill="#0f172a" stroke="#ef4444" stroke-width="3"/>
+  <text x="460" y="340" fill="#f87171" font-size="15" font-weight="bold" text-anchor="middle">중앙 폐쇄 블록</text>
+  <text x="460" y="365" fill="#fca5a5" font-size="12" text-anchor="middle">(Void Obstacle)</text>
+  <text x="460" y="390" fill="#cbd5e1" font-size="12" text-anchor="middle">46cm × 70.5cm</text>
+
+  <!-- Bedroom Upper Wall -->
+  <rect x="385" y="80" width="12" height="85.5" fill="#f87171" stroke="#ef4444" stroke-width="2"/>
+  <text x="350" y="130" fill="#fca5a5" font-size="12" text-anchor="end">상부 격벽 (28.5cm)</text>
+
+  <!-- Bedroom Doorway -->
+  <line x1="391" y1="165.5" x2="391" y2="243.5" stroke="#38bdf8" stroke-width="3" stroke-dasharray="6,4"/>
+  <text x="375" y="210" fill="#38bdf8" font-size="13" font-weight="bold" text-anchor="end">출입문 26cm</text>
+
+  <!-- Kitchen Divider Wall -->
+  <rect x="715" y="267.5" width="12" height="187.5" fill="#f87171" stroke="#ef4444" stroke-width="2"/>
+  <text x="700" y="370" fill="#fca5a5" font-size="12" text-anchor="end">주방 격벽 (62.5cm)</text>
+
+  <!-- Kitchen Passage -->
+  <line x1="721" y1="80" x2="721" y2="267.5" stroke="#38bdf8" stroke-width="3" stroke-dasharray="6,4"/>
+  <text x="705" y="170" fill="#38bdf8" font-size="13" font-weight="bold" text-anchor="end">주방 통로 62.5cm</text>
+
+  <!-- Roborock Dock -->
+  <rect x="460" y="80" width="66" height="27" fill="#1e293b" stroke="#10b981" stroke-width="2" rx="3"/>
+  <rect x="470" y="103" width="46" height="4" fill="#10b981"/>
+  <text x="493" y="70" fill="#34d399" font-size="12" font-weight="bold" text-anchor="middle">도크 스테이션 (x:-0.04, y:0.58)</text>
+
+  <!-- Dimension Lines -->
+  <line x1="100" y1="45" x2="910" y2="45" stroke="#94a3b8" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="505" y="38" fill="#e2e8f0" font-size="16" font-weight="bold" text-anchor="middle">전체 가로: 270 cm (2.70 m)</text>
+
+  <line x1="55" y1="80" x2="55" y2="455" stroke="#94a3b8" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="45" y="275" fill="#e2e8f0" font-size="16" font-weight="bold" text-anchor="middle" transform="rotate(-90 45 275)">전체 세로: 125 cm (1.25 m)</text>
+
+  <!-- Bottom Tape Coordinates -->
+  <line x1="100" y1="480" x2="910" y2="480" stroke="#64748b" stroke-width="2"/>
+  <text x="100" y="505" fill="#94a3b8" font-size="12" text-anchor="middle">0 cm</text>
+  <text x="391" y="505" fill="#f87171" font-size="12" font-weight="bold" text-anchor="middle">97 cm</text>
+  <text x="529" y="505" fill="#f87171" font-size="12" font-weight="bold" text-anchor="middle">143 cm</text>
+  <text x="721" y="505" fill="#f59e0b" font-size="12" font-weight="bold" text-anchor="middle">207 cm</text>
+  <text x="910" y="505" fill="#94a3b8" font-size="12" text-anchor="middle">270 cm</text>
+
+  <!-- Upper Corridor Width note -->
+  <line x1="550" y1="80" x2="550" y2="243.5" stroke="#a855f7" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="560" y="165" fill="#c084fc" font-size="12" font-weight="bold">통로 폭: 54.5 cm</text>
+</svg>
