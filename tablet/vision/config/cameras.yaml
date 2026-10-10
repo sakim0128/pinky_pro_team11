@@ -1,39 +1,8 @@
-# Tablet External Vision Compute - Camera Configuration
-# Status: FIELD_CONFIG_PENDING (URLs and device indices are placeholders to be verified on physical field setup)
-
-status: FIELD_CONFIG_PENDING
-
+status: READY
 cameras:
   overhead:
     role: overhead
-    device: 0                  # Placeholder: V4L2 device index or HTTP stream URL
+    device: "http://192.168.0.2:18086/video"
     width: 1280
     height: 720
     fps: 15
-    autoexposure: false
-    stream_url: "http://127.0.0.1:18086/processed"  # Placeholder URL
-
-  start_a:
-    role: zone
-    camera_id: "CAM_START_A"
-    zone_id: "START_A"
-    device: "http://127.0.0.1:18086/start_a"        # Placeholder URL
-    fps: 5
-    enabled: false                                  # Set true when physical camera is connected
-
-  start_b:
-    role: zone
-    camera_id: "CAM_START_B"
-    zone_id: "START_B"
-    device: "http://127.0.0.1:18086/start_b"        # Placeholder URL
-    fps: 5
-    enabled: false                                  # Set true when physical camera is connected
-
-  goal:
-    role: zone
-    camera_id: "CAM_GOAL_C"
-    zone_id: "GOAL_C"
-    device: "http://127.0.0.1:18086/goal_c"         # Placeholder URL
-    fps: 5
-    enabled: false                                  # Set true when physical camera is connected
-

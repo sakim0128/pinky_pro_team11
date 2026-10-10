@@ -101,3 +101,36 @@ def draw_debug(img_original, instances, result, mask_frac=0.30, infer_ms=0.0,
                      f'red={red} stop={sl} half={result.half_lane_px:.0f}px {infer_ms:.0f}ms',
                 (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, TARGET_COLOR, 2)
     return dbg
+
+
+def draw_segmentation(img_original, instances, mask_frac=0.0, infer_ms=0.0, alpha=0.45):
+    """세그 추론 결과만 — 클래스별 마스크(폴리곤)를 반투명으로 칠하고 외곽선·라벨. 관제 웹 화면용.
+
+    lane_debug(목표점·샘플 행·BEV 경로 등 주행 판단) 와 따로, 모델이 무엇을 어디서 봤는지만 보여준다.
+    마스킹(모델이 못 보는) 영역은 어둡게.
+    """
+    if cv2 is None:
+        raise RuntimeError('python3-opencv 가 필요합니다')
+    out = np.array(img_original, copy=True)
+    H, W = out.shape[:2]
+    overlay = out.copy()
+    for inst in instances:
+        pts = np.array(inst.polygon, dtype=np.int32).reshape(-1, 1, 2)
+        if len(pts) >= 3:
+            cv2.fillPoly(overlay, [pts], CLASS_COLORS.get(inst.cls, DEFAULT_COLOR))
+    cv2.addWeighted(overlay, alpha, out, 1.0 - alpha, 0, out)
+    for inst in instances:
+        color = CLASS_COLORS.get(inst.cls, DEFAULT_COLOR)
+        pts = np.array(inst.polygon, dtype=np.int32).reshape(-1, 1, 2)
+        if len(pts) >= 3:
+            cv2.polylines(out, [pts], True, color, 1)
+        x0, y0 = (int(round(v)) for v in inst.bbox[:2])
+        cv2.putText(out, f'{inst.cls} {inst.conf:.2f}', (x0, max(14, y0 - 4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    n_mask = mask_top_rows(H, mask_frac)
+    if 0 < n_mask < H:
+        out[:n_mask] = (out[:n_mask] * 0.35).astype(np.uint8)
+        cv2.line(out, (0, n_mask), (W - 1, n_mask), MASK_LINE_COLOR, 1)
+    cv2.putText(out, f'SEG {len(instances)} obj  {infer_ms:.0f} ms', (8, 22),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    return out
