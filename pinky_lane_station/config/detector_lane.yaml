@@ -3,12 +3,9 @@
 #   ultralytics : YOLO-seg best.pt (실전). 관제 PC 에 pip install ultralytics
 detector:
   kind: classic
-  # kind: ultralytics
-  # model: "$HOME/models/lane_v1.pt"
-  # device: cpu                   # 벤치(tools/bench_detector.py) 로 cpu / cuda:0 결정
-  # imgsz: 416
-  # conf: 0.35
-  # class_map: {lane: [lane], crosswalk: [crosswalk]}
+  white_thresh: 200
+  sat_max: 50
+  roi_top_frac: 0.55
 
 target:                           # lane_target.TargetParams
   sample_row_frac: 0.72
@@ -29,7 +26,14 @@ aruco:                            # 도착 지점 벽 ArUco 마커 (aruco_detect
   ids: [10, 11, 12]               # 1·2·3번 지점 벽 마커 — vision_mission.yaml arrival.markers 와 같게 (40~43 은 항공뷰 모서리)
   max_distance: 1.5
   confirm: 2
-  release: 3
+bev:                              # 차로 중앙을 바닥 좌표(BEV)에서 — ground_bev.BevParams.
+  enabled: true
+  calib: pinky_cam.yaml           # 이 파일 기준 상대경로. 렌즈 + 바닥(카메라 높이·기울기) 캘리브레이션
+  lookahead_mm: 250.0             # 구동축 → 목표점 (pure pursuit L_d). 카메라는 앞 약 11 cm 부터 보인다
+  lane_width_mm: 174.0            # 테이프 중심 ~ 테이프 중심
+  axle_mm: 33.0                   # 구동축 → 카메라 (pinky_pro URDF)
+  max_range_mm: 700.0
+  tape_trim: true
 
 pipeline:
   max_rate: 10.0                  # 이보다 빠른 프레임은 버린다 (BEST_EFFORT depth 1 이라 최신만)

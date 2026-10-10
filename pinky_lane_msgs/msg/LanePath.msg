@@ -26,6 +26,12 @@ int32   right_x
 bool    left_seen
 bool    right_seen
 float32 half_lane_px                # 관측 이력으로 추정한 차선 반폭 (px)
+# 바닥 좌표(BEV) 차로 중앙 목표점 — 관제 detector yaml 의 bev.enabled 일 때. 로봇은 이 점을 odom 에 기억해 pure pursuit 로 따라간다.
+# 원점 = 카메라 바로 아래 바닥 (구동축 오프셋은 로봇이 view.axle_to_camera_m 로 더한다). floor_valid 가 false 면 무시.
+bool    floor_valid
+float32 floor_x                     # 전방 (m)
+float32 floor_y                     # 왼쪽 + (m)
+float32 floor_curvature             # 관제가 구동축 기준으로 계산한 pure pursuit 곡률 (1/m, 좌회전 +) — 진단용
 float32 confidence
 
 bool    crosswalk_detected          # 디바운스 통과한 횡단보도 트리거

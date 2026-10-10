@@ -29,7 +29,8 @@ class ManeuverParams:
     yaw_tolerance_deg: float = 1.5
     heading_kp: float = 1.5           # 직진 중 방향 유지 (rad/s per rad)
     # ('seek', dir) — 새 빨간 선 찾기
-    seek_forward: float = 0.20        # 좌·우: 회전 전 전진 (m). 교차로 안으로 들어가 나갈 가지가 보이게
+    seek_forward: float = 0.20        # 좌·우: 회전 전 전진 (m). 교차로 안으로 들어가 나갈 가지가 보이게 (입구 선 앞 정지 자리부터).
+                                      # 실차 값은 lane_agent.yaml maneuver.seek_forward (현장 0.35) — 이 기본값은 테스트 교차로(sim_red_lines) 기준
     seek_omega: float = 0.3           # 찾는 동안 제자리 회전 (rad/s)
     seek_min_turn_deg: float = 30.0   # 이만큼 돈 뒤부터 빨간 선을 본다 (입구·직진 방향 선 무시)
     seek_max_turn_deg: float = 150.0  # 넘도록 못 찾으면 정지 (failed)

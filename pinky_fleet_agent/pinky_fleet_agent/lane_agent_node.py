@@ -235,7 +235,9 @@ class LaneAgent(Node):
                                                    (float(d) for d in getattr(msg, 'marker_distances', [])))),
                                   red_obs=red_observation(msg),
                                   target=(int(msg.target_x), int(msg.target_y), int(msg.image_width),
-                                          int(msg.image_height), float(msg.half_lane_px)))
+                                          int(msg.image_height), float(msg.half_lane_px)),
+                                  floor=((float(msg.floor_x), float(msg.floor_y))
+                                         if getattr(msg, 'floor_valid', False) else None))
 
     def _on_fleet_command(self, msg: FleetCommand):
         now = self._now()

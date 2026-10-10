@@ -897,3 +897,27 @@ def test_lane_only_stops_at_every_red_line_even_when_close():
     starts = [s.log[i][0] for i in range(1, len(states)) if states[i] == RED_LINE_STOP != states[i - 1]]
     assert len(starts) == 2
     assert s.x > 1.0 and states[-1] == CRUISE
+
+
+# ---------------------------------------------------------------- 초음파: 붙으면 무효값(< us_min_valid) 이 나온다
+
+def test_ultrasonic_invalid_after_close_reading_keeps_blocking():
+    """2026-10-04 pinky2: 앞 로봇에 다가가며 0.17 → 0.09 → 0.04 다음 −0.01~0.02 가 2 s — 무효로 버려 계속 회전했다."""
+    from pinky_fleet_agent.obstacle_guard import GuardParams, ObstacleGuard
+    g = ObstacleGuard(GuardParams(us_stop=0.10, use_lidar=False))
+    for r in (0.17, 0.09, 0.04, 0.019, 0.005, -0.002, -0.006):
+        g.update_us(r)
+    blocked = [g.step(t)[0] for t in (0.0, 0.05, 0.1)]
+    assert blocked[-1]
+
+
+def test_ultrasonic_invalid_without_close_reading_is_ignored():
+    """막 켰을 때처럼 가까운 유효값 없이 나온 무효값은 장애물이 아니다."""
+    from pinky_fleet_agent.obstacle_guard import GuardParams, ObstacleGuard
+    g = ObstacleGuard(GuardParams(us_stop=0.10, use_lidar=False))
+    for r in (0.0, -0.01, 0.0, 0.01):
+        g.update_us(r)
+    assert not any(g.step(t)[0] for t in (0.0, 0.05, 0.1))
+    for r in (0.80, 0.0, 0.0):                           # 멀리 있다가 무효값 — 장애물 아님
+        g.update_us(r)
+    assert not any(g.step(t)[0] for t in (0.2, 0.25, 0.3))

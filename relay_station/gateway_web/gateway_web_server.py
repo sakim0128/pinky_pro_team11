@@ -4,7 +4,7 @@ Field Gateway Web Streaming Server (with Live Gazebo Stream & Fleet Coordinator)
 - 현장 태블릿 카메라 스트림 1:N 팬아웃 (/video_feed)
 - 현장 관제 화면 스트림 1:N 팬아웃 (/control_feed)
 - Gazebo 실시간 3D 탑뷰 카메라 스트림 (/gazebo_feed) - ROS 2 /camera 토픽 30fps
-- 로봇 1, 2 온보드 카메라 스트림 (/robot_camera_feed?id=pinky1 | pinky2)
+- 로봇 1, 2 온보드 카메라 스트림 (/robot_camera_feed?id=pinky1 | pinky2), 관제 인식 화면 스냅숏 (/robot_camera_snapshot?id=&view=bev | seg)
 - 로봇 1, 2 실시간 좌표 및 플릿 상태 API (/api/status · /api/fleet/status)
 - 로봇별 정지·재개 API (/api/pinkyN/stop · /api/pinkyN/resume) — 플릿 코디네이터를 거친다
 - 시작·목적지 배정은 /api/fleet/assign (V2 "미션 배정" 카드) — 로봇은 lane_agent_node 뿐이라 Nav2 직접 목표(goal_pose·mission_cmd)는 없다
@@ -507,15 +507,23 @@ class RobotCameraManager:
                 'connected': False
             }
         }
+        # 관제 lane_pipeline 이 내는 인식 화면 — 'pinky1:bev' (위에서 본 BEV) · 'pinky1:seg' (세그 추론 결과)
+        for robot in ('pinky1', 'pinky2'):
+            for view, topic, title in (('bev', f'/{robot}/lane_bev/compressed', 'BEV'),
+                                       ('seg', f'/{robot}/lane_seg/compressed', 'SEGMENTATION')):
+                self._cameras[f'{robot}:{view}'] = {
+                    'topic': topic, 'stamp': 0.0, 'connected': False,
+                    'jpeg': self._make_placeholder(f'{robot} {title}', topic,
+                                                   title=f'{title}: {robot}', waiting='Waiting for lane_pipeline...')}
 
-    def _make_placeholder(self, robot_name, topic):
+    def _make_placeholder(self, robot_name, topic, title=None, waiting='Waiting for Camera Topic...'):
         img = np.zeros((360, 640, 3), dtype=np.uint8)
         img[:] = (22, 26, 34)
         cv2.rectangle(img, (40, 40), (600, 320), (45, 55, 70), -1)
         cv2.rectangle(img, (40, 40), (600, 320), (0, 180, 255), 2)
-        cv2.putText(img, f"ROBOT ONBOARD CAMERA: {robot_name}", (70, 120),
+        cv2.putText(img, title or f"ROBOT ONBOARD CAMERA: {robot_name}", (70, 120),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(img, "Waiting for Camera Topic...", (70, 180),
+        cv2.putText(img, waiting, (70, 180),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 255), 1, cv2.LINE_AA)
         cv2.putText(img, f"Topic: {topic}", (70, 230),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (180, 195, 210), 1, cv2.LINE_AA)
@@ -1220,7 +1228,8 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 class GatewayRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        if any(k in self.path for k in ('/api/status', '/video_feed', '/control_feed', '/gazebo_feed', '/robot_camera_feed')):
+        if any(k in self.path for k in ('/api/status', '/video_feed', '/control_feed', '/gazebo_feed', '/robot_camera_feed',
+                                        '/robot_camera_snapshot', '/api/fleet/poses')):   # 초당 여러 번 — 로그에 안 남긴다
             return
         app_log(f"[HTTP] {self.client_address[0]} - {format % args}")
 
@@ -2242,6 +2251,9 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         # 4. 로봇 온보드 카메라 스트림 (/robot_camera_feed?id=pinky1 | pinky2)
         elif parsed.path == '/robot_camera_feed':
             robot_id = query.get('id', ['pinky1'])[0]
+            view = query.get('view', [''])[0]
+            if view in ('bev', 'seg'):                  # 관제 인식 화면 (lane_pipeline /pinkyN/lane_bev · lane_seg)
+                robot_id = f'{robot_id}:{view}'
             self.send_response(200)
             self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
             self.send_header('Cache-Control', 'no-cache, private')
@@ -2259,6 +2271,27 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     time.sleep(0.066)
                 except (BrokenPipeError, ConnectionResetError):
                     break
+            return
+
+        # 4-B. 관제 인식 화면 스냅숏 한 장 (/robot_camera_snapshot?id=pinky1&view=bev|seg) — 웹이 차례로 새로 받는다.
+        #      MJPEG 스트림은 브라우저 동시 연결(서버당 6)을 계속 붙잡는다. 카메라·BEV·세그를 모두 스트림으로 열면
+        #      /api 요청이 막혀 화면(시나리오 칸)이 안 뜬다.
+        elif parsed.path == '/robot_camera_snapshot':
+            robot_id = query.get('id', ['pinky1'])[0]
+            view = query.get('view', [''])[0]
+            if view in ('bev', 'seg'):
+                robot_id = f'{robot_id}:{view}'
+            jpeg = GLOBAL_ROBOT_CAMERAS.get_latest_jpeg(robot_id) if GLOBAL_ROBOT_CAMERAS else None
+            if not jpeg:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(jpeg)))
+            self.end_headers()
+            self.wfile.write(jpeg)
             return
 
         # 5. 상태 JSON API (/api/status)
@@ -2641,6 +2674,14 @@ class RobotDataSubscriberNode(Node):
         self.sub_r2_lane_cam = self.create_subscription(
             CompressedImage, '/pinky2/camera/image/compressed', self._cb_r2_comp, qos_profile_sensor_data)
 
+        # 관제 lane_pipeline 의 인식 화면 (같은 관제 도메인) — 웹 카메라 칸의 BEV · 세그 열
+        self.sub_lane_views = []
+        for robot in ('pinky1', 'pinky2'):
+            for view in ('bev', 'seg'):
+                self.sub_lane_views.append(self.create_subscription(
+                    CompressedImage, f'/{robot}/lane_{view}/compressed',
+                    lambda msg, key=f'{robot}:{view}': self._cb_lane_view(key, msg), qos_profile_sensor_data))
+
         # Gazebo 3D 실시간 탑뷰 카메라 구독 (/camera 토픽)
         self.sub_gz_cam = self.create_subscription(
             RosImage, '/camera', self._cb_gz_cam, 5)
@@ -2677,6 +2718,15 @@ class RobotDataSubscriberNode(Node):
             self.pub_pose_fix = {
                 'pinky1': self.create_publisher(RosPoseFix, '/pinky1/pose_fix', pose_fix_qos),
                 'pinky2': self.create_publisher(RosPoseFix, '/pinky2/pose_fix', pose_fix_qos),
+            }
+        # 2026-09-29 태블릿 좌표 → 팀11 로봇: 같은 좌표를 /pinkyN/overhead_pose(PoseStamped, map)로도 낸다.
+        # 팀11 로봇의 pose_fuser_node 는 PoseFix 를 받지 않고 이것만 받는다(overhead_tracker_node 와 같은 이름·QoS).
+        # 상부 추적기를 같은 로봇에 같이 띄워 두 출처가 한 토픽에 섞일 때만 그때만 RELAY_POSE_FIX_TO_OVERHEAD=0.
+        self.pub_overhead_pose = {}
+        if vision_ingest.pose_fix_to_overhead_enabled():
+            self.pub_overhead_pose = {
+                name: self.create_publisher(PoseStamped, f'/{name}/overhead_pose', 10)
+                for name in ('pinky1', 'pinky2')
             }
 
         # 2026-09-29 태블릿 좌표 → 팀11 로봇: 같은 좌표를 /pinkyN/overhead_pose(PoseStamped, map)로도 낸다.
@@ -3023,6 +3073,12 @@ class RobotDataSubscriberNode(Node):
     def _cb_r2_comp(self, msg):
         try:
             self.cam_mgr.update_compressed('pinky2', msg.data)
+        except Exception:
+            pass
+
+    def _cb_lane_view(self, key, msg):
+        try:
+            self.cam_mgr.update_compressed(key, msg.data)
         except Exception:
             pass
 

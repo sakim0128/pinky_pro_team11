@@ -135,6 +135,10 @@ class LaneDriver:
 
     # ------------------------------------------------ 입력
 
+    def set_correction(self, now, lateral, heading, active):
+        """관제 /pinkyN/lane_correction — 항공뷰로 잰 차선 중앙 이탈 (overhead_correction)."""
+        self.correction.update(now, lateral, heading, active)
+
     def set_route(self, waypoints, edge_end_idx, edge_ids, crosswalk_idx, junction_idx,
                   goal_idx, route_seq):
         self.follower = RouteFollower(waypoints, goal_idx, lookahead=self.p.lookahead)
@@ -234,10 +238,11 @@ class LaneDriver:
 
     def set_lane_path(self, now, source_stamp, quality, error_x, crosswalk=False,
                       barricade=False, left_seen=None, right_seen=None, red_line=False, stop_line=False,
-                      markers=None, red_obs=None, target=None):
+                      markers=None, red_obs=None, target=None, floor=None):
         """markers: {ArUco id: 카메라~마커 거리 m} (LanePath.marker_ids / marker_distances).
         red_obs: 빨간 덩어리 [(x_norm, width_frac, bottom_frac), ...] — 교차로 seek 동작용 (LanePath.red_line_xs/ys/widths).
-        target: (target_x, target_y, image_width, image_height, half_lane_px) — 차선 중앙 기억(follow_memory)용."""
+        target: (target_x, target_y, image_width, image_height, half_lane_px) — 차선 중앙 기억(follow_memory)용.
+        floor: (전방 m, 왼쪽 m) — 관제 BEV 가 바닥 좌표로 잰 차로 중앙 목표점 (원점 = 카메라 바로 아래 바닥). 있으면 target 대신 쓴다."""
         self.path_link.on_command(now, heartbeat=True)
         q = int(quality)
         if left_seen is None:            # 옛 호출자: quality 로 추정
@@ -254,18 +259,25 @@ class LaneDriver:
                       'red_stamp': float(source_stamp) if q != QUALITY_STALE else None}
         if q in (QUALITY_BOTH, QUALITY_SINGLE) and error_x is not None:
             self._last_valid_error = float(error_x)
-            self._remember(source_stamp, target)
+            self._remember(source_stamp, target, floor)
 
-    def _remember(self, source_stamp, target):
-        """차선 중앙점을 사진을 찍은 순간의 odom 자세로 기억한다 (교차로 동작 중에는 안 쌓는다)."""
-        if not (self.p.lane_only and self.p.follow_memory) or target is None:
+    def _remember(self, source_stamp, target, floor=None):
+        """차선 중앙점을 사진을 찍은 순간의 odom 자세로 기억한다 (교차로 동작 중에는 안 쌓는다).
+
+        관제 BEV 의 바닥 좌표(floor)가 있으면 그것에 구동축 오프셋만 더한다 (캘리브레이션 기반).
+        없으면 예전처럼 화면 목표 픽셀을 GroundView 두 점 근사로 바닥에 옮긴다.
+        """
+        if not (self.p.lane_only and self.p.follow_memory) or (target is None and floor is None):
             return
         if self._maneuver is not None and not self._maneuver.done:
             return
-        pt = self.view.to_robot(*target)
+        if floor is not None:
+            pt = (float(floor[0]) + self.p.view.axle_to_camera_m, float(floor[1]))
+        else:
+            pt = self.view.to_robot(*target)
         pose = self.odom_buf.at(source_stamp) if pt is not None else None
         if pose is not None:
-            self.memory.add(pt, pose)
+            self.memory.add(pt, pose, stamp=source_stamp)
 
     def _memory_curvature(self, now):
         """기억한 차선 중앙을 따라갈 곡률. 끔·odom 끊김·따라갈 점 없음이면 None."""
@@ -596,6 +608,8 @@ class LaneDriver:
             self.controller.reset()
             self._last_cmd = (0.0, 0.0)
             self._lost_since = None
+            if p.memory.clear_on_stop:
+                self.memory.clear()          # 서 있는 동안 본 점만 남긴다 — 정지 전 기억(커브·튄 점)으로 출발하지 않게
             out.v, out.omega = 0.0, 0.0
             return out
         if not lane_visible and kappa is None:
