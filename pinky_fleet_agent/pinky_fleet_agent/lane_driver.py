@@ -56,6 +56,8 @@ class DriverParams:
     marker_slow_factor: float = 0.5
     marker_obstacle_distance: float = 0.35  # 목적지 마커가 이 거리 안에 보이는데 장애물 정지면 도착으로 친다 (벽·앞 물체)
     red_line_min_gap: float = 0.05        # lane_only: 빨간 선 정지 뒤 이만큼(m) 달린 다음의 새 선만 다시 세운다
+    exit_red_line_stop: bool = True       # 비전 미션: 교차로를 나가는 빨간 선에서도 RED_LINE_STOP. False 면 seek 끝에서 서지 않고
+                                          # 그 속도를 이어 차선 주행으로 (계획 없는 테스트 주행은 영향 없음)
     follow_memory: bool = True            # lane_only: 본 차선 중앙을 odom 에 기억했다가 그 자리에서 따라간다 (카메라 사각지대 보정).
                                           # False = 예전 방식(가장 최근 error_x 로 바로 조향)
 
@@ -106,6 +108,7 @@ class LaneDriver:
         self._plan = None                  # {'seq', 'steps', 'stop_line_count', 'linear', 'angular', 'goal_marker_id', ...}
         self._maneuver = None
         self._maneuver_finished_pending = False
+        self._maneuver_v = 0.0             # 고정 동작이 직전 틱에 낸 전진 속도 (나가는 선에서 서지 않을 때 이어 받는다)
         self._junction_passed = False
         self._stop_lines_seen = 0
         self._stop_line_prev = False
@@ -188,6 +191,7 @@ class LaneDriver:
             self.clear_until = 0
             self._maneuver = None
             self._maneuver_finished_pending = False
+            self._maneuver_v = 0.0
             self._junction_passed = False
             self._stop_lines_seen = 0
             self._stop_line_prev = False
@@ -513,12 +517,16 @@ class LaneDriver:
         odom = (self._odom if self._odom_time is not None and now - self._odom_time <= p.odom_timeout
                 else None)
         v, w, done, why = self._maneuver.command(now, odom, self._lane['red_obs'], self._lane.get('red_stamp'))
+        self.controller.reset()
         if done:
             self._junction_passed = True
             self._maneuver_finished_pending = True
             self._pending_search_dir = self._maneuver.last_turn_sign
             v = w = 0.0
-        self.controller.reset()
+            if not p.exit_red_line_stop and self._maneuver_v > 0.0:
+                v = self._maneuver_v                  # 나가는 선에서 서지 않는다 — 직전 전진 속도를 잇고
+                self.controller.seed_speed(v)         # 차선 주행은 그 속도부터 v_max 로 가속
+        self._maneuver_v = max(0.0, v)
         self._last_cmd = (0.0, 0.0)
         self._lost_since = None
         out.v, out.omega, out.reason = v, w, why
@@ -534,7 +542,7 @@ class LaneDriver:
         seen = bool(self._lane['red_line'])
         edge = seen and not self._red_prev
         self._red_prev = seen
-        counts = plan is None or self._junction_passed or maneuver_active
+        counts = plan is None or ((self._junction_passed or maneuver_active) and self.p.exit_red_line_stop)
         if edge and counts:
             self._red_pending = True
         if not self._red_pending or maneuver_active or maneuver_finished:

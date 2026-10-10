@@ -49,6 +49,10 @@ class LaneController:
         self._meas_e = None         # 필터된 error
         self._meas_de = 0.0         # 측정 간 기울기 (다음 측정까지 유지)
 
+    def seed_speed(self, v):
+        """가속 슬루의 출발 속도를 v 로 — 앞 동작(교차로 seek)의 전진 속도를 끊지 않고 이어 받는다."""
+        self._v_cmd = max(0.0, float(v))
+
     def _measured(self, error_x, error_stamp, active):
         """측정 단위 PD 입력 (e, de). 새 LanePath(stamp 변경) 에서만 필터·기울기를 갱신한다.
 

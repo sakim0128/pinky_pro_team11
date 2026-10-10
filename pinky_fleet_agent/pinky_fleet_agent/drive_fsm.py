@@ -188,8 +188,8 @@ class DriveFsm:
         if inp.maneuver_finished:
             self._junction_stop_travel = d                  # 빨간 선 재래치는 동작이 끝난 곳부터 잰다
             self._exit_both_since = None
-            if inp.lane_both:
-                self._enter(CRUISE, t, d, '교차로 통과 — 차선 주행')
+            if inp.lane_both or (inp.lane_visible and not p.search_on_single):
+                self._enter(CRUISE, t, d, '교차로 통과 — 차선 주행')    # 한쪽만 보여도 평소 규칙대로 주행 (아예 없을 때만 탐색)
                 return self.state, 1.0, self.reason
             if p.lane_search:
                 self.search_failed = False

@@ -159,3 +159,20 @@ def test_course_dict_for_web(course):
     d = course.to_dict()
     assert d['image'] == 'docs/map5.png' and len(d['lines']) == 6
     assert set(d['points']) == {'1', '2', '3'} and set(d['red_lines']) == {'A', 'B', 'C'}
+
+
+def test_seek_end_without_exit_stop_snaps_to_exit_line(course):
+    # 나가는 빨간 선에서 서지 않는 설정: seek 이 끝나 바로 CRUISE 로 가도 나가는 선 앞으로 맞춘다
+    r = course.route('2', '3')
+    tr = PoseTracker(r)
+    tr.feed_odom(0.0, 0.0, 0.0)
+    tr.feed_status(DRIVE_JUNCTION_STOP, 'vision:approach')
+    tr.feed_status(DRIVE_JUNCTION_PASS, 'vision:junction', '교차로 동작 1/1 빨간 선 찾기(우) 회전 12°')
+    for k in range(1, 31):
+        tr.feed_odom(0.0, 0.0, -math.radians(3 * k))
+    tr.feed_status(DRIVE_JUNCTION_PASS, 'vision:junction', '교차로 동작 1/1 빨간 선 찾기(우) — 새 선 앞 도착')
+    tr.feed_status(DRIVE_CRUISE, 'vision:after_junction', '교차로 통과 — 차선 주행')
+    assert tr.mode == 'route' and '나가는' in tr.fix
+    assert tr.s == pytest.approx(r.s_exit - course.red_stop_back)
+    tr.feed_odom(0.0, -0.10, -math.pi / 2)                              # 이어서 10 cm
+    assert tr.s == pytest.approx(r.s_exit - course.red_stop_back + 0.10, abs=0.005)
