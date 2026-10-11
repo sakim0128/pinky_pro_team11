@@ -1,16 +1,21 @@
 """Read-only boundary, independent freshness, JSON and HTTP integration."""
 import ast
+import base64
+import hashlib
+import struct
+import xml.etree.ElementTree as ET
 import json
 from pathlib import Path
 import sys
 import threading
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from pinky_fleet_station.live_state import StateStore
+from pinky_fleet_station.live_state import StateStore, parse_mission_status
 from pinky_fleet_station.live_http import make_server
 from pinky_fleet_station.live_map import MapAsset, MapAssetError
 from pinky_fleet_station.live_frames import FrameStore
@@ -85,6 +90,36 @@ def test_control_plane_is_opt_in_and_whitelisted():
     assert not queue.submit({'action': 'goto'})
 
 
+def test_mission_status_accepts_mission_or_relay_mission_state():
+    """팀11 lane 코디네이터는 'mission', relay 코디네이터는 'mission_state' 로 낸다 — 둘 다 받는다."""
+    assert parse_mission_status('{"mission": "RUNNING"}')['mission'] == 'RUNNING'
+    relay = parse_mission_status('{"mission_state": "ASSIGNED", "estop_latched": false}')
+    assert relay['mission'] == 'ASSIGNED' and relay['mission_state'] == 'ASSIGNED'
+    assert relay['estop_latched'] is False
+    # 'mission' 이 있으면 'mission_state' 로 덮어쓰지 않는다
+    both = parse_mission_status('{"mission": "PAUSED", "mission_state": "RUNNING"}')
+    assert both['mission'] == 'PAUSED'
+    for bad in ['[]', '"RUNNING"', '{}', '{"mission": 1}', '{"mission_state": null}', 'not json']:
+        with pytest.raises(ValueError):
+            parse_mission_status(bad)
+    source = (Path(__file__).resolve().parents[1] / 'pinky_fleet_station/live_web_node.py').read_text()
+    assert 'parse_mission_status(msg.data)' in source
+
+
+def test_live_web_launch_forwards_control_and_initial_poses():
+    """launch 인자를 만들어 놓고 노드에 안 넘기면 enable_control:=true 가 조용히 무시된다."""
+    root = ET.parse(Path(__file__).resolve().parents[1] / 'launch/live_web.launch.xml').getroot()
+    args = {a.get('name'): a.get('default') for a in root.findall('arg')}
+    assert args['enable_control'] == 'false'
+    assert set(json.loads(args['initial_poses_json'])) == {'pinky1', 'pinky2'}
+    node = root.find('node')
+    assert node.get('exec') == 'live_web_node'
+    params = {p.get('name'): p.get('value') for p in node.findall('param')}
+    assert params['enable_control'] == '$(var enable_control)'
+    assert params['initial_poses_json'] == '$(var initial_poses_json)'
+    assert set(args) <= set(params)
+
+
 def test_amcl_adapter_keeps_json_primitives_only():
     path = Path(__file__).resolve().parents[1] / 'pinky_fleet_station/live_web_node.py'
     source = path.read_text()
@@ -102,6 +137,21 @@ def test_dashboard_uses_normalized_design_lane_overlay_and_control_status():
     assert '차선만' not in html
     assert 'qualityLabels' in script
     assert 'overhead-system-status' in html
+
+
+def test_dashboard_preserves_supplied_lane_image():
+    root = Path(__file__).resolve().parents[1] / 'pinky_fleet_station/live_static'
+    svg = ET.parse(root / 'fleet-lanes.svg').getroot()
+    image = svg.find('{http://www.w3.org/2000/svg}image')
+    uri = image.attrib['{http://www.w3.org/1999/xlink}href']
+    assert uri.startswith('data:image/png;base64,')
+    png = base64.b64decode(uri.split(',', 1)[1], validate=True)
+    assert png[:8] == b'\x89PNG\r\n\x1a\n'
+    width, height = struct.unpack('>II', png[16:24])
+    assert (width, height) == (5459, 2905)
+    assert svg.attrib['viewBox'] == f'0 0 {width} {height}'
+    # Exact user export: catches reintroduction of the outlined markers.
+    assert hashlib.sha256(png).hexdigest() == '5d90ed705f1902424a02fa2fc8960e8059a4aed18eb7372f6fbd32b8116be1d9'
 
 
 @pytest.mark.parametrize('timeout', [0, -1, float('nan'), float('inf')])

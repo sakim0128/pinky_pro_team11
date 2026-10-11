@@ -127,3 +127,168 @@ def test_crosswalk_requires_width():
     est = LaneTargetEstimator(TargetParams(crosswalk_confirm=1))
     r = est.update([crosswalk(450, x0=300, x1=340)], W, H)
     assert not r.crosswalk_raw
+
+
+# ------------------------------------------------ D14 작업 1: 차선 ≥ 3 → 클래스 기준 가장 바깥 쌍
+
+def sided(x, side, conf=0.9):
+    cls = {'L': 'left_lane', 'R': 'right_lane', None: 'lane'}[side]
+    return Instance(cls, conf, [(x - 8, H * 0.45), (x + 8, H * 0.45), (x + 12, H), (x - 12, H)])
+
+
+def test_two_lanes_use_nearest_rule_even_with_labels():
+    r = LaneTargetEstimator().update([sided(200, 'L'), sided(440, 'R')], W, H)
+    assert r.quality == QUALITY_BOTH and r.pair_rule == 'nearest'
+    assert (r.left_x, r.right_x) == (200, 440) and (r.left_count, r.right_count) == (1, 1)
+
+
+def test_left_one_right_two_picks_farthest_right():
+    """사용자 예: 왼쪽 1 + 오른쪽 2 → 왼쪽 그대로, 오른쪽은 왼쪽과 가장 먼 것."""
+    r = LaneTargetEstimator().update([sided(200, 'L'), sided(400, 'R'), sided(560, 'R')], W, H)
+    assert r.quality == QUALITY_BOTH and r.pair_rule == 'outer'
+    assert (r.left_x, r.right_x) == (200, 560) and (r.left_count, r.right_count) == (1, 2)
+
+
+def test_left_two_right_one_picks_farthest_left():
+    r = LaneTargetEstimator().update([sided(80, 'L'), sided(240, 'L'), sided(440, 'R')], W, H)
+    assert r.pair_rule == 'outer' and (r.left_x, r.right_x) == (80, 440)
+
+
+def test_two_and_two_picks_outermost_both():
+    r = LaneTargetEstimator().update([sided(60, 'L'), sided(200, 'L'), sided(440, 'R'), sided(600, 'R')], W, H)
+    assert r.pair_rule == 'outer' and (r.left_x, r.right_x) == (60, 600)
+
+
+def test_outer_rule_falls_back_to_position_when_labels_contradict():
+    """오른쪽 클래스 선이 왼쪽 클래스 선보다 왼쪽에 있으면 위치 규칙."""
+    r = LaneTargetEstimator().update([sided(500, 'L'), sided(150, 'R'), sided(300, 'R')], W, H)
+    assert r.pair_rule == 'nearest'
+    assert (r.left_x, r.right_x) == (300, 500)
+
+
+def test_outer_rule_without_labels_uses_nearest():
+    r = LaneTargetEstimator().update([line(40), line(200), line(440), line(600)], W, H)
+    assert r.pair_rule == 'nearest' and (r.left_x, r.right_x) == (200, 440)
+
+
+def test_outer_rule_one_side_unlabeled_uses_position_for_that_side():
+    r = LaneTargetEstimator().update([sided(200, 'L'), sided(440, None), sided(560, None)], W, H)
+    assert r.pair_rule == 'outer' and (r.left_x, r.right_x) == (200, 440)
+
+
+# ------------------------------------------------ D14 작업 5: 바리게이트
+
+def barricade(bottom_y, conf=0.9, x0=200, x1=440):
+    return Instance('barricade', conf, [(x0, bottom_y - 60), (x1, bottom_y - 60),
+                                        (x1, bottom_y), (x0, bottom_y)])
+
+
+def test_barricade_triggers_only_near_bottom_and_debounces():
+    est = LaneTargetEstimator(TargetParams(barricade_confirm=2, barricade_release=3))
+    r = est.update([line(200), line(440), barricade(300)], W, H)
+    assert r.barricade_bottom_y == 300 and not r.barricade_raw and not r.barricade_detected
+    r = est.update([line(200), line(440), barricade(400)], W, H)
+    assert r.barricade_raw and not r.barricade_detected          # 1/2
+    r = est.update([line(200), line(440), barricade(400)], W, H)
+    assert r.barricade_detected                                  # 확정
+    for i in range(3):
+        r = est.update([line(200), line(440)], W, H)
+        assert r.barricade_detected == (i < 2)                   # 3 프레임 뒤 해제
+    assert r.quality == QUALITY_BOTH                             # 차선 판정에는 영향 없음
+
+
+def test_barricade_requires_width_and_conf():
+    est = LaneTargetEstimator(TargetParams(barricade_confirm=1))
+    assert not est.update([barricade(420, x0=300, x1=340)], W, H).barricade_raw
+    assert not est.update([barricade(420, conf=0.1)], W, H).barricade_raw
+    assert est.update([barricade(420)], W, H).barricade_detected
+
+
+# ------------------------------------------------------------ 빨간 선 (2026-09-29 교차로 규칙)
+
+def red_line(bottom_y, conf=0.9, x0=180, x1=460):
+    return Instance('red_line', conf, [(x0, bottom_y - 12), (x1, bottom_y - 12),
+                                        (x1, bottom_y), (x0, bottom_y)])
+
+
+def test_red_line_triggers_near_bottom_debounces_and_does_not_touch_lanes():
+    est = LaneTargetEstimator(TargetParams(red_line_confirm=2, red_line_release=3))
+    r = est.update([line(200), line(440), red_line(300)], W, H)
+    assert r.red_line_bottom_y == 300 and not r.red_line_raw and not r.red_line_detected
+    r = est.update([line(200), line(440), red_line(400)], W, H)
+    assert r.red_line_raw and not r.red_line_detected            # 1/2
+    r = est.update([line(200), line(440), red_line(400)], W, H)
+    assert r.red_line_detected and r.red_line_confidence == 0.9   # 확정
+    for i in range(3):
+        r = est.update([line(200), line(440)], W, H)
+        assert r.red_line_detected == (i < 2)                     # 3 프레임 뒤 해제
+    assert r.quality == QUALITY_BOTH and not r.crosswalk_detected and not r.barricade_detected
+
+
+def test_red_line_requires_width_and_conf_and_reset_clears_it():
+    est = LaneTargetEstimator(TargetParams(red_line_confirm=1))
+    r = est.update([line(200), line(440), red_line(400, x0=300, x1=340)], W, H)   # 좁은 조각
+    assert not r.red_line_raw and not r.red_line_detected
+    r = est.update([line(200), line(440), red_line(400, conf=0.1)], W, H)         # 낮은 conf
+    assert not r.red_line_raw
+    r = est.update([line(200), line(440), red_line(400)], W, H)
+    assert r.red_line_detected
+    est.reset()
+    assert not est.update([line(200), line(440)], W, H).red_line_detected
+
+
+
+def test_red_line_blobs_list_every_red_piece_for_robot_seek():
+    # 정지 판정(폭 ≥ 0.25·W)보다 느슨한 0.10·W 까지 모두 보낸다 — 로봇 seek 동작이 고른다
+    est = LaneTargetEstimator(TargetParams(red_line_confirm=1))
+    r = est.update([line(200), line(440), red_line(300, x0=40, x1=120), red_line(400, x0=300, x1=380),
+                    red_line(420, x0=500, x1=530), red_line(350, conf=0.1)], W, H)
+    assert [(x, y) for x, y, _ in r.red_line_blobs] == [(80, 300), (340, 400)]
+    assert all(abs(w - 80 / W) < 1e-9 for _, _, w in r.red_line_blobs)
+    assert not r.red_line_raw                                    # 폭 0.25·W 미만 — 정지 판정은 그대로
+    assert est.update([line(200), line(440)], W, H).red_line_blobs == []
+
+
+# ------------------------------------------------ 차선 하나: 보이는 선에서 안쪽 6 cm (반폭 × 0.8) · 좌/우는 클래스
+
+def test_single_offset_ratio_places_target_inside_visible_line():
+    est = LaneTargetEstimator(TargetParams(single_offset_ratio=0.8, half_lane_px_init=150.0))
+    r = est.update([sided(200, 'L')], W, H)
+    assert r.quality == QUALITY_SINGLE and r.left_seen and not r.right_seen
+    assert r.target_x == 200 + 120                      # 150 × 0.8
+    r = est.update([sided(500, 'R')], W, H)
+    assert r.right_seen and r.target_x == 500 - 120
+
+
+def test_single_offset_uses_measured_half_lane():
+    est = LaneTargetEstimator(TargetParams(single_offset_ratio=0.8))
+    est.update([sided(170, 'L'), sided(470, 'R')], W, H)   # 반폭 150 px 측정
+    r = est.update([sided(170, 'L')], W, H)
+    assert r.half_lane_px == 150 and r.target_x == 170 + 120
+
+
+def test_single_side_follows_class_not_position():
+    """로봇이 틀어져 오른쪽 선이 화면 왼쪽에 보여도 클래스가 오른쪽이면 오른쪽 선으로 본다 → 목표는 그 선의 왼쪽."""
+    est = LaneTargetEstimator(TargetParams(single_offset_ratio=0.8, half_lane_px_init=150.0))
+    r = est.update([sided(250, 'R')], W, H)
+    assert r.quality == QUALITY_SINGLE and r.right_seen and not r.left_seen
+    assert r.right_x == 250 and r.target_x == 250 - 120
+    r = est.update([sided(400, 'L')], W, H)
+    assert r.left_seen and r.target_x == 400 + 120
+
+
+def test_single_side_by_position_when_no_class_or_disabled():
+    est = LaneTargetEstimator(TargetParams(half_lane_px_init=150.0))
+    r = est.update([line(250)], W, H)                   # 클래스 없음 → 화면 위치(왼쪽)
+    assert r.left_seen and r.target_x == 250 + 150      # 기본 비율 1.0 (기존 동작)
+    est2 = LaneTargetEstimator(TargetParams(half_lane_px_init=150.0, single_use_class=False))
+    r = est2.update([sided(250, 'R')], W, H)
+    assert r.left_seen and r.target_x == 400            # 클래스 무시 → 위치
+
+
+def test_detector_yolo_single_offset_is_6cm_of_15cm_lane():
+    import yaml
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, 'config', 'detector_yolo.yaml'), encoding='utf-8') as fh:
+        tgt = yaml.safe_load(fh)['target']
+    assert abs(tgt['single_offset_ratio'] * 7.5 - 6.0) < 1e-6 and tgt['single_use_class'] is True

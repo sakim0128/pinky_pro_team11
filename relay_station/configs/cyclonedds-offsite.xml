@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  중계 관제 노트북 CycloneDDS 설정 — 현장 밖(집·이동 중) 전용
+
+  왜 따로 두나:
+    configs/cyclonedds.xml 은 교육장 유선 NIC(enx001122334455)에 바인딩을 박아 둔다.
+    그 어댑터가 없는 곳에서 그 설정을 쓰면 CycloneDDS 가 도메인 생성에 실패하고
+    ROS 노드가 하나도 안 만들어져 게이트웨이가 통째로 죽는다.
+    2026-09-09 집에서 실측:
+      python3: enx001122334455: does not match an available interface.
+      rmw_create_node: failed to create domain  ->  RCLError  ->  런처 trap cleanup
+
+  현장 설정과 다른 점 두 가지:
+    1) 인터페이스를 autodetermine 으로 둔다. 집이면 wlp0s20f3, 다른 곳이면 또 다른 것.
+    2) Peers 를 localhost 하나로 좁힌다. 현장 밖에는 로봇이 없고,
+       남의 네트워크(집 공유기 등)에 DDS 트래픽을 흘리지 않는 편이 옳다.
+
+  Domain id="any" 는 현장 설정과 같은 이유다 — 브릿지가 여러 도메인에 동시에 참여한다.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+    <Domain id="any">
+        <General>
+            <Interfaces>
+                <NetworkInterface autodetermine="true" />
+            </Interfaces>
+            <AllowMulticast>false</AllowMulticast>
+        </General>
+        <Discovery>
+            <ParticipantIndex>auto</ParticipantIndex>
+            <MaxAutoParticipantIndex>60</MaxAutoParticipantIndex>
+            <Peers>
+                <Peer address="localhost" />
+            </Peers>
+        </Discovery>
+    </Domain>
+</CycloneDDS>

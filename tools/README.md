@@ -193,7 +193,7 @@ ros2 run pinky_lane_station record_graph --ros-args -p robot:=pinky1 -p out:=$HO
 ```bash
 # 기록 — launch 에 record:=True 만 붙인다 (로봇·관제 모두). ~/pinky_logs/<날짜>/<시각>_<호스트>_<robot|station>_<이름>/
 ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:=10 auto_start:=True record:=True
-ros2 launch pinky_lane_station lane_station.launch.xml use_coordinator:=False record:=True
+ros2 launch pinky_lane_station lane_station.launch.xml record:=True
 # 수동 기록
 bash $(ros2 pkg prefix pinky_fleet_agent)/share/pinky_fleet_agent/scripts/record_bag.sh robot pinky1
 ros2 bag info ~/pinky_logs/2026-09-21/143000_pinky_robot_pinky1
@@ -218,3 +218,23 @@ python3 tools/bag_to_video.py <robot_bag> --station <station_bag> --out clip.mp4
 용량: 카메라 10 fps JPEG ≈ 1.4 GB/h, 나머지 < 100 MB/h. 5 분 단위로 파일이 나뉘어 크래시가 나도 마지막 5 분만 잃는다.
 두 기기 시계가 달라도 관제 bag 의 `LanePath.source_stamp` 가 로봇 이미지 stamp 그대로라 두 bag 을 이어 맞출 수 있다
 (`bag_to_video.py --station` 이 이 방법을 쓴다).
+
+## 9. 화면 보기 (rqt 없이)
+
+`rqt_image_view` 는 명령줄에 `/…/compressed` 토픽을 주면 raw(`sensor_msgs/Image`)로 구독해 아무것도 안 나오고, 새로고침에서 멈추기도 한다.
+그럴 때는 이 뷰어를 쓴다 (관제 PC 든 같은 네트워크의 노트북이든, 도메인만 맞추면 된다).
+
+```bash
+export ROS_DOMAIN_ID=8
+python3 tools/view_image.py /pinky1/lane_debug/compressed /pinky2/lane_debug/compressed   # 추론 오버레이 두 대
+python3 tools/view_image.py /pinky1/camera/image/compressed --scale 0.5                    # 원본 카메라
+```
+q 로 끝낸다. 창 제목에 수신 fps, 3 s 끊기면 `NO FRAME`.
+
+**주행 영상 저장**: 자율주행 중엔 로봇 카메라를 `camera_node` 가 쥐고 있어 `record_drive.py`(picamera2 직접 열기)는 못 쓴다.
+관제 PC 에서 토픽을 mp4 로 저장한다 (창을 보면서, 또는 `--no-window` 로 저장만).
+```bash
+python3 tools/view_image.py /pinky1/lane_debug/compressed --record ~/drive_pinky1_$(date +%H%M).mp4          # 추론 오버레이 (박스·중심점·상태)
+python3 tools/view_image.py /pinky1/camera/image/compressed --record ~/raw_pinky1.mp4 --no-window            # 원본만, 창 없이
+```
+센서·상태까지 겹친 클립이 필요하면 §8 처럼 `record:=True` 로 bag 을 남기고 `bag_to_video.py` 로 만든다.

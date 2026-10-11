@@ -138,3 +138,124 @@ Overhead 카드와 P′ 위치를 연결한다.
 - 아직 publisher가 없으므로 값이나 영상을 만들지 않는다.
 
 검증: station 테스트 88개 통과, ROS 3개 패키지 colcon 빌드 성공.
+
+## 2026-09-28 — relay_station(중계 관제국)·hybrid 로봇 스택 이식 (rkd1rjs2 팀원)
+
+완료한 변경(브랜치 `mini_project_integration`, upstream `5faddf1` 위 → 09-28 저녁 `main` `094e5d7`(= 새 브랜치 `mini_project_integration`) 병합, 충돌 0 — PR 대상은 `mini_project_integration`):
+
+- 로봇 온보드: `pinky_fleet_agent` 에 `hybrid_agent_node`(Nav2 + 레인 관제 수신) · `drive_command_gate`(`/cmd_vel` 단일 발행자) ·
+  `pose_fuser_node`(aerial_view 원본) · `route_chain` 을 **추가**했다. 기존 `agent_node`·`lane_agent_node`·launch 는 바이트 그대로.
+  새 최상위 launch `hybrid_robot.launch.xml`. `pinky_lane_msgs` 에 `PoseFix.msg`(aerial_view 와 바이트 동일)를 더했다.
+  기록: `docs/hybrid_nav2_gate.md`(2026-09-29 삭제) (§6 "main 동기" — 원 저장소 에이전트 커밋을 따라온 표).
+- 중계 관제국 `relay_station/`(웹 관제 `:8889` · 플릿 코디네이터 · 도메인 브리지 · 영상 공유). `COLCON_IGNORE` — 빌드 대상 아님.
+  이 저장소 관제(`pinky_lane_station`)와 같은 메시지 계약을 쓰는 다른 구현이라 **같은 로봇에 둘을 동시에 붙이지 않는다**.
+  안내: [`relay_station.md`](relay_station.md).
+- 공개 규칙: 비전 API 키는 코드에 기본값이 없고 없으면 거절 · 사설/tailnet 주소는 자리표시자 · 개인 경로 없음 —
+  `relay_station/tests/test_team11_export.py` 가 잠근다.
+
+확인할 사항:
+
+- **map4 ↔ map5**: live 웹·상부 추적기는 map5, 중계 좌표 프로파일은 map4. 로봇 Nav2 지도를 무엇으로 통일할지 팀 결정 뒤
+  map5 프로파일을 넣는다(`relay_station/fleet/config/profiles/profiles.yaml` 주석).
+- 실물 배포는 09-28 저녁 원 저장소 쪽(중계 노트북 + 실물 두 대)에서 했다. 이 저장소 체크아웃으로는 아직 돌려 보지 않았다.
+- 상류 `mini_project_1`(`094e5d7`)과의 관계: `nav2_params_fleet.yaml` 튠은 하이브리드 런치가 같은 파일을 쓰므로 그대로 적용. `agent_node` 의
+  Nav2 파라미터 감사(`param_audit`)는 `hybrid_agent_node` 에 아직 없다(후속). 하이브리드 스택은 절대 토픽(`/cmd_vel` · `/estop`)이라
+  `pinky_fleet_sim` 의 네임스페이스 로봇에서는 뜨지 않는다(실기 전용). 표는 `docs/hybrid_nav2_gate.md` §8.
+
+검증(ROS 2 Jazzy 컨테이너, `pinky_fleet_msgs pinky_lane_msgs pinky_fleet_agent` colcon build 뒤):
+수치는 [`relay_station/README.md`](../../relay_station/README.md) "시험" 절과 `docs/hybrid_nav2_gate.md` §7(병합 전) · §8(`094e5d7` 병합 뒤: 에이전트 319 · 중계 1425/22 · station·lane 188/24). station·lane 시험은 그대로 초록.
+
+## 2026-09-29 — 웹 배정 · 정지선 교차로 · 선착순 · 중복 정리 (브랜치 `mini_project_integration_stand`, 팀 동의 전)
+
+`mini_project_integration`(e3ca6ed) 에서 갈라 만든 브랜치다. 팀 합의가 되면 `mini_project_integration` 에 얹고, 아니면 브랜치만 지운다.
+결정(사용자, 2026-09-29): 코디네이터는 relay 하나 · 로봇은 `lane_agent_node` 하나 · 이름은 `pinkyN` · 지도는 map5 · 항공뷰는 relay 와 같은 도메인 8.
+
+완료한 변경:
+
+- **lane_rules 병합** (D14: 차선 ≥3 바깥 쌍 · LANE_SEARCH · BARRICADE_WAIT · JUNCTION_STOP/PASS · 항공뷰 pose_fuser). `lane_robot.launch.xml` 기본 위치추정 = 항공뷰.
+- **웹 배정**: relay V2 설정 탭 "미션 배정" — 로봇별 시작/목적지 드롭다운(`/api/fleet/profiles.graph.endpoints`) → `/api/fleet/assign`.
+- **정지선**: `LanePath.stop_line_*`, `SceneState.stop_line_*`, `lane_target` 디바운스, 오버레이. 모델 id 미정(`detector_yolo.yaml` 주석).
+- **교차로 규칙**(로봇): 트리거 = 정지선(다음 분기 ≤ 0.6 m) 또는 분기 반경. `JUNCTION_STOP` 은 1 s + **관제 허가**(`clear_until` > 분기 idx) 뒤에만 `JUNCTION_PASS`.
+- **선착순**(relay): `DRIVE_JUNCTION_STOP` 보고 → `reservation.request_next_now`(거리 무관) → 선착순(요청 틱 → domain_id). 상태 `junction_wait_sec`.
+- **Nav2 하이브리드 스택 삭제**: `hybrid_agent_node` `drive_command_gate` `route_chain` `hybrid_link_watch` `diag` `pose_fix_fuser_node`, hybrid/nav2_gated launch, 관련 시험, `docs/hybrid_nav2_gate.md`(아래 옛 절의 링크는 죽었다). `agent_node`(mini_project_1)는 그대로.
+- **항공뷰 웹캠**: `pinky_fleet_station/overhead_camera_node`(cv2 → CompressedImage, RELIABLE depth 1) + `overhead_tracker.launch.xml` 인수. 도메인 8 에서 relay 와 같이 띄운다 → 브리지 `/pinkyN/overhead_pose`(8→10/11).
+- **코디네이터 단일화**: `pinky_lane_station` 의 `lane_coordinator_node`·`reservation.py` 삭제, `lane_station.launch.xml` = 브리지 + 인식. 도로망 구현은 `pinky_lane_station.road_graph` 하나(relay 포크 삭제, `summary()` 이식).
+- **pinkyN 통일**: relay 의 `/robotN/*` · `robotN` id · `/api/robotN/*` → `pinkyN`. Nav2 직접 경로(goal_pose·mission_cmd·nav_status·teleop cmd_vel, Tk GUI, `/api/robotN/goal|mission`) 삭제. 브리지 설정 `pinkyN_control.yaml` 재생성(+ `camera/image/compressed` 업 · `lane_path` 다운).
+- **map5**: 프로파일 `team11_map5` 하나(정본 파일을 상대경로로 참조, 복사 없음). `road_graph.yaml` 임시 4노드(BL·BR·TR·J), 미션 pinky1 BL→TR · pinky2 BR→BL. relay `assign_conflict` 는 도착해 선 로봇의 노드만 막는다(출발·분기의 일시 점유는 통과).
+- live 웹: relay 의 `mission_state` 를 받는다, launch 가 `enable_control` 을 넘긴다.
+
+검증(ROS 없는 컨테이너): 3개 패키지 pytest 348 passed / 24 skipped · relay 순수 시험(`test_assign_ui` `test_assign_map5` `test_junction_first_come` `test_bridge_*` `test_wiring` 등) 통과.
+rclpy/ROS msgs 가 필요한 relay 시험은 이름 변경 뒤 컴파일만 했다 — 중계 PC 재측정 필요.
+
+확인할 사항:
+
+- 정지선 모델 id · 새 맵 `road_graph.yaml` 좌표 · 항공뷰 호모그래피(map5) · DDS Cyclone 통일(핑키 rmw 확인) — README "미결".
+- `docs/integration/live_web.md`·`pr_live_web.md` 는 첫 PR 시점 문서라 relay 없는 도메인 0 배치를 말한다(이력).
+
+## 2026-09-28 저녁 — 제어권 정책: 팀원 노트북도 중계를 거쳐 움직이는 명령을 낸다 (rkd1rjs2 팀원)
+
+완료한 변경(원 저장소 main `1eed3f8` → 이 브랜치 `mini_project_integration`, `relay_station/` 안과 `docs/integration/` 만):
+
+- `relay_station/gateway_web/control_policy.py`(순수 정책) + `gateway_web_server.py` 배선: 움직이는 다섯 경로(목표·미션·로봇 재개·좌표 전환·
+  플릿 start/resume/assign)가 정책을 지난다. 기본은 예전과 같이 **중계 PC 자신만**. `relay_station/configs/control_allow.json` 에 팀원 노트북
+  주소를 `enabled: true` 로 넣으면(재기동 없음) 그 노트북에서도 낸다 — 한 번에 한 사람(409 `CONTROL_HELD`) · 30 s 무응답 만료 · 중계 PC 콘솔 우선 ·
+  멈추는 명령은 정책 밖. `GET /api/control` · `POST /api/control/{acquire,release}` · `/api/status` 에 `control` 블록.
+- V2 화면 헤더에 제어권 알약 + 잡기/놓기. 남이 쥐면 움직이는 버튼을 잠근다(숨기지 않음).
+- 기록: [`control_policy.md`](control_policy.md). 시험: `tests/test_control_policy.py`(순수 12) · `tests/test_control_0928_control_policy_wiring.py`(정적 8).
+
+확인할 사항:
+
+- 허용은 **주소 단위**이고 이름은 표시용이다(같은 Wi-Fi 안의 신뢰를 전제). 인증이 필요해지면 토큰을 따로 둔다.
+- `:18081` 원격 경로는 여전히 보기 전용이다(socat 출처 127.0.0.2 는 허용 목록에 없다).
+- 이 저장소 체크아웃에서의 실기 확인은 아직이다 — 팀원 노트북 한 대를 허용 목록에 넣고 `주행 시작` 이 먹는지, 두 번째 노트북이 409 를 받는지, 중계 PC 가 누르면 제어권이 넘어오는지 세 가지를 본다.
+
+검증(rkd1rjs2 노트북, rclpy 없는 Windows — 정적·순수만): `test_team11_export.py` 7 · `test_no_baked_addresses.py` · `test_control_policy.py` 12 ·
+`test_control_0928_control_policy_wiring.py` 8 · `test_control_0928_webui_p1.py` 11 · `test_v2_front_honesty.py` 6 통과. rclpy 가 필요한 나머지는
+컨테이너 재측정 전이다(README "시험" 절의 1425/22 는 이 변경 **전** 수치).
+
+## 2026-09-29 — 태블릿 좌표를 로봇 위치로 (rkd1rjs2 팀원, 문서만)
+
+태블릿이 로봇 위 마커로 구한 map5 좌표를 중계 `POST /api/vision/pose_fix` 로 계속 보내면, 중계가 같은 좌표를
+`/pinkyN/overhead_pose` 로 내고 브리지가 로봇으로 내린다 — 로봇 `pose_fuser_node` 가 천장 추적기 값과 똑같이 받는다.
+마커 도착 판정과 갈림길 방향은 로봇과 코디네이터가 한다. 계약·규칙·확인 방법: [`tablet_pose.md`](tablet_pose.md).
+
+- 게이트웨이 소스는 rkd1rjs2/robot_mini_project_pinky `e59d521` 에서 관리한다 — 이 브랜치 `relay_station/` 코드는 바꾸지 않았다.
+- 이 브랜치의 브리지 설정에는 필요한 다운링크가 이미 있다.
+- 확인할 사항: `road_graph.yaml` 노드 좌표는 임시값 — 바닥 마커 위치를 map5 로 재서 넣는다. 실물 확인 전이다.
+
+## 2026-09-30 — 태블릿 비전 소스 합류 · 모서리 마커 각도 실측 (rkd1rjs2 팀원, 문서만)
+
+`7c59c7c` 로 원 저장소 main 의 `tablet/vision/`(모서리 마커 40–43 으로 호모그래피를 스스로 맞춰 로봇 마커 30 · 31 의 x · y · yaw 를 중계
+`POST /api/vision/pose_fix` 로 보낸다)가 이 브랜치에 들어왔다. 태블릿 시험 43개는 이 브랜치에서 통과한다(재현함).
+안내·규칙·확인 방법: [`tablet_pose.md`](tablet_pose.md).
+
+- 태블릿 세션이 현장 녹화 프레임에서 모서리 마커 부착 각도를 실측했다(40번 91.3° · 41번 0.6° · 42번 178.4° · 43번 −179.0°).
+  yaw 를 전부 0 으로 두면 재투영 오차 20.36 px 로 송신이 막히고, 실측 각도를 넣으면 0.998 px 로 내려간다는 보고다 — 프레임 분석은 이 환경에서 재현하지 못했다.
+- 아직 실측 전이다: 모서리 마커 중심 x · y 는 꼭짓점 가정값이고 세 설정은 `FIELD_CONFIG_PENDING` 이라 `--allow-pending-config` 로만 송신된다.
+  보고된 샘플 로봇 좌표(x −0.667 · y −1.114)가 경기장 밖이라 원인 확인이 먼저다.
+- 정리함: `7c59c7c` 가 다시 넣은 `relay_station/fleet/config/road_graph.yaml`(태블릿 mock 용 복사본)이 "도로망 하나" 결정과 충돌해
+  `relay_station/tests/test_assign_map5.py` 의 `..._without_copies` 시험 하나가 실패했다. 복사본을 지우고 태블릿 mock 이 팀 정본
+  `pinky_lane_station/config/road_graph.yaml`(노드 BL · BR · TR · J)을 읽게 바꿨다. 태블릿 코드의 `--relay-url` 사설 주소 기본값도 없앴다(빈 값 = dry-run).
+  검증(ROS 2 Jazzy 컨테이너): 태블릿 시험 43 통과 · 팀 중계 시험 875 통과 / 5 skip, 실패 0.
+- 게이트웨이 소스는 계속 rkd1rjs2/robot_mini_project_pinky `e59d521` 에서 관리한다.
+
+## 2026-09-30 — 실물 없이 돌려 보는 도커 모의 테스트 안내 (rkd1rjs2 팀원, 문서만)
+
+[`mock_test.md`](mock_test.md) 를 더했다. 로봇 · 카메라 · 태블릿 없이 노트북 도커만으로 세 단계를 돌린다.
+
+- 1단계 비전 미션 시나리오 폐루프 34 통과 — **ROS 를 불러오지 않아야 돈다**(`--entrypoint /bin/bash`). ROS 가 불러와져 있으면 폐루프 시험 둘이 건너뛰어 32 통과 / 2 skip.
+- 2단계 태블릿 가상 카메라 — 모의 프레임 실행 종료 코드 0, 태블릿 시험 43 통과. 순정 `ros:jazzy-ros-base` 에는 OpenCV 가 없다.
+- 3단계 게이트웨이 `--vision` — 시나리오 `s1` 이 `RUNNING`, 모드 `vision`. 순정 이미지에는 `cv_bridge` 가 없다. V2 화면 주소는 `/fleet_control_v2.html` (`/` 는 옛 화면).
+- 확인하지 못한 것: apt 로 OpenCV · `cv_bridge` 를 넣는 설치(확인 환경에서 apt 가 막힘), 컨테이너 포트 포워딩으로 브라우저에서 시나리오를 시작하는 것.
+
+
+## 2026-09-30 — 혼합 함대 시험 시나리오 (rkd1rjs2 팀원, 문서만)
+
+[`mixed_fleet_test.md`](mixed_fleet_test.md) 를 더했다. 도커 로봇 둘(핑키1 = 팀 방식 `lane_agent_node`, 핑키2 = Nav2 하이브리드)에 실제 중계 · 태블릿 비전을 붙이고,
+태블릿 카메라 입력만 녹화 프레임 재생으로 바꾼다. 사람이 화면으로 보는 순서와 `scenario_check.py` 자동 판정 항목(P0–S7 · X1)을 적었다.
+
+- 도구(`tools/mixed_fleet/`)는 rkd1rjs2/robot_mini_project_pinky `08492cf` 에서 관리한다. 팀 브랜치에는 문서만 둔다.
+- 샌드박스에서 확인한 것: 실제 중계 · 태블릿 코드를 **합성 프레임**과 가짜 베이스 로봇으로 돌려 10 항목 통과(핑키2 가 핑키1 때문에 `BL_J` 앞에서 대기 → 교차로 점유 이양 → 도착 → 구역 이벤트 뒤 DONE, 정지 · 재개 별도).
+- 확인하지 못한 것: 도메인 브리지 경유, 컨테이너 ↔ 실제 중계 노트북 DDS, **어제 녹화 프레임**(이 환경에 없음 — 녹화 궤적이 BL→J→TR 인지 문서 §2 로 먼저 확인), 진짜 Nav2 · 가제보, 태블릿 실기기.
+- **발견한 결함(팀 브랜치, 미수정).** 게이트웨이 `POST /api/fleet/initial_poses` 가 `NameError: latched_robots` — 팀 커밋 `100ffb1` 이 함수를 지웠는데 호출이 남았다.
+  V2 "② 로봇 지도 전환" · "③ 초기 위치"에 걸린다. 시험 트리 패치(`0002`)로만 되살렸고 팀 브랜치 코드는 건드리지 않았다. 반영 여부는 팀이 정한다.

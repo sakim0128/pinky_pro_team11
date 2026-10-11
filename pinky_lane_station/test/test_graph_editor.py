@@ -22,7 +22,7 @@ from pinky_lane_station.graph_editor import (  # noqa: E402
 )
 from pinky_lane_station.road_graph import RoadGraph  # noqa: E402
 
-MAP_YAML = os.path.join(REPO_ROOT, 'pinky_fleet_station', 'config', 'map4.yaml')
+MAP_YAML = os.path.join(REPO_ROOT, 'pinky_fleet_station', 'config', 'map5.yaml')
 GRAPH = os.path.join(PKG_ROOT, 'config', 'road_graph.yaml')
 PHOTO = os.path.join(REPO_ROOT, 'docs', 'course_aerial.jpg')
 
@@ -35,15 +35,15 @@ def qapp():
 
 def test_window_loads_map_and_graph(qapp):
     win = GraphEditorWindow(MAP_YAML, GRAPH)
-    assert win.canvas.map_data.width == 47
-    assert len(win.canvas.graph.nodes) >= 10
+    assert win.canvas.map_data.width == 236                     # map5: 236×128, 0.01 m/셀
+    assert len(win.canvas.graph.nodes) >= 4                      # 2026-09-29 임시 도로망 BL·BR·TR·J
     win.canvas.resize(800, 500)
     win.canvas.fit_to_view()
     p = win.canvas.world_to_screen(0.0, 0.0)
     x, y = win.canvas.screen_to_world(p)
     assert (x, y) == pytest.approx((0.0, 0.0), abs=1e-9)
     # paintEvent 까지 실제로 돌려 본다 (맵 픽스맵·경로·노드 그리기)
-    win.canvas.preview_routes('BL', 'TC', 'BL', 'RE')
+    win.canvas.preview_routes('BL', 'TR', 'BR', 'BL')
     shot = win.canvas.grab()
     assert not shot.isNull() and shot.width() > 0
 

@@ -4,10 +4,16 @@
   <arg name="port" default="8080"/>
   <arg name="map_yaml" default="$(find-pkg-share pinky_fleet_station)/config/map5.yaml"/>
   <arg name="overhead_camera_topic" default="/overhead/camera/image/compressed"/>
+  <arg name="enable_control" default="false"
+       description="true: 웹의 start/pause/resume/reset/속도 조작을 /fleet/lane/control · /pinkyN/command 로 낸다. 기본은 조회 전용"/>
+  <arg name="initial_poses_json" default='{"pinky1":[0.11,1.08,0.0],"pinky2":[0.16,0.74,-1.57079632679]}'
+       description="reset 때 로봇에 보낼 초기 위치 {robot: [x, y, yaw]} (map5)"/>
   <node pkg="pinky_fleet_station" exec="live_web_node" name="fleet_live_web" output="screen">
     <param name="host" value="$(var host)"/>
     <param name="port" value="$(var port)"/>
     <param name="map_yaml" value="$(var map_yaml)"/>
     <param name="overhead_camera_topic" value="$(var overhead_camera_topic)"/>
+    <param name="enable_control" value="$(var enable_control)"/>
+    <param name="initial_poses_json" value="$(var initial_poses_json)"/>
   </node>
 </launch>

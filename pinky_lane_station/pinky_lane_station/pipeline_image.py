@@ -14,10 +14,13 @@ except ImportError:              # pragma: no cover
 # 클래스별 오버레이 색 (BGR)
 CLASS_COLORS = {
     'lane': (0, 255, 0),
+    'left_lane': (0, 255, 0),
+    'right_lane': (255, 200, 0),
     'crosswalk': (0, 220, 255),
     'cone': (0, 140, 255),
     'traffic_light': (0, 140, 255),
-    'barricade': (0, 140, 255),
+    'barricade': (0, 0, 255),
+    'red_line': (255, 0, 255),
 }
 DEFAULT_COLOR = (200, 200, 200)
 TARGET_COLOR = (0, 0, 255)
@@ -41,7 +44,7 @@ def mask_top(img, frac=0.30, fill=0):
 
 
 def draw_debug(img_original, instances, result, mask_frac=0.30, infer_ms=0.0,
-               stop_row_frac=0.80, draw_polygons=False):
+               stop_row_frac=0.80, draw_polygons=False, stop_line=None, aruco=None):
     """원본 이미지 위에 검출 bbox·차선 중심점·샘플 행·마스크 경계를 그린 새 이미지."""
     if cv2 is None:
         raise RuntimeError('python3-opencv 가 필요합니다')
@@ -79,7 +82,55 @@ def draw_debug(img_original, instances, result, mask_frac=0.30, infer_ms=0.0,
         cv2.circle(dbg, (int(result.right_x), y), 5, POINT_COLOR, -1)
     if result.quality_name not in ('LOST', 'STALE'):
         cv2.circle(dbg, (int(result.target_x), y), 7, TARGET_COLOR, -1)   # 차선 중심점
+    if stop_line is not None and stop_line.bottom_y > 0:              # 목적지 흰 정지선 (영상 처리)
+        color = (255, 0, 255) if stop_line.detected else (200, 200, 200)
+        cv2.rectangle(dbg, (2, int(stop_line.top_y)), (W - 3, int(stop_line.bottom_y)), color, 2)
+        cv2.putText(dbg, f'stop_line {stop_line.width_frac:.2f}{" STOP" if stop_line.detected else ""}',
+                    (8, max(14, int(stop_line.top_y) - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    if aruco is not None:                                             # 도착 지점 벽 ArUco (한 변 px — focal_px 맞출 때 읽는다)
+        for mid, c in aruco.corners.items():
+            pts = np.asarray(c, dtype=np.int32).reshape(-1, 1, 2)
+            color = (0, 255, 0) if mid in aruco.markers else (200, 200, 200)
+            cv2.polylines(dbg, [pts], True, color, 2)
+            x0, y0 = int(pts[:, 0, 0].min()), int(pts[:, 0, 1].min())
+            cv2.putText(dbg, f'id{mid} {aruco.raw.get(mid, 0.0):.2f}m {aruco.side_px.get(mid, 0.0):.0f}px',
+                        (x0, max(14, y0 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    red = int(getattr(result, 'red_line_detected', False))
+    sl = int(bool(stop_line and stop_line.detected))
     cv2.putText(dbg, f'{result.quality_name} e={result.error_x:+.2f} cw={int(result.crosswalk_detected)} '
-                     f'half={result.half_lane_px:.0f}px {infer_ms:.0f}ms',
+                     f'red={red} stop={sl} half={result.half_lane_px:.0f}px {infer_ms:.0f}ms',
                 (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, TARGET_COLOR, 2)
     return dbg
+
+
+def draw_segmentation(img_original, instances, mask_frac=0.0, infer_ms=0.0, alpha=0.45):
+    """세그 추론 결과만 — 클래스별 마스크(폴리곤)를 반투명으로 칠하고 외곽선·라벨. 관제 웹 화면용.
+
+    lane_debug(목표점·샘플 행·BEV 경로 등 주행 판단) 와 따로, 모델이 무엇을 어디서 봤는지만 보여준다.
+    마스킹(모델이 못 보는) 영역은 어둡게.
+    """
+    if cv2 is None:
+        raise RuntimeError('python3-opencv 가 필요합니다')
+    out = np.array(img_original, copy=True)
+    H, W = out.shape[:2]
+    overlay = out.copy()
+    for inst in instances:
+        pts = np.array(inst.polygon, dtype=np.int32).reshape(-1, 1, 2)
+        if len(pts) >= 3:
+            cv2.fillPoly(overlay, [pts], CLASS_COLORS.get(inst.cls, DEFAULT_COLOR))
+    cv2.addWeighted(overlay, alpha, out, 1.0 - alpha, 0, out)
+    for inst in instances:
+        color = CLASS_COLORS.get(inst.cls, DEFAULT_COLOR)
+        pts = np.array(inst.polygon, dtype=np.int32).reshape(-1, 1, 2)
+        if len(pts) >= 3:
+            cv2.polylines(out, [pts], True, color, 1)
+        x0, y0 = (int(round(v)) for v in inst.bbox[:2])
+        cv2.putText(out, f'{inst.cls} {inst.conf:.2f}', (x0, max(14, y0 - 4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    n_mask = mask_top_rows(H, mask_frac)
+    if 0 < n_mask < H:
+        out[:n_mask] = (out[:n_mask] * 0.35).astype(np.uint8)
+        cv2.line(out, (0, n_mask), (W - 1, n_mask), MASK_LINE_COLOR, 1)
+    cv2.putText(out, f'SEG {len(instances)} obj  {infer_ms:.0f} ms', (8, 22),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    return out

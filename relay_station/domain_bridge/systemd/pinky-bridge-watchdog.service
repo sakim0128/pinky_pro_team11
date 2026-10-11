@@ -1,0 +1,20 @@
+# 브릿지 생사 감시 — /bridge/health 를 도메인 8에 발행하고 미러로 전달된다.
+[Unit]
+Description=Pinky Domain Bridge Watchdog
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=%h/pinky_pro/src/pinky_pro_team11
+Environment=ROS_DOMAIN_ID=8
+# DDS 프로파일은 bridge_env.sh 가 고른다 — 감시자가 브리지와 다른 프로파일을 쓰면
+# 브리지가 보는 평면을 못 보고 "죽었다" 고 오보한다.
+ExecStart=/bin/bash -lc 'source %h/pinky_pro/src/pinky_pro_team11/relay_station/domain_bridge/bridge_env.sh >/dev/null && source /opt/ros/jazzy/setup.bash && exec python3 %h/pinky_pro/src/pinky_pro_team11/relay_station/domain_bridge/bridge_watchdog.py'
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=default.target

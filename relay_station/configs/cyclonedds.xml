@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  중계 관제 노트북 CycloneDDS 설정
+
+  Domain id="any" 인 이유:
+    도메인 브릿지는 8·9·10·11·12·13 여섯 개 도메인에 동시에 참여한다.
+    여기에 특정 도메인 번호를 박아 두면 그 도메인 외에는 인터페이스 바인딩과
+    피어 설정이 적용되지 않아 디스커버리가 조용히 실패한다.
+
+  Peers 를 유니캐스트로 명시하는 이유:
+    ipTIME AP는 무선 클라이언트 간 브로드캐스트/멀티캐스트를 드롭할 수 있고,
+    2.4GHz에서 멀티캐스트는 최저 기본 전송률로 나가 지연이 크다.
+    상대를 직접 지목하는 편이 현장에서 훨씬 안정적이다.
+    (브로드캐스트 항목은 신규 장비 자동 발견용 보조 수단으로만 남긴다.)
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+    <Domain id="any">
+        <General>
+            <Interfaces>
+                <NetworkInterface name="enx001122334455" />
+            </Interfaces>
+            <AllowMulticast>false</AllowMulticast>
+        </General>
+        <Discovery>
+            <ParticipantIndex>auto</ParticipantIndex>
+            <MaxAutoParticipantIndex>60</MaxAutoParticipantIndex>
+            <Peers>
+                <Peer address="localhost" />
+                <Peer address="198.51.100.3" />   <!-- 중계 관제 노트북 (자기 자신) -->
+                <Peer address="198.51.100.5" />   <!-- 로봇 1호기 pinky10 / 도메인 10 -->
+                <Peer address="198.51.100.6" />   <!-- 로봇 2호기 pinky11 / 도메인 11 -->
+                <Peer address="198.51.100.8" />   <!-- 로봇 3호기 pinky12 / 도메인 12 -->
+                <Peer address="198.51.100.9" />   <!-- 로봇 4호기 pinky13 / 도메인 13 -->
+                <Peer address="198.51.100.255" /> <!-- 팀원 노트북 자동 발견용 보조 -->
+            </Peers>
+        </Discovery>
+    </Domain>
+</CycloneDDS>

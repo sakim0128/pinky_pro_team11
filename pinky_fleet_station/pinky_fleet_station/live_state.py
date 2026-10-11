@@ -1,8 +1,26 @@
 """Thread-safe, ROS-independent read-only telemetry snapshots."""
 import copy
+import json
 import math
 import threading
 import time
+
+
+def parse_mission_status(text):
+    """/fleet/lane/status JSON → 미션 dict. 'mission' 문자열이 있어야 한다.
+
+    relay_station 코디네이터는 'mission_state' 로 내고, 팀11 lane 코디네이터는 'mission' 으로 낸다.
+    'mission' 이 없고 'mission_state' 가 문자열이면 그 값을 'mission' 으로 복사한다 (원본 키는 남긴다).
+    형식이 아니면 ValueError.
+    """
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError('expected JSON object')
+    if 'mission' not in data and isinstance(data.get('mission_state'), str):
+        data['mission'] = data['mission_state']
+    if not isinstance(data.get('mission'), str):
+        raise ValueError('expected object with mission or mission_state string')
+    return data
 
 
 def finite_json(value):

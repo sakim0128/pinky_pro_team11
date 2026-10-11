@@ -1,0 +1,7 @@
+# 중계 실행·시험 산출물
+__pycache__/
+*.py[cod]
+*.log
+gateway.log
+*.pid
+nohup.out

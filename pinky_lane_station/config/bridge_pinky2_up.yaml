@@ -1,0 +1,18 @@
+# domain_bridge 템플릿 — pinky2 업링크 (로봇 → 관제). 도메인 번호는 파일에 없다:
+#   ros2 run pinky_lane_station bridge_runner --from <로봇 도메인> --to <관제 도메인> <이 파일>
+# lane_bridge.launch.xml 이 station_domain / pinky2_domain 인수로 넘긴다. QoS 는 노드와 동일하게 고정.
+name: pinky2_bridge_up
+mode: normal
+
+topics:
+  /pinky2/state:                              # lane_agent_node → 코디네이터·웹
+    type: pinky_fleet_msgs/msg/RobotState
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky2/lane_status:                        # lane_agent_node → 코디네이터 (교차로 선착순도 이걸 본다)
+    type: pinky_lane_msgs/msg/LaneStatus
+    qos: {reliability: reliable, durability: volatile, history: keep_last, depth: 10}
+
+  /pinky2/camera/image/compressed:            # camera_node → lane_pipeline_node
+    type: sensor_msgs/msg/CompressedImage
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}

@@ -16,7 +16,7 @@ from .live_http import make_server
 from .live_frames import FrameStore
 from .live_control import ControlQueue
 from .live_map import MapAsset
-from .live_state import StateStore
+from .live_state import StateStore, parse_mission_status
 
 
 def message_data(msg):
@@ -102,9 +102,8 @@ class LiveWebNode(Node):
 
     def on_mission(self, msg):
         try:
-            data = json.loads(msg.data)
-            if not isinstance(data, dict) or not isinstance(data.get('mission'), str):
-                raise ValueError('expected object with mission string')
+            # relay 코디네이터는 'mission_state', lane 코디네이터는 'mission' — 둘 다 받는다
+            data = parse_mission_status(msg.data)
         except (ValueError, TypeError):
             self.get_logger().warning('Invalid /fleet/lane/status JSON; sample ignored',
                                       throttle_duration_sec=5.0)

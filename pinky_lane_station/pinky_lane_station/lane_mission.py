@@ -1,15 +1,15 @@
-"""lane_mission.yaml 로드 / 검증 — 차선 주행 미션 (시작 노드 · 목적지 노드 · 출발 지연).
+"""lane_mission.yaml 로드 / 검증 — 로봇 목록(이름 · 도메인 · 토픽 · 속도 상한 · 기본 시작/목적지 노드).
 
-coordinator · fake_lane_robot · GUI 가 공유한다. ROS 에 의존하지 않는다.
+lane_pipeline_node · fake_lane_robot 가 공유한다(로봇마다 토픽을 만든다). ROS 에 의존하지 않는다.
+경로 배정·구간 예약·출발 순서는 여기 없다 — 코디네이터는 중계 관제국(relay_station/fleet) 하나이고 그 미션 파일은
+relay_station/fleet/config/profiles/<프로파일>/lane_mission.yaml 이다. 시작·목적지는 중계 웹(/api/fleet/assign)에서 고른다.
 
     graph: ""                      # 비우면 pinky_lane_station/config/road_graph.yaml
     map: {yaml_path: ...}          # GUI 표시용
-    reservation: {reserve_ahead: 0.40, release_behind: 0.25, node_stop_margin: 0.20}
-    coordinator: {tick_rate: 10.0, state_timeout: 2.0, set_initial_pose: true, auto_start: false}
     defaults: {max_linear_vel: 0.15, max_angular_vel: 1.2}
     robots:
-      - {name: pinky1, domain_id: 10, start: BL, goal: TC, depart_delay: 0.0, color: "#ff5a7a"}
-      - {name: pinky2, domain_id: 11, start: BL, goal: RE, depart_delay: 6.0}
+      - {name: pinky1, domain_id: 10, start: BL, goal: TR, color: "#ff5a7a"}
+      - {name: pinky2, domain_id: 11, start: BR, goal: BL}
 """
 
 import copy
@@ -17,9 +17,6 @@ import os
 
 import yaml
 
-DEFAULT_RESERVATION = {'reserve_ahead': 0.40, 'release_behind': 0.25, 'node_stop_margin': 0.20}
-DEFAULT_COORDINATOR = {'tick_rate': 10.0, 'state_timeout': 2.0, 'set_initial_pose': True,
-                       'auto_start': False, 'arrive_hold_seconds': 1.0}
 DEFAULT_DEFAULTS = {'max_linear_vel': 0.15, 'max_angular_vel': 1.2}
 COLORS = ('#ff5a7a', '#38bdf8', '#a3e635', '#fbbf24')
 
@@ -56,12 +53,6 @@ class LaneMission:
         self.map_yaml_path = os.path.expandvars(os.path.expanduser(
             str((data.get('map') or {}).get('yaml_path', ''))))
 
-        self.reservation = dict(DEFAULT_RESERVATION)
-        self.reservation.update(data.get('reservation') or {})
-        for k, v in self.reservation.items():
-            self.reservation[k] = _num(v, f'reservation.{k}')
-        self.coordinator = dict(DEFAULT_COORDINATOR)
-        self.coordinator.update(data.get('coordinator') or {})
         self.defaults = dict(DEFAULT_DEFAULTS)
         self.defaults.update(data.get('defaults') or {})
 
@@ -88,7 +79,6 @@ class LaneMission:
                 'domain_id': domain_id,
                 'start': str(raw.get('start') or ''),
                 'goal': str(raw.get('goal') or ''),
-                'depart_delay': _num(raw.get('depart_delay'), f'{name}.depart_delay', 0.0),
                 'color': str(raw.get('color') or COLORS[i % len(COLORS)]),
                 'state_topic': str(raw.get('state_topic') or f'/{name}/state'),
                 'command_topic': str(raw.get('command_topic') or f'/{name}/command'),
@@ -133,10 +123,8 @@ class LaneMission:
         return {
             'graph': self.graph_path,
             'map': {'yaml_path': self.map_yaml_path},
-            'reservation': copy.deepcopy(self.reservation),
-            'coordinator': copy.deepcopy(self.coordinator),
             'defaults': copy.deepcopy(self.defaults),
-            'robots': [{k: r[k] for k in ('name', 'domain_id', 'start', 'goal', 'depart_delay',
+            'robots': [{k: r[k] for k in ('name', 'domain_id', 'start', 'goal',
                                           'color', 'max_linear_vel', 'max_angular_vel')}
                        for r in self.robots],
         }

@@ -18,7 +18,9 @@ class OverheadTracker(Node):
         self.declare_parameter('pinky1_marker_id', 1)
         self.declare_parameter('pinky2_marker_id', 2)
         # Row-major image-pixel -> map-metre homography. Empty means uncalibrated.
-        self.declare_parameter('image_to_map_homography', [])
+        from rcl_interfaces.msg import ParameterDescriptor
+        from rclpy.exceptions import ParameterUninitializedException
+        self.declare_parameter('image_to_map_homography', [0.0]*0, ParameterDescriptor(dynamic_typing=True))
         self.declare_parameter('aruco_dictionary', 'DICT_4X4_50')
         try:
             import cv2
@@ -27,7 +29,12 @@ class OverheadTracker(Node):
         except ImportError as exc:
             raise RuntimeError('python3-opencv is required for overhead tracking') from exc
         self.cv2 = cv2
-        raw_h = self.get_parameter('image_to_map_homography').value
+        try:
+            raw_h = self.get_parameter('image_to_map_homography').value
+        except ParameterUninitializedException:
+            raw_h = []
+        if raw_h is None:
+            raw_h = []
         self.homography = np.asarray(raw_h, dtype=float).reshape(3, 3) if len(raw_h) == 9 else None
         if self.homography is None or not np.isfinite(self.homography).all():
             self.get_logger().warning('Overhead tracker is uncalibrated; it will not publish poses')
@@ -39,8 +46,8 @@ class OverheadTracker(Node):
         self.detector = cv2.aruco.ArucoDetector(self.dictionary, cv2.aruco.DetectorParameters())
         self.marker_names = {int(self.get_parameter('pinky1_marker_id').value): 'pinky1',
                              int(self.get_parameter('pinky2_marker_id').value): 'pinky2'}
-        self.publishers = {name: self.create_publisher(PoseStamped, f'/{name}/overhead_pose', 10)
-                           for name in self.marker_names.values()}
+        self.pose_publishers = {name: self.create_publisher(PoseStamped, f'/{name}/overhead_pose', 10)
+                                for name in self.marker_names.values()}
         self.create_subscription(CompressedImage, self.get_parameter('image_topic').value, self.on_image, 10)
 
     def on_image(self, msg):
@@ -70,7 +77,7 @@ class OverheadTracker(Node):
             yaw = math.atan2(ahead[1] - center[1], ahead[0] - center[0])
             pose.pose.orientation.z = math.sin(yaw / 2.0)
             pose.pose.orientation.w = math.cos(yaw / 2.0)
-            self.publishers[name].publish(pose)
+            self.pose_publishers[name].publish(pose)
 
 
 def main(args=None):

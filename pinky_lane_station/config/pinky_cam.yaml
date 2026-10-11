@@ -1,0 +1,45 @@
+# 핑키 카메라 렌즈 + 바닥 캘리브레이션 (BEV 차선 추종, ground_bev.GroundCamera). 640x480, rot180.
+# 만든 곳: scripts/calib_lens.py (렌즈) · scripts/calib_floor.py (카메라 높이·기울기, 바닥에 놓은 체커보드) — data/checkboard_15/video.mp4
+# record_drive.py(picamera2 preview 설정)로 찍은 영상. camera_node 는 video 설정이라 센서 모드·화각이 같은지 로봇에서 한 번 확인한다.
+# 카메라를 다시 달거나 해상도·센서 모드가 바뀌면 다시 만든다.
+image_size:
+- 640
+- 480
+K:
+- - 558.8354362801429
+  - 0.0
+  - 326.09889529571507
+- - 0.0
+  - 558.8354362801429
+  - 220.6010597758897
+- - 0.0
+  - 0.0
+  - 1.0
+dist:
+- 0.14348680140687314
+- -0.5541636901850406
+- 0.0
+- 0.0
+- 0.0
+lens_rms_px: 0.5759065339089234
+lens_views: 116
+square_mm_xy:
+- 20.0
+- 21.0
+lens_source: data/checkboard_15/video.mp4
+R_floor_to_cam:
+- - 0.9999974338930504
+  - 0.0021718902139753154
+  - -0.000644282712281176
+- - -0.0004056593615836954
+  - -0.10813011914501393
+  - -0.9941366670504453
+- - -0.002228822064962935
+  - 0.9941343773487485
+  - -0.10812896062396606
+camera_height_mm: 60.629210387871304
+pitch_down_deg: 6.207469557116565
+horizon_row: 159.81837577722555
+floor_source: data/checkboard_15/video.mp4 frames 521-560, board 5.0 mm thick
+floor_reproj_px: 0.9238197257961747
+pitch_refine_deg: 0.8500000000000023

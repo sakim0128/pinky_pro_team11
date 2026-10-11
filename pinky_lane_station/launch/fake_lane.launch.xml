@@ -1,21 +1,22 @@
 <?xml version="1.0"?>
 <!--
-  실기 없이 차선 주행 전체(경로·예약·인식·FSM)를 검증한다. 관제 도메인에 가짜 로봇 2대를
-  띄우므로 브릿지가 필요 없다. ** 실제 핑키는 움직이지 않는다. **
+  실기 없이 차선 주행(인식·FSM)을 검증한다. 관제 도메인에 가짜 로봇 2대를 띄우므로 브릿지가 필요 없다.
+  ** 실제 핑키는 움직이지 않는다. **
 
     export ROS_DOMAIN_ID=0
-    ros2 launch pinky_lane_station fake_lane.launch.xml auto_start:=True
+    ros2 launch pinky_lane_station fake_lane.launch.xml
 
+  경로 배정·구간 예약·출발(START)은 **중계 코디네이터**(relay_station/fleet/fleet_coordinator.py)가 한다 —
+  같은 도메인에서 따로 띄운다: `ROS_DOMAIN_ID=0 python3 -m relay_station.fleet.fleet_coordinator` (레포 루트에서,
+  install/setup.bash 뒤). 출발·배정은 /fleet/lane/control(JSON) 또는 중계 웹의 /api/fleet/assign.
   확인:  ros2 topic echo /fleet/lane/status
          ros2 run rqt_image_view rqt_image_view /pinky1/lane_debug/compressed
-  시나리오 2(교차로 만남)는 lane_mission.yaml 의 start/goal 을 바꾸거나 control 토픽으로 assign.
-  장애물:  obstacle:="[0.3, -0.45, 0.05]"  (map x, y, 반지름) — 그 앞에서 OBSTACLE_WAIT 확인
+  장애물:  obstacle:="[1.0, 0.55, 0.05]"  (map x, y, 반지름) — 그 앞에서 OBSTACLE_WAIT 확인
 -->
 <launch>
     <arg name="mission" default="$(find-pkg-share pinky_lane_station)/config/lane_mission.yaml"/>
     <arg name="detector_config"
          default="$(find-pkg-share pinky_lane_station)/config/detector_lane.yaml"/>
-    <arg name="auto_start" default="False"/>
     <arg name="obstacle" default="[0.0, 0.0, 0.0]"/>
     <arg name="loopback" default="False"
          description="True 면 파이프라인을 거치지 않고 가짜 로봇 안에서 LanePath 를 만든다"/>
@@ -24,12 +25,6 @@
         <param name="mission" value="$(var mission)"/>
         <param name="obstacle" value="$(var obstacle)"/>
         <param name="loopback" value="$(var loopback)"/>
-    </node>
-
-    <node pkg="pinky_lane_station" exec="lane_coordinator_node" name="lane_coordinator"
-          output="screen">
-        <param name="mission" value="$(var mission)"/>
-        <param name="auto_start" value="$(var auto_start)"/>
     </node>
 
     <node pkg="pinky_lane_station" exec="lane_pipeline_node" name="lane_pipeline" output="screen"

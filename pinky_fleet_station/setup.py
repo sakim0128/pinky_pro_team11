@@ -30,6 +30,7 @@ setup(
             'coordinator_node = pinky_fleet_station.coordinator_node:main',
             'live_web_node = pinky_fleet_station.live_web_node:main',
             'overhead_tracker_node = pinky_fleet_station.overhead_tracker_node:main',
+            'overhead_camera_node = pinky_fleet_station.overhead_camera_node:main',
             'gui_node = pinky_fleet_station.gui_node:main',
             'fake_state_pub = pinky_fleet_station.fake_state_pub:main',
         ],

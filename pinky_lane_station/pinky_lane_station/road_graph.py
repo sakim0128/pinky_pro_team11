@@ -1,6 +1,7 @@
 """도로망 그래프 — 노드(끝점·분기·횡단보도) + 엣지(구간 중심선).
 
-ROS 에 의존하지 않는다. 관제 GUI, 그래프 편집기, 예약기, 테스트가 전부 이 모듈을 공유한다.
+ROS 에 의존하지 않는다. 관제 GUI, 그래프 편집기, 예약기(relay_station/fleet/reservation.py),
+중계 코디네이터(relay_station/fleet/fleet_coordinator.py), 테스트가 전부 이 모듈을 공유한다 — 도로망 구현은 이것 하나다.
 
 파일 형식 (road_graph.yaml, 좌표는 map frame, 단위 m):
 
@@ -238,6 +239,19 @@ class RoadGraph:
             yaml.safe_dump(self.to_dict(), handle, allow_unicode=True,
                            sort_keys=False, default_flow_style=None)
         self.path = path
+
+    def summary(self):
+        """웹 배정 화면용 요약 — 출발·목적지로 고를 수 있는 endpoint 노드와 전체 노드 목록.
+
+        시작·목적지는 여기 `endpoints` 에서만 고른다(coordinator assign). 맵이 바뀌어 road_graph.yaml 을 고치면
+        목록이 따라간다 — 화면 코드에 노드 이름을 박지 않는다.
+        """
+        return {
+            'frame': self.frame,
+            'endpoints': [n.id for n in self.nodes.values() if n.type == 'endpoint'],
+            'junctions': [n.id for n in self.nodes.values() if n.type == 'junction'],
+            'nodes': [n.to_dict() for n in self.nodes.values()],
+        }
 
     # ---------------------------------------------------------- 검증
 
