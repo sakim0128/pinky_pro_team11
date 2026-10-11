@@ -116,7 +116,7 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 로봇  허가 → 교차로 동작(seek: 새 빨간 선 찾기 → 그 선 앞까지, 장애물에 끊기면 이어서) → 새 선 앞 RED_LINE_STOP 1 s
       → 차선 쌍이 보이면 주행, 안 보이면 방금 돈 쪽으로 탐색 회전. 못 찾으면 교차로에서 멈추고 reason "새 빨간 선 못 찾음"
 관제  통행권 쥔 로봇이 차선 주행(교차로 뒤 CRUISE)으로 돌아간 순간 반납 → 다음 로봇 허가
-로봇  도착: 목적지 앞 벽의 ArUco 마커(1→id 40, 2→41, 3→42)까지 15 cm 이하면 정지 (교차로 통과 여부와 무관, 다른 id 는 무시). 마커 35 cm 안에서는 감속
+로봇  도착: 목적지 앞 벽의 ArUco 마커(1→id 10, 2→11, 3→12)까지 15 cm 이하면 정지 (교차로 통과 여부와 무관, 다른 id 는 무시). 마커 35 cm 안에서는 감속
       같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤에서 장애물로 선 순간이 도착 (JunctionPlan.arrive_on_obstacle)
 로봇  교차로를 지난 뒤 빨간 선(출구)도 RED_LINE_STOP 1 s 정지 후 출발. 교차로 동작 중에 본 선은 동작이 끝나자마자 선다
 공통  장애물: 초음파 10 cm 에서 정지, 치워지면 1 s 뒤 재출발 (lane_only 는 라이다 판정 끔 — use_lidar:=False)
@@ -169,16 +169,29 @@ v = v_max · min(1, 1 − k·|error_x|, 1 − k'·|ω|/ω_max),   clear_until �
 - 관제 화면 위치 표시(천장 카메라 없음, 표시 전용): 핑키가 odom 자세를 `/pinkyN/state`(frame_id `odom`) 로 보내면 관제
   `vision_pose` 가 코스(`pinky_lane_station/config/vision_course.yaml`, map5.png px 좌표) 위 위치로 바꾼다. 차선 주행 중에는 odom 이동거리만큼
   코스 중심선 위를 나아가고, 교차로 동작 중에는 2D odom 으로 그리며, 교차로 입구·나가는 빨간 선 정지 · 횡단보도 정지 · 벽 마커 도착에서
-  다시 맞춘다. 웹 대시보드 "핑키 위치 (추정)" 카드가 `/api/fleet/poses` 를 0.2 s 마다 가져와 그린다.
+  다시 맞춘다. 웹 대시보드 "핑키 위치" 카드가 `/api/fleet/poses` 를 0.2 s 마다 가져와 그린다(원 = 추정).
   코스 좌표 확인: `python3 tools/vision_course_overlay.py` → `docs/vision_course_overlay.png`. 정지 위치 거리(`red_stop_back` 등)는 yaml.
+- **항공뷰 관제 (2026-10-01)**: 폰 카메라 항공뷰 → 태블릿 `tablet/vision`(모서리 ArUco 40~43 · 핑키 머리 30·31) → 중계
+  `POST /api/vision/pose_fix` → `/pinkyN/overhead_pose`. 비전 코디네이터가 이 좌표를 코스 중심선에 겹친다(`pinky_lane_station/vision_overhead.py`).
+  - 교차로 통행권: 입구 빨간 선 정지 지점까지 **남은 거리가 짧은 로봇** 이 미리 받는다(3 cm 안이면 먼저 선 로봇 → domain_id).
+    받은 로봇은 빨간 선에서 1 s 만 서고 바로 지나간다. 입구에 서기 전이면 더 가까워진 로봇에게 넘어가고, 서면 잠긴다.
+    나가는 빨간 선 뒤 차선 주행으로 돌아가면 반납.
+  - 차선 이탈 보정: 머리 마커 중심이 코스 중심선에서 옆으로 **3 cm 이상** 이면 `/pinkyN/lane_correction`(Vector3Stamped: x 이탈 m ·
+    y 방향 오차 rad · z 1 보정) 10 Hz. 로봇은 차선 주행(CRUISE) 중에만 `ω += −(k_lat·x + k_head·y)` (상한 0.3 rad/s,
+    `lane_agent.yaml` `correction:`). **8 cm 이상** 은 관제 경고 `OFF_LANE`. 교차로 구간(입구 ~ 나가는 빨간 선)에서는 보정 없음.
+  - 항공뷰가 0.5 s 넘게 끊기면 거리·보정 없음 — 통행권은 먼저 선 로봇 순서, 로봇은 카메라 차선 주행만(보정 0.5 s 뒤 꺼짐).
+  - 웹 "핑키 위치" 카드에 항공뷰 실측 P′(사각)와 이탈 cm · 입구까지 거리 · 보정 여부, 진행 카드에 통행권 규칙(항공뷰 남은 거리 / 먼저 정지).
+  - 현장: 10 cm 모서리 마커를 경기장 꼭짓점 안쪽에 붙인다(중심 = 꼭짓점에서 5 cm 안쪽, `tablet/vision/config/markers.yaml`).
+    핑키 머리 마커는 핑키 중앙, 위쪽이 앞. 마커 중심 → 앞 바퀴 축 거리는 실측 뒤 `markers.yaml` `offset_x`.
+    도착 벽 마커는 **id 10 · 11 · 12** (40~42 에서 바꿈).
 - 인식 주기 확인: 로봇 `ros2 topic hz /pinky1/lane_path` (설계 10 Hz), 관제 `ros2 topic echo /pinky1/scene_state --field infer_ms`,
   로봇 `ros2 topic echo /pinky1/lane_status --field path_age` (이미지 촬영 → 로봇 수신 지연).
 
 - 설정: 경로·방향·동작·시나리오·도착 방식 `pinky_lane_station/config/vision_mission.yaml`(관제, `arrival:` `directions:` `routes:`),
   웹에서 저장한 시나리오는 옆 파일 `vision_mission_user.yaml`(게이트웨이가 쓴다, `PINKY_VISION_USER_SCENARIOS` 로 바꿀 수 있다),
-  마커 인식 `detector_yolo.yaml` 의 `aruco:`(DICT_4X4_50, 한 변 4 cm, id 40·41·42, `focal_px`), 빨간 테이프는 모델이 아니라 색 검출 `red_line_color:`(HSV),
+  마커 인식 `detector_yolo.yaml` 의 `aruco:`(DICT_4X4_50, 한 변 4 cm, id 10·11·12, `focal_px`), 빨간 테이프는 모델이 아니라 색 검출 `red_line_color:`(HSV),
   로봇 튜닝 `lane_agent.yaml`(`maneuver:`(`seek_*`) · `guard.us_stop` · `arrive_distance` · `marker_slow_distance`).
-- 현장 준비: 1·2·3번 도착 지점 앞 벽에 ANCHOR A1(id 40)·A2(id 41)·A3(id 42) (DICT_4X4_50, 40 mm)를 차선 정면에 붙인다.
+- 현장 준비: 1·2·3번 도착 지점 앞 벽에 id 10·11·12 (DICT_4X4_50, 40 mm)를 차선 정면에 붙인다 (2026-10-01 40~42 에서 바꿈 — 40~43 은 항공뷰 경기장 모서리, 30·31 은 핑키 머리).
   지점↔id 는 `vision_mission.yaml` 의 `arrival.markers` 와 `detector_yolo.yaml` 의 `aruco.ids` 두 곳을 같이 고친다. 로봇은 각 출발 지점에 차선 방향으로.
 - `focal_px` 맞추기(한 번): 마커를 카메라 정면 d m 에 두고 `lane_debug` 오버레이의 `id… …px` 를 읽어 `focal_px = px × d / 0.04`.
 - 흰 정지선 도착(예전 방식)은 `arrival.mode: stop_line` 으로 되돌린다.
@@ -199,6 +212,10 @@ ros2 launch pinky_fleet_agent lane_only.launch.xml robot_name:=pinky1 domain_id:
 - **진행**: 로봇별 단계(출발 → 교차로 → 목적지로 → 도착), 교차로 방향, 통과 허가, 도착 판정, 상태 사유.
 - API: `POST /api/fleet/scenario {"name":"s1"}` · `{"custom":{"robots":{"pinky1":{"start":"2","goal":"3"}}}}`,
   `POST /api/fleet/scenario/save {"name","scenario"}` · `POST /api/fleet/scenario/delete {"name"}` (모두 제어권 정책).
+
+실물 없이 도커로 돌려 보기(시나리오 폐루프 · 태블릿 가상 카메라 · 게이트웨이 `--vision`): [`docs/integration/mock_test.md`](docs/integration/mock_test.md).
+
+로봇 둘(핑키1 팀 방식 · 핑키2 Nav2)을 도커로 두고 실제 중계 · 태블릿에 녹화 영상을 먹이는 시험 시나리오: [`docs/integration/mixed_fleet_test.md`](docs/integration/mixed_fleet_test.md).
 
 현장 조정 순서: 로봇 1대로 `focal_px` → 경로마다 교차로 동작 값(`vision_mission.yaml` 고치고 게이트웨이만 재시작) → 2대 시나리오.
 인식 확인은 `python3 tools/view_image.py /pinky1/lane_debug/compressed` (상단 글자 `red=`, 벽 마커는 초록 상자 `id40 0.42m 48px`).
@@ -304,8 +321,7 @@ cd relay_station && python3 -m pytest tests -q          # rclpy 가 있어야 �
 
 - **정지선 클래스**: 차선 세그 vs 주행가능영역 세그 미결 → 재학습 뒤 `detector_yolo.yaml` `stop_line: [<id>]`.
 - **새 맵**: map5 규격으로 다시 저장하고 `road_graph.yaml` 좌표를 편집기로 다시 찍는다(지금은 임시 4노드).
-- **DDS 통일**: 중계는 CycloneDDS(`relay_station/configs/cyclonedds*.xml`), 팀11 기존 스크립트 `scripts/setup_dds_interface.sh` 는 Fast DDS. 세 기기 RMW 가 같아야 한다.
-  핑키에 `rmw_cyclonedds_cpp` 가 있는지(`ros2 pkg list | grep cyclonedds`) 확인 뒤 Cyclone 으로 통일 예정.
+- **DDS 통일**: Fast DDS(기본)로 통일 완료. 5GHz 공유기 재배치로 멀티캐스트 안정화되어 CycloneDDS 사용을 배제하고 팀11 기본 RMW(rmw_fastrtps_cpp)로 일치시킴.
 - **항공뷰 캘리브레이션**: `tools/overhead_calib.py` 로 map5 좌표 호모그래피를 `overhead_tracker.yaml` 에 기록. 마커 id (로봇 1/2, 꼭짓점 40~43) 확정.
 - **rclpy 시험 재측정**: relay 시험 중 rclpy/ROS msgs 가 필요한 것은 이번 정리에서 컴파일만 했다 — 중계 PC 에서 `cd relay_station && pytest tests -q`.
 - **live 웹(:8080)** 은 조회 전용으로 남겼다 — 둘 중 하나를 지울지는 나중에.

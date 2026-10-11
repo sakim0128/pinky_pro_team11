@@ -134,6 +134,8 @@ X-API-Key: <중계 운영자에게 받은 키>
 
 ## 8. 확인 방법
 
+실물 없이 태블릿 가상 카메라와 중계 시나리오 시작을 도커로 돌려 보는 방법은 [`mock_test.md`](mock_test.md).
+
 ```bash
 # 같은 Wi-Fi 의 노트북에서
 curl -s -X POST http://<중계 PC>:8889/api/vision/pose_fix \

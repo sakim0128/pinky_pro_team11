@@ -210,7 +210,8 @@ def test_launch_defaults_match_agent_yaml(agent_params):
     launch = read(os.path.join(AGENT, 'launch', 'lane_agent.launch.xml'))
     agent_block = launch.split('exec="lane_agent_node"', 1)[1].split('</node>', 1)[0]
     for key in re.findall(r'<param name="([a-z_]+)"', agent_block):
-        assert key in ('robot_name', 'domain_id', 'use_sim_time', 'use_ultrasonic'), \
+        # initial_pose_* 는 튜닝값이 아니라 로봇별 기동 위치(PR #5) — launch 인자로 넘긴다
+        assert key in ('robot_name', 'domain_id', 'use_sim_time', 'use_ultrasonic') or key.startswith('initial_pose_'), \
             f'{key}: 튜닝값은 lane_agent.yaml 한 곳에서만 정한다'
 
 
@@ -231,7 +232,8 @@ def test_bridge_templates_carry_no_domain_and_match_nodes(lane_mission):
                  'route': ('pinky_lane_msgs/msg/Route', 'reliable', 'transient_local', 1),
                  'lane_path': ('pinky_lane_msgs/msg/LanePath', 'best_effort', 'volatile', 1),
                  'overhead_pose': ('geometry_msgs/msg/PoseStamped', 'reliable', 'volatile', 10),
-                 'junction_plan': ('pinky_lane_msgs/msg/JunctionPlan', 'reliable', 'transient_local', 1)},
+                 'junction_plan': ('pinky_lane_msgs/msg/JunctionPlan', 'reliable', 'transient_local', 1),
+                 'lane_correction': ('geometry_msgs/msg/Vector3Stamped', 'best_effort', 'volatile', 1)},
     }
     for robot in lane_mission['robots']:
         name = robot['name']

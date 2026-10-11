@@ -107,7 +107,7 @@ def _drive(course, a, b, scale=1.02, yaw_drift=0.02, v=0.10, dt=0.1):
                                'vision:junction' if st == DRIVE_JUNCTION_STOP else stage)
         p = tr.pose()
         errs.append(math.hypot(p['x'] - x1, p['y'] - y1))
-    tr.feed_status(DRIVE_ARRIVED, 'vision:arrived', '도착 — 벽 마커 40 0.15 m')
+    tr.feed_status(DRIVE_ARRIVED, 'vision:arrived', '도착 — 벽 마커 10 0.15 m')
     p = tr.pose()
     return errs, after_fix, (p['x'] - r.point_at(goal_s)[0], p['y'] - r.point_at(goal_s)[1]), tr
 

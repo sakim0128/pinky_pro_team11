@@ -229,10 +229,14 @@ class FieldTestRunner:
             return False
 
         # P1: 좌표/하트비트 신선도 확인
-        p1_heard = p1_state.get('heard', 999.0)
-        p2_heard = p2_state.get('heard', 999.0)
-        self.logger.info(f"pinky1 응답 지연: {p1_heard:.3f}s | 위치: ({p1_state.get('x', 0):.2f}, {p1_state.get('y', 0):.2f})")
-        self.logger.info(f"pinky2 응답 지연: {p2_heard:.3f}s | 위치: ({p2_state.get('x', 0):.2f}, {p2_state.get('y', 0):.2f})")
+        p1_heard = p1_state.get('last_heard_sec') if p1_state.get('last_heard_sec') is not None else p1_state.get('heard', 999.0)
+        p2_heard = p2_state.get('last_heard_sec') if p2_state.get('last_heard_sec') is not None else p2_state.get('heard', 999.0)
+        p1_x = (p1_state.get('state') or {}).get('x', p1_state.get('x', 0))
+        p1_y = (p1_state.get('state') or {}).get('y', p1_state.get('y', 0))
+        p2_x = (p2_state.get('state') or {}).get('x', p2_state.get('x', 0))
+        p2_y = (p2_state.get('state') or {}).get('y', p2_state.get('y', 0))
+        self.logger.info(f"pinky1 응답 지연: {p1_heard:.3f}s | 위치: ({p1_x:.2f}, {p1_y:.2f})")
+        self.logger.info(f"pinky2 응답 지연: {p2_heard:.3f}s | 위치: ({p2_x:.2f}, {p2_y:.2f})")
 
         if p1_heard < 1.0 and p2_heard < 1.0:
             self.logger.ok("두 로봇 모두 1초 이내 신선한 하트비트/위치 정보 확인 (P1 PASS)")

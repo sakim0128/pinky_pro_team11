@@ -66,14 +66,14 @@ def test_params_from_yaml_and_disabled():
     import yaml
     cfg = yaml.safe_load(open(os.path.join(os.path.dirname(HERE), 'config', 'detector_yolo.yaml'), encoding='utf-8'))
     p = params_from_dict(cfg['aruco'])
-    assert p.dictionary == 'DICT_4X4_50' and p.marker_size == pytest.approx(0.04) and p.ids == [40, 41, 42]
+    assert p.dictionary == 'DICT_4X4_50' and p.marker_size == pytest.approx(0.04) and p.ids == [10, 11, 12]
     off = ArucoMarkerDetector(ArucoParams(enabled=False))
     assert not off.available and off.update(frame_with_markers([(1, 100, 200, 200)])).markers == {}
 
 
-def test_field_anchor_photos_are_40_41_42():
-    """현장 벽 마커(ANCHOR A1·A2·A3) 규격: DICT_4X4_50 id 40·41·42 — 기본 설정이 읽는다."""
+def test_field_wall_markers_are_10_11_12():
+    """현장 벽 마커 규격: DICT_4X4_50 id 10·11·12 (2026-10-01, 40~43 은 항공뷰 모서리) — 기본 설정이 읽는다. 40 은 무시."""
     det = ArucoMarkerDetector(ArucoParams(confirm=1))
-    r = det.update(frame_with_markers([(40, 90, 120, 200), (41, 90, 320, 200), (42, 90, 520, 200)]))
-    assert set(r.markers) == {40, 41, 42}
-    assert r.raw[40] == pytest.approx(500.0 * 0.04 / 90, rel=0.08)
+    r = det.update(frame_with_markers([(10, 90, 120, 200), (11, 90, 320, 200), (12, 90, 520, 200), (40, 90, 420, 400)]))
+    assert set(r.markers) == {10, 11, 12}
+    assert r.raw[10] == pytest.approx(500.0 * 0.04 / 90, rel=0.08)

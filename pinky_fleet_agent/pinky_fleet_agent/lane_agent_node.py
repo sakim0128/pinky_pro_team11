@@ -15,7 +15,7 @@ import math
 import signal
 
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, Vector3Stamped
 from nav_msgs.msg import Odometry
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -79,7 +79,7 @@ def declare_driver_params(node):
     """DriverParams 의 숫자 필드를 ROS 파라미터로 노출하고 채워서 돌려준다."""
     p = DriverParams()
     groups = {'control': p.control, 'fsm': p.fsm, 'guard': p.guard, 'maneuver': p.maneuver,
-              'view': p.view, 'memory': p.memory, '': p}
+              'view': p.view, 'memory': p.memory, 'correction': p.correction, '': p}
     for prefix, obj in groups.items():
         for key, value in vars(obj).items():
             if not isinstance(value, (int, float, bool)):
@@ -109,6 +109,17 @@ class LaneAgent(Node):
         self.declare_parameter('auto_start', False)     # 켜지면 CMD_START 없이 바로 주행 (테스트)
 
         self._name = self.get_parameter('robot_name').value
+        # launch에서 initial_pose_on_start:=True로 명시할 때만 동작한다.
+        # 좌표 기본값은 map5에서 합의한 물리 배치 위치다.
+        startup_pose = {
+            'pinky1': (0.11, 1.08, 0.0),
+            'pinky2': (0.16, 0.74, -math.pi / 2.0),
+        }.get(self._name, (0.0, 0.0, 0.0))
+        self.declare_parameter('initial_pose_on_start', False)
+        self.declare_parameter('initial_pose_delay_sec', 5.0)
+        self.declare_parameter('initial_pose_x', startup_pose[0])
+        self.declare_parameter('initial_pose_y', startup_pose[1])
+        self.declare_parameter('initial_pose_yaw', startup_pose[2])
         self._domain_id = int(self.get_parameter('domain_id').value)
         self._global_frame = self.get_parameter('global_frame').value
         self._base_frame = self.get_parameter('robot_base_frame').value
@@ -138,6 +149,8 @@ class LaneAgent(Node):
         self.create_subscription(FleetCommand, f'/{n}/command', self._on_fleet_command, RELIABLE_10)
         # 비전 미션 (lane_only): 관제가 교차로 고정 동작·도착 정지선 수를 준다 (늦게 떠도 받게 TRANSIENT_LOCAL)
         self.create_subscription(JunctionPlan, f'/{n}/junction_plan', self._on_junction_plan, ROUTE_QOS)
+        # 항공뷰 이탈 보정 (관제 vision_coordinator, 10 Hz) — lane_only 차선 주행에 작은 조향 보정을 더한다
+        self.create_subscription(Vector3Stamped, f'/{n}/lane_correction', self._on_lane_correction, BEST_EFFORT_1)
         self.create_subscription(LaserScan, self.get_parameter('scan_topic').value,
                                  self._on_scan, qos_profile_sensor_data)
         if self.get_parameter('use_ultrasonic').value:
@@ -150,6 +163,12 @@ class LaneAgent(Node):
         self._status_pub = self.create_publisher(LaneStatus, f'/{n}/lane_status', RELIABLE_10)
         self._state_pub = self.create_publisher(RobotState, f'/{n}/state', 10)
         self._initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, 'initialpose', 10)
+        self._startup_initial_pose_timer = None
+        if bool(self.get_parameter('initial_pose_on_start').value):
+            delay = max(0.1, float(self.get_parameter('initial_pose_delay_sec').value))
+            self._startup_initial_pose_timer = self.create_timer(delay, self._publish_startup_initial_pose)
+            self.get_logger().info(
+                f'기동 초기 위치 예약: {delay:.1f}s 후 /initialpose 1회 발행')
         # AMCL 공분산을 GUI 로 (agent_node 와 같은 토픽). 마커/항공뷰 모드에선 AMCL 이 없어 안 나온다.
         pose_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
                               reliability=QoSReliabilityPolicy.RELIABLE,
@@ -253,6 +272,9 @@ class LaneAgent(Node):
         stamp = stamp_seconds(msg.header.stamp)
         self.driver.update_odom(self._now(), *self._odom_pose, stamp=stamp if stamp > 0 else None)
 
+    def _on_lane_correction(self, msg: Vector3Stamped):
+        self.driver.set_correction(self._now(), msg.vector.x, msg.vector.y, msg.vector.z > 0.5)
+
     def _on_junction_plan(self, msg: JunctionPlan):
         if msg.robot_name and msg.robot_name != self._name:
             return
@@ -298,6 +320,16 @@ class LaneAgent(Node):
         msg.pose.covariance[35] = INITIAL_POSE_COV_YAWYAW
         self._initialpose_pub.publish(msg)
         self.get_logger().info(f'초기 위치: ({x:.2f}, {y:.2f}, {math.degrees(yaw):.0f}°)')
+
+    def _publish_startup_initial_pose(self):
+        """AMCL 기동 뒤 지정 위치를 한 번만 전달한다."""
+        if self._startup_initial_pose_timer is not None:
+            self._startup_initial_pose_timer.cancel()
+            self._startup_initial_pose_timer = None
+        self._publish_initial_pose(
+            float(self.get_parameter('initial_pose_x').value),
+            float(self.get_parameter('initial_pose_y').value),
+            float(self.get_parameter('initial_pose_yaw').value))
 
     # ------------------------------------------------------------------ 제어
 

@@ -278,6 +278,27 @@ def robot_latch_report(ctx):
     return reason if reason.startswith(RELEASE_HOLD_PREFIX) else None
 
 
+def latched_robots(coord):
+    """지금 지도 교체(SET_MAP)를 보내면 에이전트가 거부할 로봇 — [(이름, 이유)] (통합 검토 OPS-3).
+
+    코디네이터가 링크유실·ESTOP 래치로 세워 둔 로봇, 또는 스스로 ESTOP·링크유실 래치를 **지금**(LATCH_REPORT_FRESH_SEC 안)
+    보고하는 로봇. 에이전트는 체인 래치(ESTOP·링크유실) 중 SET_MAP 을 REFUSED 한다 — 로봇 재개(LaneCommand RESUME)만 그
+    래치를 푼다.
+    """
+    out = []
+    with getattr(coord, '_coord_lock', None) or threading.RLock():
+        for name, ctx in coord.robots.items():
+            if ctx.held and ctx.held_reason in (HELD_LINK_LOST, HELD_ESTOP_RESTORED):
+                out.append((name, ctx.held_reason))
+                continue
+            ls = getattr(ctx, 'lane_status', None)
+            what = LATCHED_DRIVE_STATES.get(ls.drive_state) if ls is not None else None
+            age = latch_report_age(coord, ctx) if what else None
+            if what and age is not None and age <= LATCH_REPORT_FRESH_SEC:
+                out.append((name, '%s 보고 %.1f s 전' % (what, age)))
+    return out
+
+
 # R-5: 진단을 받는 로봇 (브리지 업링크 /pinkyN/diag 가 있는 로봇 — pinky1/2 한정)
 OPS_ROBOTS = FLEET_ROBOT_NAMES
 
@@ -410,6 +431,21 @@ class GazeboCameraManager:
         self._connected = False
 
     def _make_placeholder(self):
+        ref_path = os.path.join(STATIC_DIR, "gazebo_live_capture.png")
+        if os.path.exists(ref_path):
+            img = cv2.imread(ref_path)
+            if img is not None:
+                img = cv2.resize(img, (640, 480))
+                overlay = img.copy()
+                cv2.rectangle(overlay, (0, 0), (640, 40), (15, 20, 30), -1)
+                cv2.addWeighted(overlay, 0.75, img, 0.25, 0, img)
+                cv2.putText(img, "GAZEBO 3D DIGITAL TWIN (STANDBY)", (16, 26),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 255), 2, cv2.LINE_AA)
+                cv2.putText(img, "Simulation Arena Map", (440, 26),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 180, 200), 1, cv2.LINE_AA)
+                _, jpeg = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                return jpeg.tobytes()
+
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         img[:] = (25, 30, 40)
         cv2.putText(img, "GAZEBO LIVE CAMERA", (140, 220),
@@ -560,15 +596,14 @@ GLOBAL_CPU = CpuSampler()
 class NetworkLatencyMonitor:
     """백그라운드에서 병렬 스레드로 각 장비(로봇, 태블릿, 공유기, 외부망)의 Ping 지연시간 동시 측정"""
     def __init__(self):
+        p1_ip = os.environ.get("PINKY1_IP", "192.168.0.5")
+        p2_ip = os.environ.get("PINKY2_IP", "192.168.0.6")
+        router_ip = os.environ.get("ROUTER_IP", "192.168.0.1")
         self.targets = {
-            # ⭐ 고정 설비만 핑한다. 태블릿·폰은 **들고 다니는** 기기라 주소가
-            #    사이트마다 바뀌고, 여기 박아 두면 낡은 주소로 TIMEOUT 을 보고한다.
-            #    그 기기들의 도달 여부는 소스 자신이 말한다(activeUrl·receiveFps) -
-            #    후보 목록을 시도해 **실제로 붙은 주소**를 아는 쪽이 더 정확하다.
-            'router': ('198.51.100.1', '공유기 (Router)'),
-            'pinky1': ('198.51.100.5', 'Pinky 1 (Main)'),
-            'pinky2': ('198.51.100.6', 'Pinky 2 (Sub)'),
-            'pinky3': ('198.51.100.8', 'Pinky 3 (Add)'),
+            'router': (router_ip, '공유기 (Router)'),
+            'pinky1': (p1_ip, 'Pinky 1 (Main)'),
+            'pinky2': (p2_ip, 'Pinky 2 (Sub)'),
+            'pinky3': (os.environ.get("PINKY3_IP", "198.51.100.8"), 'Pinky 3 (Add)'),
             'internet': ('8.8.8.8', '외부 인터넷 (WAN)')
         }
         self.results = {
@@ -1320,6 +1355,17 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._send_json(json.dumps(res, ensure_ascii=False).encode('utf-8'))
             return
 
+        # 1-B. 관제 위치 전송 차단 / 복구 테스트 (Fault Injection)
+        elif parsed.path == '/api/fault/toggle_pose_fix':
+            if GLOBAL_ROBOT_SUB_NODE:
+                GLOBAL_ROBOT_SUB_NODE.fault_block_pose_fix = not getattr(GLOBAL_ROBOT_SUB_NODE, 'fault_block_pose_fix', False)
+                blocked = GLOBAL_ROBOT_SUB_NODE.fault_block_pose_fix
+            else:
+                blocked = False
+            app_log(f"[FAULT_INJECTION] PoseFix transmission blocked={blocked} by {self.client_address[0]}")
+            self._send_json(json.dumps({'success': True, 'blocked': blocked}).encode('utf-8'))
+            return
+
 
         # 2-C. 캘리브레이션 (MCV-2A-UI). 관측 좌표계를 정하는 행위라 주행 명령과 같은 게이트다.
         # 2-C. 관측 제외 영역 (MCV-2M). 관측 좌표계를 바꾸는 선언이라 같은 로컬 게이트.
@@ -1636,6 +1682,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 return
 
             published, subs = GLOBAL_ROBOT_SUB_NODE.publish_pose_fix(norm)
+            try:    # 추가 경로가 실패해도 기존 PoseFix 응답은 그대로 간다
+                ov_published, ov_subs = GLOBAL_ROBOT_SUB_NODE.publish_overhead_pose(norm)
+            except Exception as e:
+                app_log(f"⚠️ overhead_pose 발행 실패: {e}")
+                ov_published, ov_subs = False, None
             if not published:
                 self._send_json(json.dumps({
                     'accepted': False,
@@ -1651,6 +1702,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 'robot_name': norm['robot_name'],
                 'topic': f"/{norm['robot_name']}/pose_fix",
                 'subscribers': subs,
+                'overhead_topic': f"/{norm['robot_name']}/overhead_pose" if ov_published else None,
+                'overhead_subscribers': ov_subs,
                 'seq': norm['seq']
             }, ensure_ascii=False).encode('utf-8'), code=200)
             return
@@ -2326,8 +2379,41 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 }
             }
 
+            diag_snap = GLOBAL_ROBOT_SUB_NODE.diag_snapshot() if GLOBAL_ROBOT_SUB_NODE else {}
+            p1_entry = diag_snap.get('pinky1')
+            p2_entry = diag_snap.get('pinky2')
+            p1_diag = p1_entry[0] if p1_entry else None
+            p2_diag = p2_entry[0] if p2_entry else None
+
+            p1_fs = p1_diag.get('fix_status') if p1_diag else None
+            p2_fs = p2_diag.get('fix_status') if p2_diag else None
+
+            p1_runtime = "PHYSICAL" if r1_online else ("DOCKER" if (r1_link.get('linked') or (r1_link.get('publishers') or {}).get('/pinky1/odom', 0) > 0) else "OFFLINE")
+            p2_runtime = "PHYSICAL" if r2_online else ("DOCKER" if (r2_link.get('linked') or (r2_link.get('publishers') or {}).get('/pinky2/odom', 0) > 0) else "OFFLINE")
+
+            fleet_comm['pinky1']['runtime'] = p1_runtime
+            fleet_comm['pinky2']['runtime'] = p2_runtime
+
+            if 'pinky1' in robot_data:
+                robot_data['pinky1']['runtime'] = p1_runtime
+                robot_data['pinky1']['pose_fuser'] = p1_fs
+                robot_data['pinky1']['fix_status_word'] = ops_view._pose_fuser_word(p1_diag or {}) if p1_diag else "미수신"
+            if 'pinky2' in robot_data:
+                robot_data['pinky2']['runtime'] = p2_runtime
+                robot_data['pinky2']['pose_fuser'] = p2_fs
+                robot_data['pinky2']['fix_status_word'] = ops_view._pose_fuser_word(p2_diag or {}) if p2_diag else "미수신"
+
             status = {
                 'timestamp': time.time(),
+                'instance': {
+                    'label': os.environ.get('MCV_INSTANCE_LABEL') or None,
+                    'host': socket.gethostname(),
+                    'rosDomainId': os.environ.get('ROS_DOMAIN_ID', '8'),
+                    'is_docker': os.path.exists('/.dockerenv') or bool(os.environ.get('MCV_INSTANCE_LABEL')),
+                },
+                'fault_injection': {
+                    'pose_fix_blocked': getattr(GLOBAL_ROBOT_SUB_NODE, 'fault_block_pose_fix', False) if GLOBAL_ROBOT_SUB_NODE else False,
+                },
                 'fleet_comm': fleet_comm,
                 'tablet_camera': {
                     'connected': is_connected,
@@ -2386,8 +2472,14 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                                        allow_nan=False).encode('utf-8'))
             return
         elif parsed.path == '/api/fleet/profile_map.png':
-            src = getattr(GLOBAL_CONTROL, 'map_source', None) if GLOBAL_CONTROL else None
-            img = cv2.imread(src, cv2.IMREAD_GRAYSCALE) if src and src != 'synthetic' and os.path.isfile(src) else None
+            annotated_map = os.path.join(STATIC_DIR, "map5_arena_texture.png")
+            if not os.path.isfile(annotated_map):
+                annotated_map = os.path.join(STATIC_DIR, "map5_with_lanes_hi.png")
+            if os.path.isfile(annotated_map):
+                img = cv2.imread(annotated_map, cv2.IMREAD_COLOR)
+            else:
+                src = getattr(GLOBAL_CONTROL, 'map_source', None) if GLOBAL_CONTROL else None
+                img = cv2.imread(src, cv2.IMREAD_GRAYSCALE) if src and src != 'synthetic' and os.path.isfile(src) else None
             ok, png = cv2.imencode('.png', img) if img is not None else (False, None)
             if not ok:
                 self.send_response(404)
@@ -2627,8 +2719,28 @@ class RobotDataSubscriberNode(Node):
                 'pinky1': self.create_publisher(RosPoseFix, '/pinky1/pose_fix', pose_fix_qos),
                 'pinky2': self.create_publisher(RosPoseFix, '/pinky2/pose_fix', pose_fix_qos),
             }
+        # 2026-09-29 태블릿 좌표 → 팀11 로봇: 같은 좌표를 /pinkyN/overhead_pose(PoseStamped, map)로도 낸다.
+        # 팀11 로봇의 pose_fuser_node 는 PoseFix 를 받지 않고 이것만 받는다(overhead_tracker_node 와 같은 이름·QoS).
+        # 상부 추적기를 같은 로봇에 같이 띄워 두 출처가 한 토픽에 섞일 때만 그때만 RELAY_POSE_FIX_TO_OVERHEAD=0.
+        self.pub_overhead_pose = {}
+        if vision_ingest.pose_fix_to_overhead_enabled():
+            self.pub_overhead_pose = {
+                name: self.create_publisher(PoseStamped, f'/{name}/overhead_pose', 10)
+                for name in ('pinky1', 'pinky2')
+            }
+
+        # 2026-09-29 태블릿 좌표 → 팀11 로봇: 같은 좌표를 /pinkyN/overhead_pose(PoseStamped, map)로도 낸다.
+        # 팀11 로봇의 pose_fuser_node 는 PoseFix 를 받지 않고 이것만 받는다(overhead_tracker_node 와 같은 이름·QoS).
+        # 상부 추적기를 같은 로봇에 같이 띄워 두 출처가 한 토픽에 섞일 때만 그때만 RELAY_POSE_FIX_TO_OVERHEAD=0.
+        self.pub_overhead_pose = {}
+        if vision_ingest.pose_fix_to_overhead_enabled():
+            self.pub_overhead_pose = {
+                name: self.create_publisher(PoseStamped, f'/{name}/overhead_pose', 10)
+                for name in ('pinky1', 'pinky2')
+            }
 
         # Gazebo 디지털 트윈 실시간 위치 동기화 워커 (메인 & 서브 2대)
+        self.fault_block_pose_fix = False
         self._target_gz_r1 = None
         self._target_gz_r2 = None
         self._last_synced_r1 = (None, None, None)
@@ -2799,6 +2911,8 @@ class RobotDataSubscriberNode(Node):
         반환값: (published: bool, subscribers: Optional[int])
         """
         robot_name = norm.get('robot_name', '')
+        if getattr(self, 'fault_block_pose_fix', False):
+            return False, 0
         pub = self.pub_pose_fix.get(robot_name)
         if pub is None or RosPoseFix is None:
             return False, None
@@ -2821,6 +2935,34 @@ class RobotDataSubscriberNode(Node):
         msg.n_markers = int(norm.get('n_markers', 0))
         msg.pipeline_latency = float(norm.get('pipeline_latency', 0.0))
 
+        pub.publish(msg)
+        try:
+            subs = int(pub.get_subscription_count())
+        except Exception:
+            subs = None
+        return True, subs
+
+    def publish_overhead_pose(self, norm: dict):
+        """검증된 태블릿 좌표를 /<robot>/overhead_pose (geometry_msgs/PoseStamped, frame map) 로 낸다.
+
+        stamp 는 **중계가 받은 시각**(중계 시계)이다 — 팀11 overhead_tracker_node 와 같은 규약이고, 받는 쪽
+        pose_fuser_node 는 stamp 를 믿지 않고 수신 시각 뒤 station_latency 로 odom 에 붙인다. 태블릿 시계는
+        어긋날 수 있어(vision_ingest 머리말 82 시간 실측) 여기 싣지 않는다. 그 stamp 는 PoseFix 쪽에 그대로 있다.
+        반환값: (published: bool, subscribers: Optional[int]). 꺼져 있으면 (False, None).
+        """
+        if getattr(self, 'fault_block_pose_fix', False):
+            return False, 0
+        pub = self.pub_overhead_pose.get(norm.get('robot_name', ''))
+        if pub is None:
+            return False, None
+        msg = PoseStamped()
+        msg.header.frame_id = 'map'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.position.x = float(norm['x'])
+        msg.pose.position.y = float(norm['y'])
+        qz, qw = vision_ingest.yaw_to_quat_zw(float(norm["yaw"]))
+        msg.pose.orientation.z = qz
+        msg.pose.orientation.w = qw
         pub.publish(msg)
         try:
             subs = int(pub.get_subscription_count())

@@ -6,7 +6,7 @@
 # 로봇: 빨간 테이프(색 검출 red_line) 앞에서 1 s 정지 → 관제 통행권(시나리오 로봇 2대일 때만. 먼저 선 로봇, 같은 순간이면
 #       domain_id 작은 쪽. 1대면 허가 없이 출발) → 교차로 동작(seek: 새 빨간 선 찾아 그 앞까지) → 빨간 선 1 s 정지 →
 #       차선 주행 복귀(통행권 반납) →
-#       도착 지점 앞 벽 ArUco 마커(1→40, 2→41, 3→42) 15 cm 앞에서 도착. 같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤 장애물 정지가 도착.
+#       도착 지점 앞 벽 ArUco 마커(1→10, 2→11, 3→12) 15 cm 앞에서 도착. 같은 목적지로 먼저 도착한 로봇이 있으면 뒤 로봇은 그 뒤 장애물 정지가 도착.
 # 장애물: 초음파 10 cm 에서 정지, 치워지면 1 s 뒤 재출발. 횡단보도 3 s 정지.
 #
 # 교차로 동작 단계: seek: left|right|straight — 각도·거리 없이 새 빨간 선을 찾아 그 앞까지 (로봇 lane_agent.yaml maneuver.seek_*)
@@ -26,7 +26,8 @@ robots:                           # domain_id 는 통행 우선순위 동점 처
 arrival:
   mode: marker                    # marker: 벽 ArUco 마커 · stop_line: 흰 정지선 개수 (예전 방식)
   arrive_distance: 0.15           # 카메라 ~ 벽 마커 거리 (m) 이하면 도착
-  markers: {1: 40, 2: 41, 3: 42}  # 지점 → ArUco id (DICT_4X4_50, 한 변 4 cm — 현장 ANCHOR A1·A2·A3 · detector_yolo.yaml aruco:)
+  markers: {1: 10, 2: 11, 3: 12}  # 지점 → ArUco id (DICT_4X4_50, 한 변 4 cm · detector_yolo.yaml aruco:). 2026-10-01 40~42 → 10~12
+                                  #   (40~43 은 항공뷰 경기장 모서리, 30·31 은 핑키 머리 — tablet/vision/config/markers.yaml)
 
 directions:                       # 방향별 기본 동작 — routes 에 maneuver 가 없거나 웹에서 방향을 바꾸면 이것
   straight: [{seek: straight}]

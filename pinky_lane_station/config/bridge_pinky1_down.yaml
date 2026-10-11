@@ -28,3 +28,7 @@ topics:
   /pinky1/junction_plan:                     # 관제 → lane_agent_node (비전 미션 교차로 동작·도착 정지선 수, 늦게 떠도 받게 transient_local)
     type: pinky_lane_msgs/msg/JunctionPlan
     qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+
+  /pinky1/lane_correction:                 # 관제 → lane_agent_node (항공뷰 차선 중앙 이탈 보정 10 Hz, 낡은 건 버린다)
+    type: geometry_msgs/msg/Vector3Stamped
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}

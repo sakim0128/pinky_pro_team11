@@ -227,6 +227,13 @@ EOF
     from_domain: ${RELAY_DOMAIN}
     to_domain: ${d}
     qos: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+
+  # 10) 항공뷰 이탈 보정 (2026-10-01): 비전 코디네이터가 항공뷰 좌표로 잰 차선 중앙 이탈 (다운링크, 10 Hz, 낡은 건 버린다)
+  /pinky${n}/lane_correction:
+    type: geometry_msgs/msg/Vector3Stamped
+    from_domain: ${RELAY_DOMAIN}
+    to_domain: ${d}
+    qos: {reliability: best_effort, durability: volatile, history: keep_last, depth: 1}
 EOF
     fi
 

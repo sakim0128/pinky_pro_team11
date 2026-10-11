@@ -14,7 +14,7 @@
   <arg name="image_topic" default="/overhead/camera/image/compressed"
        description="웹캠 노드가 내는 토픽. overhead_tracker.yaml 의 image_topic 과 같아야 한다"/>
   <arg name="use_camera" default="True" description="True: overhead_camera_node(웹캠) 를 같이 띄운다"/>
-  <arg name="camera_device" default="0" description="cv2.VideoCapture 장치: 정수(/dev/video&lt;N&gt;) 또는 경로"/>
+  <arg name="camera_device" default="http://192.168.0.2:18086/processed" description="cv2.VideoCapture 장치: 정수(/dev/video&lt;N&gt;) 또는 스트림URL"/>
   <arg name="camera_width" default="1280"/>
   <arg name="camera_height" default="720"/>
   <arg name="camera_fps" default="15.0"/>

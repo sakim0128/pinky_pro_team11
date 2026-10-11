@@ -1,5 +1,9 @@
 """Read-only boundary, independent freshness, JSON and HTTP integration."""
 import ast
+import base64
+import hashlib
+import struct
+import xml.etree.ElementTree as ET
 import json
 from pathlib import Path
 import sys
@@ -133,6 +137,21 @@ def test_dashboard_uses_normalized_design_lane_overlay_and_control_status():
     assert '차선만' not in html
     assert 'qualityLabels' in script
     assert 'overhead-system-status' in html
+
+
+def test_dashboard_preserves_supplied_lane_image():
+    root = Path(__file__).resolve().parents[1] / 'pinky_fleet_station/live_static'
+    svg = ET.parse(root / 'fleet-lanes.svg').getroot()
+    image = svg.find('{http://www.w3.org/2000/svg}image')
+    uri = image.attrib['{http://www.w3.org/1999/xlink}href']
+    assert uri.startswith('data:image/png;base64,')
+    png = base64.b64decode(uri.split(',', 1)[1], validate=True)
+    assert png[:8] == b'\x89PNG\r\n\x1a\n'
+    width, height = struct.unpack('>II', png[16:24])
+    assert (width, height) == (5459, 2905)
+    assert svg.attrib['viewBox'] == f'0 0 {width} {height}'
+    # Exact user export: catches reintroduction of the outlined markers.
+    assert hashlib.sha256(png).hexdigest() == '5d90ed705f1902424a02fa2fc8960e8059a4aed18eb7372f6fbd32b8116be1d9'
 
 
 @pytest.mark.parametrize('timeout', [0, -1, float('nan'), float('inf')])

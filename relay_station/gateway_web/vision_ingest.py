@@ -64,6 +64,7 @@
 """
 
 import math
+import os
 
 # ---- 상태 -------------------------------------------------------------------
 
@@ -268,6 +269,26 @@ def validate_pose_fix(payload, allowed_robots=("pinky1", "pinky2")):
         "pipeline_latency": float(pipeline_latency),
     }
     return True, None, out
+
+
+# ── 태블릿 좌표 → 팀11 로봇 위치 토픽 (2026-09-29) ─────────────────────────────
+# 팀11 로봇(lane_robot.launch.xml)의 pose_fuser_node 는 PoseFix 를 받지 않고 /<robot>/overhead_pose
+# (geometry_msgs/PoseStamped) 만 받는다. 게이트웨이는 검증을 통과한 PoseFix 를 그 이름으로도 낸다.
+# 같은 로봇에 팀11 상부 추적기(overhead_tracker_node)를 같이 띄울 때만 끈다 — 한 토픽에 두 출처가 섞이면
+# pose_fuser 의 점프 게이트가 번갈아 거부해 위치가 멈춘다.
+POSE_FIX_TO_OVERHEAD_ENV = "RELAY_POSE_FIX_TO_OVERHEAD"
+
+
+def pose_fix_to_overhead_enabled(environ=None):
+    """기본 켜짐. 0 · false · no · off 면 끈다."""
+    env = os.environ if environ is None else environ
+    v = str(env.get(POSE_FIX_TO_OVERHEAD_ENV, "1")).strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
+def yaw_to_quat_zw(yaw):
+    """평면 yaw(rad) → 쿼터니언 (z, w). x = y = 0."""
+    return math.sin(yaw / 2.0), math.cos(yaw / 2.0)
 
 
 def validate_zone_event(payload, allowed_robots=("pinky1", "pinky2")):

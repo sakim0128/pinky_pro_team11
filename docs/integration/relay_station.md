@@ -77,18 +77,22 @@ ros2 launch pinky_fleet_agent lane_robot.launch.xml robot_name:=pinky1 domain_id
 
 ## 영상 공유
 
-중계는 카메라 소스를 모아 브라우저에 다시 내보낸다(MJPEG). 폰·태블릿의 카메라 앱, 로컬 웹캠, 로봇 카메라 토픽(`/pinkyN/camera/image_raw/compressed`)이 소스가 된다.
+중계는 카메라 소스를 모아 브라우저에 다시 내보낸다(MJPEG). 천장 폰 카메라 앱, 로컬 웹캠, 로봇 온보드 카메라 토픽(`/pinkyN/camera/image/compressed`)이 소스가 된다.
 
 | | |
 | :-- | :-- |
-| `GET /api/sources` | 소스 목록(id · 종류 · 최근 프레임 시각 · 수신 fps) — 로봇 소스 id 는 `pinky1` · `pinky2` |
-| `GET /video_feed?src=<id>` | 그 소스의 MJPEG 스트림 (`/video_feed` 만 주면 기본 소스) |
-| `GET /robot_camera_feed?id=pinky1` | 로봇 온보드 카메라 |
+| `GET /api/sources` | 소스 목록(id · 종류 · 최근 프레임 시각 · 수신 fps) — 로봇 소스 id 는 `pinky1` · `pinky2`, 항공뷰 폰은 `phone` |
+| `GET /video_feed?src=<id>` | 그 소스의 MJPEG 스트림 (`/video_feed?src=phone` 은 폰 항공뷰, `relay-cam` 은 로컬 웹캠) |
+| `GET /robot_camera_feed?id=pinky1` | 로봇 온보드 카메라 (`pinky1`, `pinky2`) |
+| `GET /fleet_control_v2.html` | 관제 콘솔 — 메인 카메라 영역에 폰 항공뷰(`src=phone`)와 로봇 카메라 미니 그리드를 배치 |
 | `GET /` (`index.html`) | 멀티뷰 — 소스 타일을 사람이 연다(기본은 전부 닫힘) |
-| 소스 설정 | `relay_station/configs/video_sources.json` (당겨올 URL, 후보 주소, 발견 규칙) · `MCV_HOST_CAMERA_URL` |
+| 소스 설정 | `relay_station/configs/video_sources.json` (당겨올 URL, 테일넷 IP 발견 규칙) · `VIDEO_SOURCES_CONFIG` |
 
-폰 카메라 앱은 이 저장소에 없다(원 저장소 `packaging/android-app`, APK 는 손으로 전달). 앱은 `:18086` 에서 MJPEG 를 내고
-중계가 당겨온다 — 폰과 중계 PC 가 **같은 네트워크**에 있어야 한다.
+### 항공뷰 폰 카메라 앱 (Phone #2)
+* 천장 거치형 폰 카메라 앱은 포트 `:18086`에서 MJPEG를 제공하며, 중계가 HTTP Pull 방식으로 당겨온다.
+* **현장 실측 주소**: 테일스케일 고정 IP `100.108.170.35` / 현장 LAN 직통 IP `192.168.0.2:18086/processed`.
+* `video_sources.json`의 `phone` 항목에 등록되어 있으며, 테일넷 통신을 통해 LAN IP가 변경되어도 자동으로 찾아낸다.
+
 
 ## 시험
 
