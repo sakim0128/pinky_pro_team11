@@ -18,6 +18,8 @@ pinky_lane_agent:
     junction_zone: 0.25
     red_line_zone: 0.60         # 빨간 선(카메라) 트리거는 경로상 다음 분기 노드가 이 거리 안일 때만
     red_line_min_gap: 0.05      # lane_only: 빨간 선 정지 뒤 이만큼(m) 달린 다음의 새 선만 다시 세운다
+    exit_red_line_stop: false   # 비전 미션: 교차로를 나가는 빨간 선에서 서지 않는다 — seek 끝 속도(0.05)를 이어 차선 주행(v_max)으로.
+                                # true = 예전처럼 1 s 정지. 계획 없는 테스트 주행은 빨간 선마다 그대로 선다
     junction_wait_clearance: true # JUNCTION_STOP 에서 관제 허가(clear_until 이 분기 노드를 넘음) 를 기다린다
     lane_only: false             # true: 경로·위치 없이 카메라 차선 중앙만 (lane_only.launch.xml 이 덮는다)
     lane_lost_coast: 0.6

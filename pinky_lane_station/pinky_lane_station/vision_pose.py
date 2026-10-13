@@ -186,6 +186,7 @@ class PoseTracker:
         self._free_pose = None
         self._state = None
         self._stage = ''
+        self._seek_pass = False           # 이번 교차로 동작이 seek(새 빨간 선 찾기) 인가 — 나가는 선에서 서지 않을 때 맞출 근거
         self.t = t
 
     # ------------------------------------------------ 입력
@@ -220,6 +221,8 @@ class PoseTracker:
             self.t = t
         prev, self._state = self._state, st
         stage_prev, self._stage = self._stage, str(edge_id or '')
+        if st == DRIVE_JUNCTION_PASS and '빨간 선 찾기' in str(reason):
+            self._seek_pass = True
         if st == prev:
             return
         r = self.route
@@ -244,10 +247,16 @@ class PoseTracker:
         elif st == DRIVE_ARRIVED and '마커' in str(reason):
             self._snap(r.length - r.params.marker_stop_back, f'도착 벽 마커 ({r.goal})')
         if self.mode == 'free' and st not in (DRIVE_JUNCTION_PASS, DRIVE_JUNCTION_STOP) and prev == DRIVE_JUNCTION_PASS:
-            # 나가는 선에서 서지 않고 바로 차선 주행 — 지금 2D 자세를 경로 위로 옮긴다
-            fx, fy, _ = self.pose_tuple()
-            self.s = r.project(fx, fy, s_min=r.s_entry)
-            self.mode = 'route'
+            if self._seek_pass:
+                # seek 은 나가는 빨간 선 앞(정지하던 자리)에서 끝난다 — 서지 않고 지나가도 그 자리로 맞춘다
+                self._snap(r.s_exit - r.params.red_stop_back, '교차로 나가는 빨간 선 (seek 끝)')
+            else:
+                # 고정 동작 뒤 바로 차선 주행 — 지금 2D 자세를 경로 위로 옮긴다
+                fx, fy, _ = self.pose_tuple()
+                self.s = r.project(fx, fy, s_min=r.s_entry)
+                self.mode = 'route'
+        if st not in (DRIVE_JUNCTION_PASS, DRIVE_JUNCTION_STOP):
+            self._seek_pass = False
 
     def _snap(self, s, label):
         self.s = max(0.0, min(self.route.length, s))

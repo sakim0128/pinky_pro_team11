@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pinky_fleet_agent.drive_fsm import CRUISE, JUNCTION_PASS, JUNCTION_STOP, RED_LINE_STOP  # noqa: E402
-from pinky_fleet_agent.lane_control import QUALITY_BOTH  # noqa: E402
+from pinky_fleet_agent.lane_control import QUALITY_BOTH, QUALITY_SINGLE  # noqa: E402
 from pinky_fleet_agent.lane_driver import CMD_CLEARANCE, CMD_START, DriverParams, LaneDriver  # noqa: E402
 from pinky_fleet_agent.maneuver import ManeuverExecutor, ManeuverParams, RedLineSeeker, parse_steps  # noqa: E402
 from pinky_fleet_agent.sim_red_lines import (  # noqa: E402
@@ -143,9 +143,12 @@ def test_executor_runs_seek_step_and_reports_turn_sign():
 class SeekSim:
     """lane_only 드라이버 + seek 계획 + 빨간 선 모형. 입구 선은 red_x 에서 정지 행에 온다."""
 
-    def __init__(self, direction, red_x=0.5, lines=None):
+    def __init__(self, direction, red_x=0.5, lines=None, exit_red_line_stop=True, quality=QUALITY_BOTH):
         p = DriverParams()
         p.lane_only = True
+        p.exit_red_line_stop = exit_red_line_stop
+        p.fsm.search_on_single = False                               # 현장 lane_agent.yaml 과 같게
+        self.quality = quality
         self.d = LaneDriver(p)
         self.d.set_plan(3, [('seek', direction)], 1)
         self.lines = junction_red_lines(red_x) if lines is None else lines
@@ -163,7 +166,7 @@ class SeekSim:
                 self.d.set_command(CMD_CLEARANCE, self.t, route_seq=3, clear_until=self.clear)
             if k % 3 == 0:
                 blobs = red_blobs((self.x, self.y, self.yaw), self.lines)
-                self.d.set_lane_path(self.t, self.t, QUALITY_BOTH, 0.0, False,
+                self.d.set_lane_path(self.t, self.t, self.quality, 0.0, False,
                                      red_line=red_line_detected(blobs), red_obs=blobs)
             self.d.update_us(1.0)
             self.d.update_odom(self.t, self.x, self.y, self.yaw)
@@ -208,3 +211,55 @@ def test_driver_seek_failure_stays_stopped_in_junction_with_reason():
     out = s.run(40)
     assert out.state == JUNCTION_PASS and out.v == 0.0 and out.omega == 0.0
     assert '못 찾음' in out.reason and not s.d._junction_passed
+
+
+@pytest.mark.parametrize('direction', [1.0, -1.0, 0.0])
+def test_driver_exit_line_no_stop_keeps_seek_speed_into_cruise(direction):
+    s = SeekSim(direction, exit_red_line_stop=False)
+    s.run(12)
+    s.clear = 1
+    s.run(40)
+    states = s.states()
+    assert RED_LINE_STOP not in states
+    i_pass = [i for i, st in enumerate(states) if st == JUNCTION_PASS]
+    i_end = i_pass[-1]
+    assert states[i_end + 1] == CRUISE and states[-1] == CRUISE and s.d._junction_passed
+    seek_v = ManeuverParams().seek_speed
+    vs = [o.v for _, o in s.log[i_end - 2:]]
+    assert min(vs[:30]) >= seek_v - 1e-9                           # 선 앞에서도 0 으로 떨어지지 않는다
+    v_max = s.d.p.control.v_max
+    k_max = next(k for k, v in enumerate(vs) if v >= v_max - 1e-6)
+    assert k_max * DT <= (v_max - seek_v) / s.d.p.control.accel_slew + 0.2   # seek 속도에서 바로 v_max 로 가속
+    assert s.d.mission_stage == 'vision:after_junction'
+
+
+def test_driver_exit_no_stop_with_single_lane_goes_cruise_not_search():
+    s = SeekSim(1.0, exit_red_line_stop=False, quality=QUALITY_SINGLE)
+    s.run(12)
+    s.clear = 1
+    s.run(40)
+    states = s.states()
+    i_end = [i for i, st in enumerate(states) if st == JUNCTION_PASS][-1]
+    assert states[i_end + 1] == CRUISE and s.log[i_end + 1][1].v > 0.0
+
+
+def test_lane_agent_yaml_exit_red_line_stop_off_but_test_run_still_stops():
+    import yaml
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cfg = yaml.safe_load(open(os.path.join(here, 'params', 'lane_agent.yaml'), encoding='utf-8'))
+    params = cfg['pinky_lane_agent']['ros__parameters']
+    assert params['exit_red_line_stop'] is False and params['fsm']['red_line_stop'] is True
+    assert params['maneuver']['seek_speed'] == pytest.approx(0.05)
+    # 계획 없는 테스트 주행: 빨간 선마다 그대로 선다
+    p = DriverParams()
+    p.lane_only = True
+    p.exit_red_line_stop = False
+    d = LaneDriver(p)
+    d.set_command(CMD_START, 0.0)
+    t, states = 0.0, []
+    for i in range(120):
+        t += DT
+        d.set_command(CMD_CLEARANCE, t)
+        d.set_lane_path(t, t, QUALITY_BOTH, 0.0, False, red_line=20 <= i < 30)
+        states.append(d.tick(t, 0.0, 0.0, 0.0).state)
+    assert RED_LINE_STOP in states
